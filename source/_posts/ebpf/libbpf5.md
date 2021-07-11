@@ -1,5 +1,5 @@
 ---
-title: 用ebpf编写XDP网络过滤器 译
+title: ebpf 扩展篇-trace 的来源
 date: 2021-06-14 19:44:19
 categories: 
 	- [eBPF]
@@ -9,29 +9,71 @@ tags:
 author: Jony
 ---
 
-# 用ebpf编写XDP网络过滤器 
-原文:[https://duo.com/labs/tech-notes/writing-an-xdp-network-filter-with-ebpf](https://duo.com/labs/tech-notes/writing-an-xdp-network-filter-with-ebpf)
-
-在2019年Kubecon大会上，有很多很棒的演讲提到eBPF是一种非常强大的工具，用于监控、创建审计跟踪，甚至高性能网络。Cilium的一个演讲描述了eBPF和XDP如何将Kubernetes从iptables中解放出来，这个演讲非常有趣，因为我们当时正在探索Kubernetes和Istio。仅仅因为这听起来像是一种非常棒的技术，我们便花了一些侧循环去提升我们对于eBPF如何工作以及它可以在何处使用的理解。
-在本文中，我将更多地关注XDP，而不是通用的eBPF。与可以监视系统的大多数eBPF使用相比，使用XDP实际上可以在包进入系统的早期时刻修改原始网络流量，甚至在内核有机会处理它们之前。支持“Offloaded”XDP的网卡甚至可以在网卡硬件本身上运行XDP应用程序并处理数据包，而CPU甚至看不到它!太酷了!
 
 
-XDP是eXpress Data Path的缩写，它在Linux内核中提供了一个高性能的数据路径，用于在网络数据包到达网卡时进行处理。本质上，
-您可以将XDP程序附加到一个网络接口上，然后每当在该接口上看到一个新包时，这些程序就会得到回调。就是这样。真正的简单。
+在开始之前得学习一下 tracepoint。在定义 tracepoint  的时候常常会觉得参数和 tracepoint 的 point 哪里来的。所以需要了解一下 tracepoint 原理
 
-# 案例
-从小处着手总是好的。对于这个实验，我想从一个可以改变一些东西的程序开始，但是要小，容易测试和可视化。为此，我选择了将UDP数据包的dest端口从7999更改为7998的简单问题。
+内核跟踪历史：
 
-这很容易可视化和测试。打开3台终端，分别执行如下2条命令:
+|        年份      |         技术         |
+|-----------------|----------------------|
+|      2004       |   kprobes/kretprobes |
+|  2005           |     systemtap        |
+|   2008          |       ftrace         |
+| 2009            |     perf_events      |
+|   2009          |    tracepoints       |
+|          2012   |      uprobes         |
+| 2015 ~ 至今      |  eBPF (Linux 4.1+)   |
 
-`nc -kul 127.0.0.1 7999`
 
-`nc -kul 127.0.0.1 7998`
+最初的技术只有 `kprobes/kretprobes` 后期的工具和技术基本都是在这个基础之上奠基而来的。
 
-这些终端就是我们的监听过程。我们正在使用nc netcat打开一个套接字，侦听udp数据包进入端口7999和7998的127.0.0.1地址。
-参数-k只是告诉netcat在收到一个数据包后继续监听，这样它就可以从其他客户端接收更多的数据包。
+  kprobes 主要用来对内核进行调试追踪, 属于比较轻量级的机制, 本质上是在指定的探测点(比如函数的某行, 函数的入口地址
+  和出口地址, 或者内核的指定地址处)插入一组处理程序. 内核执行到这组处理程序的时候就可以获取到当前正在执行的上下文信息, 
+  比如当前的函数名, 函数处理的参数以及函数的返回值, 也可以获取到寄存器甚至全局数据结构的信息.
 
-在第三个终端中，运行:
+  kretprobes 在 kprobes 的机制上实现, 主要用于返回点(比如内核函数
+  或者系统调用的返回值)的探测以及函数执行耗时的计算.
 
-然后在下一行中，键入一些文本，后跟 `<Enter>`。您应该会看到在第一个终端，监听端口7999中回响的文本。一旦我们将XDP应用程序安装到位，
-    连接到lo环回设备，数据包将在路由中被修改，并转移到监听端口7998的另一个终端。
+  uprobes 机制类似 kprobes, 不过主要用户空间的追踪调试. 另外 uprobes 应该主要是由 systemtap 实
+  现并完善. 更多的使用示例见 linux-ftrace-uprobe
+
+以上摘要来源：[Linux 系统动态追踪技术介绍](https://blog.arstercz.com/introduction_to_linux_dynamic_tracing/)
+
+## perf_event
+perf_event 随内核的主版本进行发布, 一直是 linux 用户的主要追踪工具, 通常由 perf 命令提供服务. perf 可以将追踪的数据保存起来(默认为 perf.data) 方便以后分析, 这类似 tcpdump 的机制, 在分析存在延迟或者上下文切换的问题时尤为有用. 
+
+## ftrace
+ftrace(function trace) 则更像是一个完整的追踪框架, 可以支持对 tracepoint, kprobes, uprobes 机制的处理, 
+同时还提供了事件追踪(event tracing, 类似 tracepoint 和 function trace 的组合) , 追踪过滤, 事件的计数和计时, 
+记录函数执行流程等功能. 我们常用的 perf-tools 工具集就是依赖 ftrace 机制而实现的.
+
+![ftrace-theory](/jony.github.io/images/ebpf/ftrace-theory.png)
+
+kprobes 相当于图中的 A, 处理程序相当于图中的 B, tracepoint 则相当于图中的 A 和 B, ftrace 则相当于在 A, B 的基础上增加了 C 和 D 的功能. 
+
+所以总结一下 tracepoint 就是为内核性能检测、追踪出现的技术。一开始是 probe 技术后来逐渐演化成各种工具 tracepoint 只是其中一种。
+
+
+# 内核 tracepoints
+
+每个 tracepoints 都提供了一个钩子来调用 probe 函数。也就是说每次用户执行一个函数的时候只要 tracepoint 打开都会调用用户提供的 probe
+函数。
+
+如果要使用或者声明一个 tracepoint 的，就需要理解 tracepoint 的规范，规范格式如下：
+
+```c
+#include <linux/tracepoint.h>
+DECLARE_TRACE(tracepoint_name,TPPROTO(trace_function_prototype),TPARGS(trace_function_args));
+```
+
+tracepoint_name：新定义的 tracepoint 的名字
+trace_function_prototype：用户定义的 probe 函数必须与该属性一致
+trace_function_args：用户定义的 probe 函数的参数列表必须与该属性一致
+
+后面单独搞一个章节学些下 tracepoints 历史到实现
+
+上面列举那么多信息的意思就是，一开始认为 sk_buff 从 ingress 和 egress 将内容转存到用户空间，现在看来完全是多想了。
+只需要 trace 下内核中 `kfree_skb` 和 `consume_skb` 两个函数即可。
+参考:[/include/trace/events/skb.h](https://elixir.bootlin.com/linux/v5.11.2/source/include/trace/events/skb.h#L37)
+

@@ -62,7 +62,8 @@ int handle_tp(void *ctx)  // 因为不需要分析参数所以这里就直接使
 大致调用编译得方式如下：
 
 1. 因为程序依赖 libbpf 所以先将 libbpf 编译为库文件
-```c
+
+```bash
 mkdir -p .output
 
 mkdir -p .output/libbpf
@@ -73,6 +74,77 @@ make -C /home/vagrant/libbpf-bootstrap/libbpf/src BUILD_STATIC_ONLY=1           
             install
 ```
 
+libbpf 安装完成后就可以编译 bpf 程序了
+
+```bash
+git pull && clang -g -O2 \
+-target bpf \
+-D__TARGET_ARCH_x86 \
+-I.output \
+-I../../libbpf/include/uapi \
+-I../../vmlinux/ \
+-idirafter /usr/local/include \
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \
+-idirafter /usr/include/x86_64-linux-gnu \
+-idirafter /usr/include \
+-c trace_consume_skb.bpf.c \
+-o .output/trace_consume_skb.bpf.o
+```
+
+命令参数还是比较容易理解的：目标 bpf 程序，架构：arch x86 架构，连接系统库目录
+
+然后执行下面命令，将目标程序进一步处理：
+
+```bash
+# 裁剪
+llvm-strip -g .output/trace_consume_skb.bpf.o
+```
+
+通过 bpftool skel 工具将代码提取生成文件:
+```bash
+/home/vagrant/libbpf-bootstrap/tools/bpftool gen skeleton .output/trace_consume_skb.bpf.o > .output/trace_consume_skb.skel.h
+```
+
+编译用户态程序：
+```bash
+# 编译用户程序
+cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c trace_consume_skb.c -o .output/trace_consume_skb.o
+# 连接目标文件组成可执行文件
+cc -g -Wall .output/trace_consume_skb.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o trace_consume_skb
+```
+
+下面就需要着实考虑下 sk_buff 转存到用户空间的实现了。直接看下 trace 的定义：
+
+```c
+...
+TRACE_EVENT(consume_skb,
+
+  TP_PROTO(struct sk_buff *skb),
+
+  TP_ARGS(skb),
+
+  TP_STRUCT__entry(
+    __field(  void *, skbaddr )
+  ),
+
+  TP_fast_assign(
+    __entry->skbaddr = skb;
+  ),
+
+  TP_printk("skbaddr=%p", __entry->skbaddr)
+);
+...
+```
+
+consume_skb 的功能就是 sk_buff 正常消费的后进行释放的一个函数。所以我们在上面对其进行了 attach。通过 `TP_PROTO`
+属性确定参数类型。
+
+
+
+
+# 参考文档
+[Linux 系统动态追踪技术介绍](https://blog.arstercz.com/introduction_to_linux_dynamic_tracing/)
+  
 
 
 
