@@ -1,11 +1,11 @@
 ---
-title: LVS  学习和思考
+title: LVS  学习： 学习和思考
 date: 2021-08-05 14:55:53
 categories: 
 	- [eBPF]
 tags:
   - ebpf
-  - cilium
+  - lvs
 author: Jony
 ---
 
