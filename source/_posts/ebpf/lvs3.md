@@ -169,4 +169,20 @@ node1 ]# ipvsadm -a -t node1:80 -r node3 -m -w 5
 
 看看实际添加操作，除了初始化外，可能还好奇用户空间的接口，可以在这里查看 [ip_vs_ctl.c](https://elixir.bootlin.com/linux/v5.11.2/source/net/netfilter/ipvs/ip_vs_ctl.c#L3896), by 让内核不在神秘
 
+**查看 [NF_HOOK列表](https://elixir.bootlin.com/linux/v5.11.2/C/ident/NF_HOOK)**
+
+# 如何把 IPVS 的方法注册到 netfilter 的 HOOK 中
+
+上篇其实以及提到了，`static const struct nf_hook_ops ip_vs_ops4[]`  就是注册 HOOK。
+
+ipvs 注册的点只有三个:NF_INET_LOCAL_IN、NF_INET_LOCAL_OUT、NF_INET_FORWARD
+
+但是注册的回调方法却有多个：
+NF_INET_LOCAL_IN：     ip_vs_reply4、ip_vs_remote_request4
+NF_INET_LOCAL_OUT：    ip_vs_local_reply4、ip_vs_local_request4
+NF_INET_FORWARD：      ip_vs_forward_icmp、ip_vs_reply4
+
+所以只需要剖析上面几个方法基本就可以完成整个 IPVS 的核心代码的理解：
+
+
 
