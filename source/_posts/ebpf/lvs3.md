@@ -86,12 +86,16 @@ struct nf_hook_state {
 - **okfn**：如果 hook 执行成功且没有异常，那么就会调用这个方法处理后续流程。
 
 上一篇文章指出了每个 hook 对应的函数。
-NF_INET_LOCAL_IN      ->    ip_vs_reply4
-NF_INET_LOCAL_IN      ->    ip_vs_remote_request4
-NF_INET_LOCAL_OUT     ->    ip_vs_local_reply4
-NF_INET_LOCAL_OUT     ->    ip_vs_local_request4
-NF_INET_FORWARD       ->    ip_vs_forward_icmp
-NF_INET_FORWARD       ->    ip_vs_reply4
+NF_INET_LOCAL_IN      ->    ip_vs_reply4                NF_IP_PRI_NAT_SRC - 2   
+NF_INET_LOCAL_IN      ->    ip_vs_remote_request4       NF_IP_PRI_NAT_SRC - 1
+NF_INET_LOCAL_OUT     ->    ip_vs_local_reply4          NF_IP_PRI_NAT_SRC + 1
+NF_INET_LOCAL_OUT     ->    ip_vs_local_request4        NF_IP_PRI_NAT_DST + 2
+NF_INET_FORWARD       ->    ip_vs_forward_icmp          99
+NF_INET_FORWARD       ->    ip_vs_reply4                100
+
+根据优先级字段，越小的优先级越高。所以触发的顺序：`ip_vs_reply4` > `ip_vs_remote_request4` > `ip_vs_local_reply4` > `ip_vs_forward_icmp` > `ip_vs_reply4`
+ip_vs_reply4、ip_vs_local_reply4 只用于 NAT 修改 source
+ip_vs_remote_request4 用于 DR、NAT（修改 Dest）、Tunnel 修改包数据
 
 
 查看 `ipvs` 大部分的数据结构：
@@ -131,8 +135,7 @@ struct ip_vs_conn_param {
   __u8        pe_data_len;  // 持久化长度
 };
 ```
-`[ip_vs_conn](https://elixir.bootlin.com/linux/v5.11.2/source/include/net/ip_vs.h#L502)`：连接对象，主要为了维护相同的客户端与真实服务器之间的连接关系。
-这是由于 TCP 协议是面向连接的，所以同一个的客户端每次选择真实服务器的时候必须保存一致，否则会出现连接中断的情况，而连接对象就是为了维护这种关系。
+`[ip_vs_conn](https://elixir.bootlin.com/linux/v5.11.2/source/include/net/ip_vs.h#L502)`：连接对象，主要为了维护相同的客户端与真实服务器之间的连接关系。这是由于 TCP 协议是面向连接的，所以同一个的客户端每次选择真实服务器的时候必须保存一致，否则会出现连接中断的情况，而连接对象就是为了维护这种关系。
 `[ip_vs_service](https://elixir.bootlin.com/linux/v5.11.2/source/include/net/ip_vs.h#L612)`：服务配置对象，主要用于保存 LVS 的配置信息，如 支持的 传输层协议、虚拟IP 和 端口 等。
 `[ip_vs_dest](https://elixir.bootlin.com/linux/v5.11.2/source/include/net/ip_vs.h#L654)`：真实服务器对象，主要用于保存真实服务器 (Real-Server) 的配置，如 真实IP、端口 和 权重 等。
 `[ip_vs_scheduler](https://elixir.bootlin.com/linux/v5.11.2/source/include/net/ip_vs.h#L696)`：调度器对象，主要通过使用不同的调度算法来选择合适的真实服务器对象。
@@ -169,20 +172,105 @@ node1 ]# ipvsadm -a -t node1:80 -r node3 -m -w 5
 
 看看实际添加操作，除了初始化外，可能还好奇用户空间的接口，可以在这里查看 [ip_vs_ctl.c](https://elixir.bootlin.com/linux/v5.11.2/source/net/netfilter/ipvs/ip_vs_ctl.c#L3896), by 让内核不在神秘
 
-**查看 [NF_HOOK列表](https://elixir.bootlin.com/linux/v5.11.2/C/ident/NF_HOOK)**
-
-# 如何把 IPVS 的方法注册到 netfilter 的 HOOK 中
-
-上篇其实以及提到了，`static const struct nf_hook_ops ip_vs_ops4[]`  就是注册 HOOK。
-
-ipvs 注册的点只有三个:NF_INET_LOCAL_IN、NF_INET_LOCAL_OUT、NF_INET_FORWARD
-
-但是注册的回调方法却有多个：
-NF_INET_LOCAL_IN：     ip_vs_reply4、ip_vs_remote_request4
-NF_INET_LOCAL_OUT：    ip_vs_local_reply4、ip_vs_local_request4
-NF_INET_FORWARD：      ip_vs_forward_icmp、ip_vs_reply4
-
-所以只需要剖析上面几个方法基本就可以完成整个 IPVS 的核心代码的理解：
+2021年8月19日
+思考：今天在考虑网络流量包进来以后是如何触发 `NF_HOOK` 方法的，然后分别触发每个 `ipvs` 的 hook，例如： `[ip_rcv](https://elixir.bootlin.com/linux/v5.11.2/source/net/ipv4/ip_input.c#L530)` 触发 `NF_INET_PRE_ROUTING` 方法。
+总结：思考太过于纠结底层，倒是错失了很多有用的信息，已经不止一次这样思考。根据 《Linux 内核网络协议》 书中就可以解开这个问题。因为网络数据包都是经过网卡 DMA 的形式将
+数据包放置到指定内存的位置，然后通过引脚触发 CPU 中断，中断后执行上半段函数，然后根据情况在 `硬/软中断` 中执行下半段函数。这一段就跳过吧。看了没什么意思。
 
 
 
+接着上面的分析。
+
+> 根据优先级字段，越小的优先级越高。所以触发的顺序：`ip_vs_reply4` > `ip_vs_remote_request4` > `ip_vs_local_reply4` > `ip_vs_forward_icmp` > `ip_vs_reply4`
+
+`ip_vs_reply4` 被注册到 `NF_INET_LOCAL_IN` HOOK，`NF_INET_LOCAL_IN` 执行 `LOCAL_IN` HOOK 点。
+
+```c
+static unsigned int
+ip_vs_reply4(void *priv, struct sk_buff *skb,
+       const struct nf_hook_state *state)
+{
+  return ip_vs_out(state->net->ipvs, state->hook, skb, AF_INET);
+}
+
+static inline int
+nf_hook_entry_hookfn(const struct nf_hook_entry *entry, struct sk_buff *skb,
+         struct nf_hook_state *state)
+{
+  return entry->hook(entry->priv, skb, state);
+}
+```
+
+触发调用链路：`ip_rcv` -> `NF_HOOK(NFPROTO_IPV4, NF_INET_PRE_ROUTING,...)` -> `nf_hook` -> `nf_hook_slow` -> `nf_hook_entry_hookfn`
+
+最终 `entry->hook(entry->priv, skb, state)` 调用到 `ip_vs_reply4`，
+priv: 好像没什么用
+skb: 就是数据包
+state: 见下面代码，好像是把当前连接的所有上下文都保存在里面了
+
+```c
+static inline void nf_hook_state_init(struct nf_hook_state *p,
+              unsigned int hook,
+              u_int8_t pf,
+              struct net_device *indev,
+              struct net_device *outdev,
+              struct sock *sk,
+              struct net *net,
+              int (*okfn)(struct net *, struct sock *, struct sk_buff *))
+{
+  p->hook = hook;
+  p->pf = pf;
+  p->in = indev;
+  p->out = outdev;
+  p->sk = sk;
+  p->net = net;
+  p->okfn = okfn;
+}
+
+```
+
+调用：`[ip_vs_out](https://elixir.bootlin.com/linux/v5.11.2/source/net/netfilter/ipvs/ip_vs_core.c#L1345)` 函数。
+
+```c
+static unsigned int
+ip_vs_out(struct netns_ipvs *ipvs, unsigned int hooknum, struct sk_buff *skb, int af)
+{
+  ...
+  // 检查是否存在现有的连接
+  cp = INDIRECT_CALL_1(pp->conn_out_get, ip_vs_conn_out_get_proto,
+           ipvs, af, skb, &iph);
+  // 存在直接调用当前连接
+  if (likely(cp))
+    return handle_response(af, skb, pd, cp, &iph, hooknum);
+  ...
+}
+```
+
+在阅读源码时从参考文档上看已经有很多不一样的概念和流程了。所以 [LVS原理与实现 - 实现篇
+](https://github.com/liexusong/linux-source-code-analyze/blob/master/lvs-principle-and-source-analysis-part2.md) 可以做个参考，了解一下入门及其思路。
+整体流程看下来核心的点：
+1. 接收报文、转发报文
+2. 连接的追踪、销毁
+3. 负载均衡算法的调度
+
+在查看 NF_HOOK 返回值的时候经常看见 `NF_STOLEN` 返回值，一直不了解什么意思，索性查了一下相关资料：
+
+> NF_INET_PRE_ROUTING(位置1)：可以截获接收的所有报文，包括目的地址是自己的报文和需要转发的报文。
+> NF_INET_LOCAL_IN(位置2)：可以截获目的地址是自己的报文。
+> NF_INET_FORWARD(位置3)：可以截获所有转发的报文。
+> NF_INET_LOCAL_OUT(位置4)：可以截获自身发出的所有报文。
+> NF_INET_POST_ROUTING(位置5)：可以截获发送的所有报文，包括自身发出的报文和转发的报文。
+
+> #define NF_DROP 0 // 丢弃该报文，不再继续传输
+> #define NF_ACCEPT 1 // 继续正常传输报文
+> #define NF_STOLEN 2 //Netfilter 模块接管该报文，不再继续传输
+> #define NF_QUEUE 3 // 对该数据报进行排队，通常用于将数据报提交给用户空间进程处理
+> #define NF_REPEAT 4 // 再次调用该钩子函数
+> #define NF_STOP 5 // 继续正常传输报文
+
+**NF_ACCEPT表示报文通过了某个钩子函数的处理，下一个钩子函数可以接着处理了。**
+**NF_STOP表示报文通过了某个钩子函数的处理，后面的钩子函数你们就不要处理了**
+
+来源:[Netfilter机制](https://www.cnblogs.com/hadis-yuki/p/5529737.html)
+
+经跟着看下一章。
