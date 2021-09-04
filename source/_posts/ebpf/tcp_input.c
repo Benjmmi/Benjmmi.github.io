@@ -4647,7 +4647,7 @@ static bool tcp_ooo_try_coalesce(struct sock *sk,
 /* tcp_drop with reason
  */
 static void tcp_drop(struct sock *sk, struct sk_buff *skb,
-		 enum tcp_drop_reason func, char *reason)
+		 int field, char *reason)
 {
 	trace_tcp_drop(sk, skb, func, reason);
 	sk_drops_add(sk, skb);
@@ -4681,7 +4681,7 @@ static void tcp_ofo_queue(struct sock *sk)
 		rb_erase(&skb->rbnode, &tp->out_of_order_queue);
 
 		if (unlikely(!after(TCP_SKB_CB(skb)->end_seq, tp->rcv_nxt))) {
-			tcp_drop(sk, skb, LINUX_MIB_NUM, "Tcp queue error");
+			tcp_drop(sk, skb, LINUX_MIB_TCPOFOQUEUE, "Tcp queue error");
 			continue;
 		}
 
@@ -5282,7 +5282,7 @@ static bool tcp_prune_ofo_queue(struct sock *sk)
 		prev = rb_prev(node);
 		rb_erase(node, &tp->out_of_order_queue);
 		goal -= rb_to_skb(node)->truesize;
-		tcp_drop(sk, rb_to_skb(node), LINUX_MIB_OFOPRUNED, "Tcp drop high seq");
+		tcp_drop(sk, rb_to_skb(node), LINUX_MIB_OFOPRUNED, "Tcp drop out-of-order queue");
 		if (!prev || goal <= 0) {
 			sk_mem_reclaim(sk);
 			if (atomic_read(&sk->sk_rmem_alloc) <= sk->sk_rcvbuf &&
@@ -5641,7 +5641,7 @@ static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 		} else if (tcp_reset_check(sk, skb)) {
 			tcp_reset(sk, skb);
 		}
-		tcp_drop(sk, skb, LINUX_MIB_PAWSESTABREJECTED, "Tcp PAWS seq");
+		tcp_drop(sk, skb, LINUX_MIB_PAWSESTABREJECTED, "Tcp check sequence number");
 		goto end;
 	}
 
@@ -5687,7 +5687,7 @@ static bool tcp_validate_incoming(struct sock *sk, struct sk_buff *skb,
 				tcp_fastopen_active_disable(sk);
 			tcp_send_challenge_ack(sk, skb);
 		}
-		tcp_drop(sk, skb, LINUX_MIB_NUM, "Tcp reset or challenge ack ");
+		tcp_drop(sk, skb, LINUX_MIB_TCPCHALLENGEACK, "Tcp check RST bit ");
 		goto end;
 	}
 
@@ -5702,7 +5702,7 @@ syn_challenge:
 			TCP_INC_STATS(sock_net(sk), TCP_MIB_INERRS);
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPSYNCHALLENGE);
 		tcp_send_challenge_ack(sk, skb);
-		tcp_drop(sk, skb, LINUX_MIB_TCPSYNCHALLENGE, "Tcp syn challenge");
+		tcp_drop(sk, skb, LINUX_MIB_TCPSYNCHALLENGE, "Tcp check for a SYN");
 		goto end;
 	}
 
@@ -5828,7 +5828,7 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 				return;
 			} else { /* Header too small */
 				TCP_INC_STATS(sock_net(sk), TCP_MIB_INERRS);
-				tcp_drop(sk, skb, TCP_MIB_INERRS, "Tcp header to small");
+				tcp_drop(sk, skb, TCP_MIB_INERRS, "Tcp header too small");
 				goto end;
 			}
 		} else {
@@ -5884,7 +5884,7 @@ slow_path:
 		goto csum_error;
 
 	if (!th->ack && !th->rst && !th->syn) {
-		tcp_drop(sk, skb, LINUX_MIB_NUM, "Tcp state not in ack|rst|syn");
+		tcp_drop(sk, skb, LINUX_MIB_TCPSLOWSTARTRETRANS, "Tcp state not in ack|rst|syn");
 		goto end;
 	}
 
@@ -5897,7 +5897,7 @@ slow_path:
 
 step5:
 	if (tcp_ack(sk, skb, FLAG_SLOWPATH | FLAG_UPDATE_TS_RECENT) < 0) {
-		tcp_drop(sk, skb, LINUX_MIB_NUM, "Tcp ack failed");
+		tcp_drop(sk, skb, LINUX_MIB_TCPSACKDISCARD, "Tcp ack have not sent yet");
 		goto end;
 	}
 
@@ -6209,7 +6209,7 @@ static int tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
 			tcp_enter_quickack_mode(sk, TCP_MAX_QUICKACKS);
 			inet_csk_reset_xmit_timer(sk, ICSK_TIME_DACK,
 						  TCP_DELACK_MAX, TCP_RTO_MAX);
-			tcp_drop(sk, skb, TCP_DROP_MASK(__LINE__, TCP_RCV_SYNSENT_STATE_PROCESS));
+			tcp_drop(sk, skb, LINUX_MIB_TCPFASTOPENACTIVE, "Tcp fast open ack error");
 
 end:
 			return 0;
@@ -6284,7 +6284,7 @@ end:
 		 */
 		return -1;
 #else
-		tcp_drop(sk, skb, TCP_DROP_MASK(__LINE__, TCP_RCV_SYNSENT_STATE_PROCESS));
+		tcp_drop(sk, skb, LINUX_MIB_SYNCOOKIESRECV, "Tcp syn received error");
 		goto end;
 #endif
 	}
@@ -6295,7 +6295,7 @@ end:
 discard_and_undo:
 	tcp_clear_options(&tp->rx_opt);
 	tp->rx_opt.mss_clamp = saved_clamp;
-	tcp_drop(sk, skb, TCP_DROP_MASK(__LINE__, TCP_RCV_SYNSENT_STATE_PROCESS));
+	tcp_drop(sk, skb, LINUX_MIB_TCPSACKDISCARD, "Tcp not neither of SYN or RST");
 	goto end;
 
 reset_and_undo:
@@ -6413,7 +6413,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		    sk->sk_state != TCP_FIN_WAIT1);
 
 		if (!tcp_check_req(sk, skb, req, true, &req_stolen)) {
-			tcp_drop(sk, skb, LINUX_MIB_LISTENDROPS, "Tcp check req failed");
+			tcp_drop(sk, skb, LINUX_MIB_LISTENDROPS, "Tcp check req error");
 			goto end;
 		}
 	}
@@ -6435,7 +6435,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		if (sk->sk_state == TCP_SYN_RECV)
 			return 1;	/* send one RST */
 		tcp_send_challenge_ack(sk, skb);
-		tcp_drop(sk, skb, LINUX_MIB_TCPDSACKRECV, "Tcp check ack faile");
+		tcp_drop(sk, skb, LINUX_MIB_TCPCHALLENGEACK, "Tcp check ack failed");
 		goto end;
 	}
 	switch (sk->sk_state) {
@@ -6529,7 +6529,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			inet_csk_reset_keepalive_timer(sk, tmo);
 		} else {
 			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
-			tcp_drop(sk, skb, LINUX_MIB_TCPACKSKIPPEDTIMEWAIT, "Tcp fin wait2");
+			tcp_drop(sk, skb, LINUX_MIB_TCPABORTONDATA, "Tcp fin wait2");
 			goto end;
 		}
 		break;
@@ -6547,7 +6547,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		if (tp->snd_una == tp->write_seq) {
 			tcp_update_metrics(sk);
 			tcp_done(sk);
-			tcp_drop(sk, skb, ;
+			tcp_drop(sk, skb, LINUX_MIB_TCPPUREACKS, "Tcp last ack")
 			goto end;
 		}
 		break;
@@ -6566,7 +6566,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			 * continue to be processed, drop the packet.
 			 */
 			if (sk_is_mptcp(sk) && !mptcp_incoming_options(sk, skb)) {
-				tcp_drop(sk, skb, LINUX_MIB_TCPDSACKRECVSEGS, "Tcp subflow been reset");
+				tcp_drop(sk, skb, LINUX_MIB_TCPPUREACKS, "Tcp subflow been reset");
 				goto end;
 			}
 			break;
@@ -6600,7 +6600,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 	}
 
 	if (!queued) {
-		tcp_drop(sk, skb, LINUX_MIB_TCPOFOQUEUE, "Tcp not established");
+		tcp_drop(sk, skb, LINUX_MIB_TCPOFOQUEUE, "Tcp rcv synsent state process");
 	}
 
 end:
