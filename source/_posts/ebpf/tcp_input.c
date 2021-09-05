@@ -4647,9 +4647,9 @@ static bool tcp_ooo_try_coalesce(struct sock *sk,
 /* tcp_drop with reason
  */
 static void tcp_drop(struct sock *sk, struct sk_buff *skb,
-		 int field, char *reason)
+		 int field, const char *reason)
 {
-	trace_tcp_drop(sk, skb, func, reason);
+	trace_tcp_drop(sk, skb, field, reason);
 	sk_drops_add(sk, skb);
 	__kfree_skb(skb);
 }
