@@ -23,9 +23,10 @@ k8s 默认情况下是使用 kube-proxy 来负责节点与节点之前的通信�
 
 
 用户创建 service 的时候，endpointController 会根据 service 的 selector 找到对应
-的 Pod，然后将生成的 Endpoint 对象保存到 Etcd 中。
+的 Pod，然后将生成的 Endpoint 对象保存到 Etcd 中。kube-proxy 的主要工作就是监听 
+etcd（通过 apiserver 的接口，而不是直接读取 etcd），来实时更新节点上的 iptables。
 
-
+endpointController 会根据 service 的 selector 找到对应的 pod，然后生成 endpoints 对象保存到 etcd 中
 
 
 
