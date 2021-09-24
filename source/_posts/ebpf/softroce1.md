@@ -37,27 +37,77 @@ DPDK 独占 CPU 100% 使用率，吞吐量根据 CPU 数量定义
 TOE：与 DPDK 类似又有点相反，TOE 在网卡上将报文处理，承担了本由 CPU 的一部分工作，比如 checkcsum、
 分包等。
 
-
 DPDK 和 TOE 两者并不相同，所以要谨慎理解。netmap 需要中断通知机制，没有完全解决瓶颈。
 ebpf 只能作为简单的性能提升工具并不能作为高性能网络解决方案。
 目前高性能网络解决方案听到比较多的应该就是 `DPDK` 因其开放性以及生态的完善让 DPDK 可以
 大范围的使用。
-
-
-
-netmap 官网说在 10GigE 上测试，发包速率可以达到 14.88Mpps，收包的速率和发包相近。
-同时还支持多网卡队列。
 RDMA：比较典型的就是 `IB` ，直接重新定义了协议栈，绕过内核处理直接与网卡对接。
 
+测试环境 VM 虚拟机 ：
+
+```bash
+机器1
+客户机操作系统		CentOS 7 (64 位)
+兼容性			ESXi 6.5 虚拟机
+VMware Tools	是
+CPU				4
+内存				8 GB
+
+机器2
+客户机操作系统		CentOS 4/5 或更高版本 (64 位)
+兼容性			ESXi 6.0 虚拟机
+VMware Tools	否
+CPU				4
+内存				8 GB
+
+网卡信息
+链路速度:			1000 Mbps
+驱动程序:			ntg3
+MAC 地址:		******
+```
+
+普通以太网带宽测试
+
+```bash
+Server: iperf3 -s -i 1 -f m -p 10008
+Client: iperf3 -c [Server IP] -i 1 -t 10 -f m -p 10008
+
+[ ID] Interval           Transfer     Bandwidth       Retr
+[  4]   0.00-10.00  sec  6.80 GBytes  5842 Mbits/sec    0             sender
+[  4]   0.00-10.00  sec  6.80 GBytes  5840 Mbits/sec                  receiver
+```
+ROCE 带宽测试
+```bash
+Server: ib_send_bw -n 10000 -d rxe0 -i 1 -F --report_gbits
+Client: ib_send_bw -n 10000 -d rxe0 -i 1 -F --report_gbits [Server IP]
+---------------------------------------------------------------------------------------
+                    Send BW Test
+ Dual-port       : OFF		Device         : rxe0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 128
+ CQ Moderation   : 100
+ Mtu             : 1024[B]
+ Link type       : Ethernet
+ GID index       : 1
+ Max inline data : 0[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0000 QPN 0x0014 PSN 0x91befb
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:00:07
+ remote address: LID 0000 QPN 0x0011 PSN 0xdd1775
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:03:221
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+ 65536      10000            1.54               1.01   		   0.001923
+```
 
 
-
-
-
-
-
-
-
+1. 扎实的计算机体系结构和操作系统方面的基础，有丰富的代码开发经验；
+2. 精通高性能、高并发的编程技术，有丰富的性能调优经验；
+3. 具备良好的团队、跨团队沟通及合作能力，可主导技术语言及攻坚；
+4. 有独立产品设计、开发经验，可以独立或带队开辟技术方向，落地到上下游业务中；
 5. 有用户态协议栈、RDMA、TOE、smartnic，及相关的软硬件结合的经验优先；
 6. 有开发和调优4层及以上的网络协议（TCP/MPTCP/QUIC/HTTP2.0等）的经验优先；
 7. 有开发和维护通用RPC框架的经验，及熟悉常见的gpc、brpc、dubbo优先；
