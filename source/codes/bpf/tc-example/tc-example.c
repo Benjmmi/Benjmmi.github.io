@@ -30,6 +30,7 @@
 #define BPF_FUNC(NAME, ...)     (*NAME)(__VA_ARGS__) = (void *)BPF_FUNC_##NAME
 #endif
 
+static int (*bpf_trace_printk)(const char *fmt, int fmt_size, ...) = (void *)BPF_FUNC_trace_printk;
 
 static void *BPF_FUNC(map_lookup_elem, void *map, const void *key);
 
@@ -44,6 +45,8 @@ struct bpf_elf_map acc_map __section("maps") =
 
 static __inline int account_data(struct  __sk_buff *skb, uint32_t dir)
 {
+    char msg[] = "Hello, BPF World!";
+    bpf_trace_printk(msg, sizeof(msg));
     /* data */
     uint32_t *bytes;
     bytes = map_lookup_elem(&acc_map, &dir);
