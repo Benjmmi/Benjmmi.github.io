@@ -111,6 +111,8 @@ type Server struct {
 只需要指定 Nacos 就可以从 Nacos 获取数据，支持 MCP 协议就是将数据模型抽象为了中
 间层。
 
+----
+
 
 
 
