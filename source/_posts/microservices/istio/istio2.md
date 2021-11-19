@@ -127,23 +127,90 @@ spec:
 
 这种方式的问题:
 
-- 当工作负载非常多的情况下，ServiceEntry变得很大，更新极易出错，同时很大的资源对象更新必将带来额外的开销。
-- 同时，不支持一个服务的容器和虚拟机混合部署。比如说有个服务同时部署在Kubernetes集群以及虚拟机上，集群内的
-  服务由K8s Service、Pod表示，虚拟机上的只能通过ServiceEntry表示，这种部署模型在老版本中很难无缝集成。
+- 当工作负载非常多的情况下，`ServiceEntry`变得很大，更新极易出错，同时很大的资源对象更新必将带来额外的开销。
+- 同时，不支持一个服务的容器和虚拟机混合部署。比如说有个服务同时部署在`Kubernetes`集群以及虚拟机上，集群内的
+  服务由`K8s Service`、`Pod`表示，虚拟机上的只能通过`ServiceEntry`表示，这种部署模型在老版本中很难无缝集成。
 
 如果您想以主动的方式将此服务迁移到`Kubernetes`，即启动一组`POD`，通过 `Istio mTLS` 将一部分流量
 发送到POD，并将其余流量发送到没有 `Sidecar` 的`VMs`，您将如何做？
-
 您可能需要使用`Kubernetes Service`、`VirtualService` 和 `DestinationRule` 的组合来实现该行为。
 现在，假设您决定将 `Sidecar` 一个接一个地添加到这些 `VM` 中，这样您只希望带 `Sidecar` 的 `VM` 的流
-量使用`Istio mTLS`。如果任何其他`Service Entry`恰好在其地址中包含相同的 `VM` ，事情就会变得非常复
-杂和容易出错。`Service Entry` 与 `VirtualService` 同时包含目标  `VM` .
+量使用`Istio mTLS`。如果任何其他`ServiceEntry`恰好在其 `endpoints` 中包含**相同的 `VM` 地址** ，事
+情就会变得非常复杂和容易出错。
+
+上面说的仍然是第一个点，维护比较困难。在多个 `ServiceEntry` 包含相同的 `IP` 那么当 `IP` 发生更新是就需要
+更新所有的 `ServiceEntry` ，而且不能漏掉，否则会发生故障。
 
 这些复杂性的主要来源是`Istio`缺乏非容器化一级工作负载的定义，这些定义可以独立于其所属的服务进行描述的属性。
 
-这种部署模型在老版本中很难无缝集成，问题点来自于网格内使用 `Sidecar` 相互调用,网格外没有 `Sidecar` 流量
-如果包含相同的 `VM` 那么可能会导致调用方误认为服务方也存在 `Sidecar` 而发起 `Istio mTLS` 流量，导致不
-可预知的错误。
+这种部署模型在老版本中很难无缝集成，**`问题点`来自于网格内使用 `Sidecar` 相互调用,网格外没有 `Sidecar` 。
+`VirtualService` 如果包含相同的 `VM` 那么可能会导致调用方误认为服务方也存在 `Sidecar` 而发起 `Istio mTLS` 
+调用，导致不可预知的错误。**
+
+`WorkloadEntry`的出现，完全解决了上述问题，虚拟机、裸机工作负载由`WorkloadEntry`独立表示，类似`K8s`中的`Pod`。
+
+```golang
+type WorkloadEntry struct {
+    // 工作负载地址，类似Pod IP.
+    Address string
+    // 端口，类似K8s Endpoint端口.
+    Ports map[string]uint32
+    // 标签，类似Pod Label.
+    Labels map[string]string
+    // 网络 ID，主要用于多网络，多集群场景.
+    Network string
+    // 工作负载位置拓扑信息，例如us/us-east-1/az-1，可用于基于位置感知的流量分发.
+    Locality string
+    // 负载均衡权重信息，值越大，接收到的请求越多.
+    Weight uint32
+    // 工作负载身份信息，类似Pod Sa身份
+    ServiceAccount       string
+}
+```
+`ServiceEntry`（类似K8s Service）可以通过标签选择对应的 `WorkloadEntry`，避免了用户维护一个超大耦
+合的`ServiceEntry`，这种解耦的模型用户体验更好。
+
+目前`ServiceEntry`可以同时选择`WorkloadEntry`和`Pod`作为`Endpoint`，因此很好地解决了跨虚拟机以及K8s集群部署
+服务的管理难题。**Example**
+
+```yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: WorkloadEntry
+metadata:
+  name: details-svc # 名称
+spec:
+  address: 2.2.2.2 # 裸机或者虚拟机地址
+  labels: # 当前的 Lable，可以供 ServiceEntry selector
+    app: details-legacy 
+    instance-id: vm1 
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: details-svc # 名称
+spec:
+  hosts:
+  - details.bookinfo.com # 目标 hosts
+  location: MESH_INTERNAL
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+    targetPort: 8080
+  resolution: STATIC
+  workloadSelector:  # workload 选择器
+    labels:  # 选择包含这些条件的 Pod 和 WorkloadEntry
+      app: details-legacy    
+```
+
+了解了 `VirtualService`、`DestinationRule`、`ServiceEntry`、`WorkloadEntry` 的职责边界之后
+对 `Controller` 上下文理解应该更加清晰。
+
+
+`pilot-discovery` 三个比较重要的组件：
+- `Config Controller`：从不同来源接收流量控制和路由规则等 `Istio` 的配置，并响应各类事件
+- `Service Controller`：从不同注册中心同步服务及实例，并响应各类事件
+- `XdsServer`：核心的 xDS 协议推送服务，根据上面组件的数据生成 xDS 协议并下发
 
 
 
@@ -159,7 +226,6 @@ spec:
 
 
 
-Pilot 是 Istio 里的一个组件，它控制 Envoy 代理，负责服务发现、负载均衡和路由分发。
 
 
 
