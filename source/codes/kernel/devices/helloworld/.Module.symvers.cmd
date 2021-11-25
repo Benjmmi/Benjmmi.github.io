@@ -1,0 +1,1 @@
+cmd_/root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/Module.symvers := sed 's/ko$$/o/' /root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/modules.order | scripts/mod/modpost -m -a   -o /root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/Module.symvers -e -i Module.symvers   -T -

@@ -1,0 +1,2 @@
+/root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/helloworld.o
+

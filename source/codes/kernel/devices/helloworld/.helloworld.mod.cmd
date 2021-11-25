@@ -1,0 +1,1 @@
+cmd_/root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/helloworld.mod := { echo  /root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/helloworld.o;  echo; } > /root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/helloworld.mod
