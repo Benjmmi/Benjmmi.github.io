@@ -4,6 +4,7 @@
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/slab.h>
+#include <linux/mm.h>
 
 #include "helloworld.h"
 
@@ -109,12 +110,47 @@ ssize_t eep_read(struct file *filp, char __user *buf,
 	return count;
 }
 
+void simple_vma_open(struct vm_area_struct *vma)
+{
+	pr_info("Simple VMA open, virt %lx, phys %lx\n", vma->vm_start, 
+			vma->vm_pgoff << PAGE_SHIFT);
+}
+
+void simple_vma_close(struct vm_area_struct *vma)
+{
+	pr_info("Simple VMA close \n");
+}
+
+static struct vm_operations_struct simple_remap_vm_ops = {
+	.open = simple_vma_open,
+	.close = simple_vma_close,
+};
+
+// mmap 操作
+int epp_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	int ret = 0;
+	// 一次性全部映射的方法
+	ret = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+			vma->vm_end - vma->vm_start,
+			vma->vm_page_prot);
+	//
+	if(ret)
+	{
+		return -EAGAIN;
+	}
+	vma->vm_ops = &simple_remap_vm_ops;
+	simple_vma_open(vma);	
+	return 0;
+}
+
 static struct file_operations eep_fops = {
 	.owner = THIS_MODULE,
 	.open = eep_open,
 	.write = eeprom_write,
 	.read = eep_read,
 	.release = eep_release,
+	.mmap = epp_mmap,
 };
 
 static int __init helloworld_init(void)

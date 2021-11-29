@@ -38,15 +38,16 @@ __used __section("__versions") = {
 	{ 0xe3ec2f2b, "alloc_chrdev_region" },
 	{ 0x4fd3ff86, "kmem_cache_alloc_trace" },
 	{ 0x1c03e593, "kmalloc_caches" },
+	{ 0x9857a630, "remap_pfn_range" },
 	{ 0x6b10bee1, "_copy_to_user" },
 	{ 0x13c49cc2, "_copy_from_user" },
 	{ 0x88db9f48, "__check_object_size" },
-	{ 0xc5850110, "printk" },
 	{ 0x56470118, "__warn_printk" },
+	{ 0xc5850110, "printk" },
 	{ 0xbdfb6dbb, "__fentry__" },
 };
 
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "E983E3615BA098F142C57F3");
+MODULE_INFO(srcversion, "21DB5B1A0DB92A46D46421A");
