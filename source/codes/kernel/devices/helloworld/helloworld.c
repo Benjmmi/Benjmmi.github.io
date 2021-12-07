@@ -5,6 +5,7 @@
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
+#include <linux/sched.h>
 
 #include "helloworld.h"
 
@@ -185,6 +186,11 @@ static int __init helloworld_init(void)
 				EEP_DEVICE_NAME "%d",i);
 	}
 	return 0;
+}
+
+static void get_task_struct_field(){
+	pr_info("当前进程 pid %d\n", current->pid);	
+	pr_info("当前进程状态 %d\n", READ_ONCE(current->__state));
 }
 
 static void __exit helloworld_exit(void)
