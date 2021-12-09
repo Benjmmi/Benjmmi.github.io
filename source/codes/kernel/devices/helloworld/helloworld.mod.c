@@ -25,20 +25,21 @@ MODULE_INFO(retpoline, "Y");
 
 static const struct modversion_info ____versions[]
 __used __section("__versions") = {
-	{ 0xeeab4c1e, "module_layout" },
-	{ 0x93c68c79, "param_ops_int" },
-	{ 0x7c038979, "class_destroy" },
-	{ 0x3c03d27a, "cdev_del" },
-	{ 0xc498609c, "device_destroy" },
+	{ 0xe09a23a6, "module_layout" },
+	{ 0x4674b4c4, "param_ops_int" },
+	{ 0x9f95103f, "class_destroy" },
+	{ 0x600ab2aa, "cdev_del" },
+	{ 0x247907d6, "device_destroy" },
 	{ 0x6091b333, "unregister_chrdev_region" },
-	{ 0xba9cf391, "device_create" },
-	{ 0x44d7ad45, "cdev_add" },
-	{ 0xdc74c97c, "cdev_init" },
-	{ 0xbd59df1c, "__class_create" },
+	{ 0xdca0b809, "device_create" },
+	{ 0x27900d89, "cdev_add" },
+	{ 0x97823d2e, "cdev_init" },
+	{ 0xfcff42d, "__class_create" },
 	{ 0xe3ec2f2b, "alloc_chrdev_region" },
-	{ 0xd60e87c0, "kmem_cache_alloc_trace" },
-	{ 0x6aa9e858, "kmalloc_caches" },
-	{ 0x95a044d, "remap_pfn_range" },
+	{ 0x2c79d4a6, "current_task" },
+	{ 0x4fd3ff86, "kmem_cache_alloc_trace" },
+	{ 0x1c03e593, "kmalloc_caches" },
+	{ 0x9857a630, "remap_pfn_range" },
 	{ 0x6b10bee1, "_copy_to_user" },
 	{ 0x13c49cc2, "_copy_from_user" },
 	{ 0x88db9f48, "__check_object_size" },
@@ -50,4 +51,4 @@ __used __section("__versions") = {
 MODULE_INFO(depends, "");
 
 
-MODULE_INFO(srcversion, "21DB5B1A0DB92A46D46421A");
+MODULE_INFO(srcversion, "27E41AE3AD334800813D295");

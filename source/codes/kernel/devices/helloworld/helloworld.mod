@@ -1,2 +1,2 @@
-/home/s/Documents/github/Benjamin.github.io/source/codes/kernel/devices/helloworld/helloworld.o
+/root/Documents/jony.github.io/source/codes/kernel/devices/helloworld/helloworld.o
 

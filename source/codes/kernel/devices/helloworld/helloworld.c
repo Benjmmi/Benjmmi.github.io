@@ -145,6 +145,15 @@ int epp_mmap(struct file *filp, struct vm_area_struct *vma)
 	return 0;
 }
 
+static void get_task_struct_field(void)
+{
+        pr_info("当前进程 pid %d\n", current->pid);
+        pr_info("当前进程开始时间 %lld\n", current->start_time);
+        pr_info("当前进程thread_info 大小 %ld\n", sizeof(current->thread_info));
+	pr_info("当前进程组 %d\n", current->tgid);
+	pr_info("当前进出的父进出 %d\n", current->real_parent->pid);
+}
+
 static struct file_operations eep_fops = {
 	.owner = THIS_MODULE,
 	.open = eep_open,
@@ -159,6 +168,7 @@ static int __init helloworld_init(void)
 	int i = 0;
 	dev_t curr_dev;
 	pr_info("Hello World\n");
+	get_task_struct_field();
 	/* 为 EEP_NBANK 设备请求分配设备号 */
 	alloc_chrdev_region(&dev_num, 0, 
 			EEP_NBANK, EEP_DEVICE_NAME);
@@ -186,11 +196,6 @@ static int __init helloworld_init(void)
 				EEP_DEVICE_NAME "%d",i);
 	}
 	return 0;
-}
-
-static void get_task_struct_field(){
-	pr_info("当前进程 pid %d\n", current->pid);	
-	pr_info("当前进程状态 %d\n", READ_ONCE(current->__state));
 }
 
 static void __exit helloworld_exit(void)

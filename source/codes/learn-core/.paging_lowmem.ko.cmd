@@ -1,1 +1,0 @@
-cmd_/home/s/Documents/learn-core/paging_lowmem.ko := ld -r -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /home/s/Documents/learn-core/paging_lowmem.ko /home/s/Documents/learn-core/paging_lowmem.o /home/s/Documents/learn-core/paging_lowmem.mod.o;  true
