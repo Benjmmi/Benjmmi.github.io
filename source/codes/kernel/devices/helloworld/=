@@ -149,6 +149,7 @@ static void get_task_struct_field(void)
 {
         struct mm_struct *mms = current->mm;
 	pr_info("current->mm: %d \n", !mms);
+	pr_info("current->task: %d \n", mms->__randomize_layout.task_size);
 	pr_info("当前进程 pid %d\n", current->pid);
         pr_info("当前进程开始时间 %lld\n", current->start_time);
         pr_info("当前进程thread_info 大小 %ld\n", sizeof(current->thread_info));
