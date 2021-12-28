@@ -147,11 +147,14 @@ int epp_mmap(struct file *filp, struct vm_area_struct *vma)
 
 static void get_task_struct_field(void)
 {
-        pr_info("当前进程 pid %d\n", current->pid);
+        struct mm_struct *mms = current->mm;
+	pr_info("current->mm: %d \n", !mms);
+	pr_info("当前进程 pid %d\n", current->pid);
         pr_info("当前进程开始时间 %lld\n", current->start_time);
         pr_info("当前进程thread_info 大小 %ld\n", sizeof(current->thread_info));
 	pr_info("当前进程组 %d\n", current->tgid);
 	pr_info("当前进出的父进出 %d\n", current->real_parent->pid);
+
 }
 
 static struct file_operations eep_fops = {

@@ -29,7 +29,7 @@ module_param(scull_quantum, int, S_IRUGO); //用户设置大小
 static int scull_qset = 0;
 module_param(scull_qset, int, S_IRUGO); // 用户设置大小
 
-MODULE_AUTHOR("Banjamin Yim <yan2228598786@gmail.com>");
+MODULE_AUTHOR("Benjamin Yim <yan2228598786@gmail.com>");
 MODULE_DESCRIPTION("This My Test Devployment Drive");
 MODULE_LICENSE("Dual BSD/GPL");
 
