@@ -1,4 +1,4 @@
-package main
+package sample
 
 /**
 1814. 统计一个数组中好对子的数目
@@ -9,7 +9,7 @@ package main
 nums[i] + rev(nums[j]) == nums[j] + rev(nums[i])
 请你返回好下标对的数目。由于结果可能会很大，请将结果对 109 + 7 取余 后返回。
 
- 
+
 
 示例 1：
 
@@ -22,7 +22,7 @@ nums[i] + rev(nums[j]) == nums[j] + rev(nums[i])
 
 输入：nums = [13,10,35,24,76]
 输出：4
- 
+
 
 提示：
 
@@ -33,14 +33,14 @@ nums[i] + rev(nums[j]) == nums[j] + rev(nums[i])
 来源：力扣（LeetCode）
 链接：https://leetcode-cn.com/problems/count-nice-pairs-in-an-array
 著作权归领扣网络所有。商业转载请联系官方授权，非商业转载请注明出处。
- */
+*/
 func CountNicePairs(nums []int) int {
 	// 统计数字为关键
 	int_map := make(map[int]int)
 
 	for _, num := range nums {
-		int_map[num]=int_map[num]+1
+		int_map[num] = int_map[num] + 1
 	}
 
-	return 0;
+	return 0
 }

@@ -1,5 +1,4 @@
-package main
-
+package sample
 
 /**
 908. 最小差值 I
@@ -7,7 +6,7 @@ package main
 
 返回数组 B 的最大值和最小值之间可能存在的最小差值。
 
- 
+
 
 示例 1：
 
@@ -24,7 +23,7 @@ package main
 输入：A = [1,3,6], K = 3
 输出：0
 解释：B = [3,3,3] 或 B = [4,4,4]
- 
+
 
 提示：
 
@@ -35,22 +34,22 @@ package main
 来源：力扣（LeetCode）
 链接：https://leetcode-cn.com/problems/smallest-range-i
 著作权归领扣网络所有。商业转载请联系官方授权，非商业转载请注明出处。
- */
+*/
 func smallestRangeI(nums []int, k int) int {
 
 	max := nums[0]
 	min := nums[0]
 	for _, num := range nums {
-		if num > max{
+		if num > max {
 			max = num
 		}
-		if num < min{
+		if num < min {
 			min = num
 		}
 	}
-	if max-k <= min +k {
+	if max-k <= min+k {
 		return 0
 	}
 
-	 return max-k - min - k
+	return max - k - min - k
 }

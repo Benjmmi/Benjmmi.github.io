@@ -1,4 +1,4 @@
-package main
+package sample
 
 import (
 	"strconv"
@@ -12,7 +12,7 @@ import (
 
 现在我们有一个正整数 N, 计算从 1 到 N 中有多少个数 X 是好数？
 
- 
+
 
 示例：
 
@@ -21,7 +21,7 @@ import (
 解释:
 在[1, 10]中有四个好数： 2, 5, 6, 9。
 注意 1 和 10 不是好数, 因为他们在旋转之后不变。
- 
+
 
 提示：
 
@@ -31,21 +31,21 @@ N 的取值范围是 [1, 10000]。
 来源：力扣（LeetCode）
 链接：https://leetcode-cn.com/problems/rotated-digits
 著作权归领扣网络所有。商业转载请联系官方授权，非商业转载请注明出处。
- */
+*/
 func rotatedDigits(n int) int {
-	leng := 0;
+	leng := 0
 	for i := 1; i <= n; i++ {
 		s := strconv.Itoa(i)
-		if strings.Contains(s,"3") || strings.Contains(s,"4") || strings.Contains(s,"7") {
+		if strings.Contains(s, "3") || strings.Contains(s, "4") || strings.Contains(s, "7") {
 			continue
 		}
-		s = strings.ReplaceAll(s,"0","")
-		s = strings.ReplaceAll(s,"1","")
-		s = strings.ReplaceAll(s,	"8","")
+		s = strings.ReplaceAll(s, "0", "")
+		s = strings.ReplaceAll(s, "1", "")
+		s = strings.ReplaceAll(s, "8", "")
 		if len(s) == 0 {
 			continue
 		}
-		leng++;
+		leng++
 	}
 	return leng
 }
