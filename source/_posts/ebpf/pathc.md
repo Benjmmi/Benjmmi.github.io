@@ -211,9 +211,10 @@ docker tag coredns/coredns:v1.8.4 k8s.gcr.io/coredns/coredns:v1.8.4
 
 
 
-
-
-
+// 生成 Patch
+git log filename 
+查看文件提交历史，确定子系统
+[这个讲的比较好](https://www.dazhuanlan.com/doraemonfj/topics/1139017)
 
 
 
