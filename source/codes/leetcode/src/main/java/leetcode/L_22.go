@@ -20,22 +20,24 @@ func generateParenthesis(n int) []string {
 					kv[nk] = i
 					arr[i] = append(arr[i], nk)
 				}
+				// 只考虑当前是 左括号的情况
 				if arr[i-1][j][k] == '(' {
 					pairs := 1
 					for p := k; p < len(arr[i-1][j]); p++ {
 						if arr[i-1][j][p] == '(' {
 							pairs += 1
 						}
-						if arr[i-1][j][p] == '(' {
+						if arr[i-1][j][p] == ')' {
 							pairs -= 1
 						}
 						if pairs == 0 {
 							ap := arr[i-1][j][:p] + ")" + arr[i-1][j][p:]
-							ap = nk[:k] + "(" + nk[k:]
+							ap = ap[:k] + "(" + ap[k:]
 							if _, ex := kv[ap]; !ex {
 								kv[ap] = i
 								arr[i] = append(arr[i], ap)
 							}
+							break
 						}
 					}
 				}
