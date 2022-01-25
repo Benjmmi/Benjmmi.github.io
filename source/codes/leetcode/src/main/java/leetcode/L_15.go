@@ -9,5 +9,5 @@ func threeSum(nums []int) [][]int {
 	}
 
 	sort.Ints(nums)
-
+	return [][]int{}
 }
