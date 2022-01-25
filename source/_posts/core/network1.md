@@ -8,7 +8,7 @@ categories:
 	- [网络代码]
 tags:
   - ebpf
-author: Jony
+author: Benjamin Yim
 ---
 
 内核代码虽然阅读比较困难，但是也很有技巧性可言。先了解基本的数据结构和过往的一些知识信息整理基本上

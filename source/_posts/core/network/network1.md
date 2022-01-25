@@ -8,7 +8,7 @@ categories:
 	- [网络代码]
 tags:
   - ebpf
-author: Jony
+author: Benjamin Yim
 ---
 
 # Linux-内核网络-理论篇-设备模型
@@ -188,8 +188,15 @@ kobject_set_name(&my_set->kobj, "myname");
 [Linux 驱动设计]
 [http://www.iakovlev.org/index.html?p=1025]
 
+git send-email --to kuba@kernel.org --cc edumazet@google.com,davem@davemloft.net,yoshfuji@linux-ipv6.org,dsahern@kernel.org,netdev@vger.kernel.org,linux-kernel@vger.kernel.org
 
-
+Eric Dumazet <edumazet@google.com> (maintainer:NETWORKING [TCP])
+"David S. Miller" <davem@davemloft.net> (maintainer:NETWORKING [IPv4/IPv6])
+Hideaki YOSHIFUJI <yoshfuji@linux-ipv6.org> (maintainer:NETWORKING [IPv4/IPv6])
+David Ahern <dsahern@kernel.org> (maintainer:NETWORKING [IPv4/IPv6])
+Jakub Kicinski <kuba@kernel.org> (maintainer:NETWORKING [GENERAL])
+netdev@vger.kernel.org (open list:NETWORKING [TCP])
+linux-kernel@vger.kernel.org (open list)
 
 
 
