@@ -1,50 +1,62 @@
 package sample
 
-import "container/list"
-
 func numBusesToDestination(routes [][]int, source int, target int) int {
-
+	if source == target {
+		return 0
+	}
 	n := len(routes)
 
-	stopToBus := map[int]map[int]bool{}
-	busToStop := map[int]map[int]bool{}
+	stopToLine := map[int]map[int]bool{}
+	lineToStop := map[int]map[int]bool{}
 
 	for i := 0; i < n; i++ {
 		for j := 0; j < len(routes[i]); j++ {
-			if stopToBus[routes[i][j]] != nil {
-				stopToBus[routes[i][j]][i] = true
+			if stopToLine[routes[i][j]] != nil {
+				stopToLine[routes[i][j]][i] = true
 			} else {
-				stopToBus[routes[i][j]] = map[int]bool{i: true}
+				stopToLine[routes[i][j]] = map[int]bool{i: true}
 			}
 
-			if busToStop[i] != nil {
-				busToStop[i][routes[i][j]] = true
+			if lineToStop[i] != nil {
+				lineToStop[i][routes[i][j]] = true
 			} else {
-				busToStop[i] = map[int]bool{routes[i][j]: true}
+				lineToStop[i] = map[int]bool{routes[i][j]: true}
 			}
 		}
 	}
 
-	buss := map[int]bool{}
-	buss2 := map[int]bool{}
+	// 访问过的路线,第几次中转访问
+	bused := map[int]int{}
+	stoped := map[int]bool{source: true}
 
-	stops := list.New()
-	stops.PushBack(source)
+	for i, _ := range stopToLine[source] {
+		bused[i] = 1
+	}
 
-	for stops.Len() > 0 {
-		st := stops.Front().Value.(int)
-		stops.Remove(stops.Front())
-		if st == target {
-			return len(buss2)
-		}
-		for bus, _ := range stopToBus[st] {
-			if _, e := buss[bus]; !e {
-				buss[bus] = true
-				for s, _ := range busToStop[bus] {
-					stops.PushBack(s)
+	stops := []int{source}
+
+	for len(stops) > 0 {
+		s := stops[0]
+		stops = stops[1:]
+		for line, _ := range stopToLine[s] {
+
+			for stop, _ := range lineToStop[line] {
+				if _, e := stoped[stop]; e {
+					continue
+				}
+				stoped[stop] = true
+				if stop == target {
+					return bused[line]
+				}
+				for turn, _ := range stopToLine[stop] {
+					if _, e := bused[turn]; !e {
+						bused[turn] = bused[line] + 1
+						stops = append(stops, stop)
+					}
 				}
 			}
 		}
 	}
+
 	return -1
 }

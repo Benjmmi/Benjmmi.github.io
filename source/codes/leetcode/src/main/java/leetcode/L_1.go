@@ -1,6 +1,6 @@
 package sample
 
-func twoSum(nums []int, target int) []int {
+func twoSum2(nums []int, target int) []int {
 	if len(nums) < 2 {
 		return nil
 	}
