@@ -1,7 +1,5 @@
 package sample
 
-import "container/list"
-
 func numBusesToDestination(routes [][]int, source int, target int) int {
 
 	n := len(routes)
@@ -26,22 +24,31 @@ func numBusesToDestination(routes [][]int, source int, target int) int {
 	}
 
 	buss := map[int]bool{}
-	buss2 := map[int]bool{}
+	bussDeepth := map[int]int{}
 
-	stops := list.New()
-	stops.PushBack(source)
-
-	for stops.Len() > 0 {
-		st := stops.Front().Value.(int)
-		stops.Remove(stops.Front())
+	stops := []int{source}
+	//stops.PushBack(source)
+	bussDeepth[source] = 0
+	for len(stops) > 0 {
+		st := stops[0]
+		stops = stops[1:]
+		//stops.Remove(stops.Front())
 		if st == target {
-			return len(buss2)
+			return bussDeepth[st]
 		}
+		depth := bussDeepth[st] + 1
 		for bus, _ := range stopToBus[st] {
 			if _, e := buss[bus]; !e {
 				buss[bus] = true
 				for s, _ := range busToStop[bus] {
-					stops.PushBack(s)
+					stops = append(stops, s)
+					if _, v := bussDeepth[s]; !v {
+						if bussDeepth[s] < depth {
+							bussDeepth[s] = depth
+						}
+					} else {
+						bussDeepth[s] = depth
+					}
 				}
 			}
 		}
