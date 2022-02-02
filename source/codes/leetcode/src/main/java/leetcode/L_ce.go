@@ -1,24 +1,18 @@
 package sample
 
-import "sort"
+import "math"
 
-func canArrange(arr []int, k int) bool {
-	sort.Ints(arr)
-	for len(arr) > 0 {
-		i := arr[0]
-		arr = arr[1:]
-		b := false
-		for j := len(arr) - 1; j >= 0; j-- {
-			if (arr[j]+i)%k == 0 {
-				arr = append(arr[:j], arr[j+1:]...)
-				b = true
-				break
-			}
-		}
-		if !b {
-			return false
-		}
+func minCostClimbingStairs(cost []int) int {
+	cost = append([]int{0}, cost...)
+	return findMinCostClimbingStairs(cost, 0)
+}
+
+func findMinCostClimbingStairs(cost []int, cur int) int {
+	if cur >= len(cost) {
+		return 0
 	}
 
-	return true
+	val := cost[cur] + findMinCostClimbingStairs(cost, cur+1)
+	val2 := cost[cur] + findMinCostClimbingStairs(cost, cur+2)
+	return int(math.Min(float64(val), float64(val2)))
 }
