@@ -8,13 +8,6 @@ func deleteAndEarn(nums []int) int {
 	if len(nums) == 1 {
 		return nums[0]
 	}
-	if len(nums) == 2 {
-		return max(nums[0], nums[1])
-	}
-	maxLen := 0
-	for _, val := range nums {
-		maxLen = max(maxLen, val)
-	}
 
 	earn := make([]int, 10000)
 
