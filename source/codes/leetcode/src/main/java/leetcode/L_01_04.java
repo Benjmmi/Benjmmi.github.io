@@ -2,6 +2,7 @@ package leetcode;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.TreeSet;
 
 public class L_01_04 {
     public static void main(String[] args) {
@@ -17,6 +18,8 @@ public class L_01_04 {
                 b.add(c);
             }
         }
+        TreeSet set = new TreeSet();
+        set.ceiling()
         return b.size() < 1;
     }
 }
