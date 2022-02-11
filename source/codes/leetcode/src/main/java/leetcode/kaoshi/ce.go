@@ -1,40 +1,39 @@
 package kaoshi
 
-type StringIterator struct {
-	Char             byte
-	Num              int
-	Index            int
-	compressedString []byte
+type TreeNode struct {
+	Val   int
+	Left  *TreeNode
+	Right *TreeNode
 }
 
-func Constructor(compressedString string) StringIterator {
-	s := StringIterator{
-		Char:             compressedString[0],
-		Num:              int(compressedString[1] - '0'),
-		Index:            0,
-		compressedString: []byte(compressedString),
+func distributeCandies(candies int, num_people int) []int {
+	if num_people == 1 {
+		return []int{candies}
 	}
-	return s
-}
-
-func (this *StringIterator) Next() byte {
-	if this.Index < len(this.compressedString) {
-		if this.Num > 0 {
-			this.Num--
-		} else {
-			this.Index += 2
-			if this.HasNext() {
-				this.Char = this.compressedString[this.Index]
-				this.Num = int(this.compressedString[this.Index+1] - '0')
-				return this.Next()
-			}
+	nums := make([]int, num_people)
+	i := 1
+	j := 0
+	for {
+		j %= num_people
+		nums[j] += i
+		j++
+		i++
+		if candies == 0 {
+			break
 		}
-
-		return this.Char
+		if candies-i > 0 {
+			candies -= i
+		} else {
+			i = candies
+			candies = 0
+		}
 	}
-	return ' '
+	return nums
 }
 
-func (this *StringIterator) HasNext() bool {
-	return !(this.Index > len(this.compressedString)-1)
+func max(i, j int) int {
+	if i > j {
+		return i
+	}
+	return j
 }
