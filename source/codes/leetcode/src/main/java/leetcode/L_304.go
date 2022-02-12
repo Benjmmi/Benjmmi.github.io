@@ -4,7 +4,7 @@ type NumMatrix struct {
 	sums [][]int
 }
 
-func Constructor(matrix [][]int) NumMatrix {
+func Constructor1(matrix [][]int) NumMatrix {
 	N := len(matrix)
 	M := len(matrix[0])
 	var sumMatrix = NumMatrix{sums: make([][]int, N)}
