@@ -1,0 +1,13 @@
+I"o<p>内核为每个提交的队列条目添加了一个完成队列事件(CQE)。CQE 包含作为 SQE 的一部分提交的操作的状态。作为内核处理 SQE 的结果，只有一个 CQE 添加到完成队列中。这两者之间存在一一对应的关系。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># 注意
+这个结构是原始输入输出接口的一部分，在输入输出接口中定义。
+</code></pre></div></div>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">io_uring_cqe</span> <span class="p">{</span>
+    <span class="n">__u64</span>   <span class="n">user_data</span><span class="p">;</span>      <span class="cm">/* sqe-&gt;data 提交内容已传回 */</span>
+    <span class="n">__s32</span>   <span class="n">res</span><span class="p">;</span>            <span class="cm">/* 此事件的结果代码 */</span>
+    <span class="n">__u32</span>   <span class="n">flags</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div></div>
+:ET

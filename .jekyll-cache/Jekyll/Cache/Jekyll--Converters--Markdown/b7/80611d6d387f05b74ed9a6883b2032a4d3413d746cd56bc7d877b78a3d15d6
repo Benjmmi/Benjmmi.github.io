@@ -1,0 +1,324 @@
+I"�r<h1 id="背景">背景</h1>
+
+<p><code class="language-plaintext highlighter-rouge">kube-proxy</code> 是负责 k8s 集群内通信规则创建的组建，k8s 官方文档解释</p>
+
+<blockquote>
+  <p>Kubernetes 网络代理在每个节点上运行。网络代理反映了每个节点上 Kubernetes API 中定义的服务，
+并且可以执行简单的 TCP、UDP 和 SCTP 流转发，或者在一组后端进行 循环 TCP、UDP 和 SCTP 转发。</p>
+</blockquote>
+
+<p>但是 kube-proxy 本身并不负责流量转发等工作。</p>
+
+<h1 id="原理">原理</h1>
+
+<p><code class="language-plaintext highlighter-rouge">kube-proxy</code> 的工作就是 <code class="language-plaintext highlighter-rouge">watch</code> APIServer 中的 <code class="language-plaintext highlighter-rouge">svc</code> 和 <code class="language-plaintext highlighter-rouge">endpoint</code> 的创建。在 <code class="language-plaintext highlighter-rouge">watch</code> 到
+后端有相应的 <code class="language-plaintext highlighter-rouge">svc</code> 和 <code class="language-plaintext highlighter-rouge">Endpoint</code>创建之后会在当前节点创建相应的规则，如果当前通信机制使用的是 <code class="language-plaintext highlighter-rouge">iptables</code>
+那么久创建相应的 <code class="language-plaintext highlighter-rouge">iptables rules</code> 。如果通信组件使用的是 <code class="language-plaintext highlighter-rouge">ipvs</code> 那么久创建相应的 <code class="language-plaintext highlighter-rouge">ipvs</code> 规则。
+用作流量转发和负载均衡。</p>
+
+<p>关于 ipvs 相关原理参考：<a href="https://xie.infoq.cn/article/89e58c81cd2b1f13a5a847445">https://xie.infoq.cn/article/89e58c81cd2b1f13a5a847445</a></p>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 原理相对的简单，但是规则比较复杂而且多。将针对性的挑选进行解释。
+部署 <code class="language-plaintext highlighter-rouge">yaml</code> 配置如下：</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">apps/v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Deployment</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nginx</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">matchLabels</span><span class="pi">:</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">nginx</span>
+  <span class="na">replicas</span><span class="pi">:</span> <span class="m">1</span>
+  <span class="na">template</span><span class="pi">:</span>
+    <span class="na">metadata</span><span class="pi">:</span>
+      <span class="na">labels</span><span class="pi">:</span>
+        <span class="na">app</span><span class="pi">:</span> <span class="s">nginx</span>
+    <span class="na">spec</span><span class="pi">:</span>
+      <span class="na">containers</span><span class="pi">:</span>
+      <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">nginx</span>
+        <span class="na">image</span><span class="pi">:</span> <span class="s">nginx:1.14.2</span>
+        <span class="na">ports</span><span class="pi">:</span>
+        <span class="pi">-</span> <span class="na">containerPort</span><span class="pi">:</span> <span class="m">80</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">v1</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">Service</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">nginx</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">selector</span><span class="pi">:</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">nginx</span>
+  <span class="na">ports</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">protocol</span><span class="pi">:</span> <span class="s">TCP</span>
+    <span class="na">port</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="m">80</span>
+</code></pre></div></div>
+
+<p>现在有如下 <code class="language-plaintext highlighter-rouge">svc</code> 和 <code class="language-plaintext highlighter-rouge">endpoint</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>kubectl get svc
+NAME         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT<span class="o">(</span>S<span class="o">)</span>   AGE
+nginx        ClusterIP   10.107.122.198   &lt;none&gt;        80/TCP    9d
+
+<span class="nv">$ </span>kubectl get po <span class="nt">-o</span> wide
+NAME                     READY   STATUS    RESTARTS   AGE   IP                NODE    NOMINATED NODE   READINESS GATES
+nginx-6fcfb8df58-mw8js   1/1     Running   0          45h   192.168.236.133   k8s02   &lt;none&gt;           &lt;none&gt;
+nginx-6fcfb8df58-qqbbd   1/1     Running   0          45h   192.168.236.136   k8s02   &lt;none&gt;           &lt;none&gt;
+</code></pre></div></div>
+
+<p>对应的 <code class="language-plaintext highlighter-rouge">iptables rules</code></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># 入口链</span>
+Chain PREROUTING <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target         prot     opt     <span class="nb">source           </span>destination         
+KUBE-SERVICES  all      <span class="nt">--</span>    0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> kubernetes service portals <span class="k">*</span>/
+<span class="c"># 出口链</span>
+Chain OUTPUT <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target         prot     opt   <span class="nb">source              </span>destination         
+KUBE-SERVICES  all      <span class="nt">--</span>    0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> kubernetes service portals <span class="k">*</span>/
+<span class="c"># Endpoint 规则</span>
+Chain KUBE-SEP-UGFJDGWZKFFMLNCL <span class="o">(</span>1 references<span class="o">)</span>
+target          prot      opt     <span class="nb">source              </span>destination         
+KUBE-MARK-MASQ  all       <span class="nt">--</span>    192.168.236.133       0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/
+DNAT            tcp       <span class="nt">--</span>    0.0.0.0/0             0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/ tcp to:192.168.236.133:80
+<span class="c"># Endpoint 规则</span>
+Chain KUBE-SEP-ATB57SP3HHRBIRYE <span class="o">(</span>1 references<span class="o">)</span>
+target          prot      opt     <span class="nb">source              </span>destination         
+KUBE-MARK-MASQ  all       <span class="nt">--</span>    192.168.236.136       0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/
+DNAT            tcp       <span class="nt">--</span>     0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/ tcp to:192.168.236.136:80
+<span class="c"># Service 规则</span>
+Chain KUBE-SERVICES <span class="o">(</span>2 references<span class="o">)</span>
+target                      prot    opt   <span class="nb">source              </span>destination     
+KUBE-MARK-MASQ              tcp     <span class="nt">--</span>    <span class="o">!</span>192.168.0.0/16      10.107.122.198       /<span class="k">*</span> default/nginx: cluster IP <span class="k">*</span>/ tcp dpt:80
+KUBE-SVC-4N57TFCL4MD7ZTDA   tcp     <span class="nt">--</span>    0.0.0.0/0            10.107.122.198       /<span class="k">*</span> default/nginx: cluster IP <span class="k">*</span>/ tcp dpt:80
+<span class="c"># Service 负载均衡</span>
+Chain KUBE-SVC-4N57TFCL4MD7ZTDA <span class="o">(</span>1 references<span class="o">)</span>
+target                     prot    opt    <span class="nb">source             </span>destination         
+KUBE-SEP-UGFJDGWZKFFMLNCL  all      <span class="nt">--</span>   0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/ statistic mode random probability 0.50000000000
+KUBE-SEP-ATB57SP3HHRBIRYE  all      <span class="nt">--</span>   0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/nginx: <span class="k">*</span>/
+
+</code></pre></div></div>
+
+<p>首先 <code class="language-plaintext highlighter-rouge">iptalbes</code> 对应的工作流程就是创建一个一个 <code class="language-plaintext highlighter-rouge">chain</code> 来完成指定的工作。</p>
+
+<p>iptables 命令规则如下：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="o">[</span><span class="nt">-t</span> table] <span class="nb">command</span> <span class="o">[</span>match] <span class="o">[</span>target/jump] 
+</code></pre></div></div>
+<p>表有: <code class="language-plaintext highlighter-rouge">nat</code>、<code class="language-plaintext highlighter-rouge">mangle</code>、<code class="language-plaintext highlighter-rouge">filter</code>、<code class="language-plaintext highlighter-rouge">raw</code></p>
+
+<p>根据 <code class="language-plaintext highlighter-rouge">svc</code> 和 <code class="language-plaintext highlighter-rouge">Endpoint</code> 和展示出的 <code class="language-plaintext highlighter-rouge">iptables</code> 信息。可以参考规则如下：
+添加 <code class="language-plaintext highlighter-rouge">root</code> <strong>Chain</strong>：<code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code>
+命令如下：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat <span class="nt">-N</span> KUBE-SERVICES
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 是总链，也就是所有 <code class="language-plaintext highlighter-rouge">k8s</code> 规则链的 <code class="language-plaintext highlighter-rouge">root</code>。从而也就说明所有出入的流量都需要经过当前 <code class="language-plaintext highlighter-rouge">Chain</code> 的遍历。</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> PREROUTING <span class="nt">-p</span> all <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-j</span> KUBE-SERVICES
+iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> OUTPUT <span class="nt">-p</span> all <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-j</span> KUBE-SERVICES
+</code></pre></div></div>
+
+<p>任意协议、任意来源、任意目标，任意流量只要与当前节点接触就会触发跳转 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> <strong>Chain</strong>。</p>
+
+<p><code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 主要就是为了与 <code class="language-plaintext highlighter-rouge">k8s</code> 的 <code class="language-plaintext highlighter-rouge">svc</code> 想对应。每个 <code class="language-plaintext highlighter-rouge">svc</code> 需要创建自己的规则 <strong>Chain</strong>。所以首先创建一个 <code class="language-plaintext highlighter-rouge">nginx</code> <strong>Chain</strong>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat <span class="nt">-N</span> KUBE-SVC-NGINX
+</code></pre></div></div>
+
+<p>除了 <code class="language-plaintext highlighter-rouge">svc</code> 之外还有 <code class="language-plaintext highlighter-rouge">endpoint</code> 应为当前 <code class="language-plaintext highlighter-rouge">Endpoint</code> 对外的地址只限于对外访问，对内并不存在地址，所以还需要添加两个 <code class="language-plaintext highlighter-rouge">Endpoint</code> 对应的
+<code class="language-plaintext highlighter-rouge">iptables</code> 规则：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat <span class="nt">-N</span> KUBE-SEP-NGINX-1
+iptables <span class="nt">-t</span> nat <span class="nt">-N</span> KUBE-SEP-NGINX-2
+</code></pre></div></div>
+
+<p>展示下目前的规则列表：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-L</span>  <span class="nt">-t</span> nat <span class="nt">-n</span> 
+Chain PREROUTING <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-SERVICES  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0           
+
+Chain INPUT <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain OUTPUT <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-SERVICES  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0           
+
+Chain POSTROUTING <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain KUBE-SEP-NGINX-1 <span class="o">(</span>0 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain KUBE-SEP-NGINX-2 <span class="o">(</span>0 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain KUBE-SERVICES <span class="o">(</span>2 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain KUBE-SVC-NGINX <span class="o">(</span>0 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination 
+</code></pre></div></div>
+
+<p>基本差不多成型了，只要在每个 <strong>Chain</strong> 下面添加对应的实例信息即可
+<code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-1</code>、<code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-2</code> 监听对应的 <code class="language-plaintext highlighter-rouge">IP</code> 地址，然后转发到当前 <code class="language-plaintext highlighter-rouge">Node</code> 的 <code class="language-plaintext highlighter-rouge">Port</code>。
+上方 <code class="language-plaintext highlighter-rouge">Service</code> 规则如下：</p>
+<ol>
+  <li>监听 <code class="language-plaintext highlighter-rouge">tcp</code> 协议</li>
+  <li>访问 <code class="language-plaintext highlighter-rouge">Service</code> Port 转发至 <code class="language-plaintext highlighter-rouge">Node</code> Port
+分别添加：</li>
+</ol>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># DNAT            tcp       --    0.0.0.0/0             0.0.0.0/0   tcp to:192.168.236.133:80</span>
+
+iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> KUBE-SEP-NGINX-1 <span class="nt">-p</span> tcp <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-m</span> tcp <span class="nt">-j</span> DNAT <span class="nt">--to-destination</span> 192.168.236.133:80
+iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> KUBE-SEP-NGINX-2 <span class="nt">-p</span> tcp <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-m</span> tcp <span class="nt">-j</span> DNAT <span class="nt">--to-destination</span> 192.168.236.136:80
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-1</code>、<code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-2</code> 下面都有实例了，下面只要定制在访问 SVC 是重定向到 <code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-1</code>、
+<code class="language-plaintext highlighter-rouge">KUBE-SEP-NGINX-2</code> 即可。</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> KUBE-SVC-NGINX <span class="nt">-p</span> all  <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-j</span> KUBE-SEP-NGINX-1
+iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> KUBE-SVC-NGINX <span class="nt">-p</span> all  <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-j</span> KUBE-SEP-NGINX-2
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">svc</code> 的规则下面也有实例，但是也没有被添加到 <code class="language-plaintext highlighter-rouge">root</code> 也就是 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 下无法被遍历到，添加命令如下：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat  <span class="nt">-A</span> KUBE-SERVICES <span class="nt">-p</span> tcp <span class="o">!</span> <span class="nt">-s</span> 192.168.0.0/16 <span class="nt">-d</span> 10.107.122.198 <span class="nt">--dport</span> 80 <span class="nt">-j</span> KUBE-SVC-NGINX
+</code></pre></div></div>
+
+<p>最终规则如下：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>iptables <span class="nt">-L</span> <span class="nt">-n</span> <span class="nt">-t</span> nat
+
+</code></pre></div></div>
+
+<p>当然这里还没有结束，还需要添加 Mark 标记</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> nat <span class="nt">-N</span> KUBE-MARK-MASQ
+iptables <span class="nt">-t</span> nat <span class="nt">-A</span> KUBE-MARK-MASQ <span class="nt">-p</span> all <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 0.0.0.0/0 <span class="nt">-j</span> MARK <span class="nt">--or-mark</span> 0x4000
+iptables <span class="nt">-t</span> nat <span class="nt">-A</span> KUBE-SERVICES <span class="nt">-p</span> TCP <span class="nt">-s</span> 0.0.0.0/0 <span class="nt">-d</span> 10.107.122.198 <span class="nt">--dport</span> 80 <span class="nt">-j</span> KUBE-MARK-MASQ
+iptables <span class="nt">-t</span> nat <span class="nt">-A</span> KUBE-SEP-NGINX-1 <span class="nt">-p</span> all <span class="nt">-s</span> 192.168.236.133 <span class="nt">-j</span> KUBE-MARK-MASQ 
+iptables <span class="nt">-t</span> nat <span class="nt">-A</span> KUBE-SEP-NGINX-2 <span class="nt">-p</span> all <span class="nt">-s</span> 192.168.236.136 <span class="nt">-j</span> KUBE-MARK-MASQ
+</code></pre></div></div>
+
+<p>运行结果：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain PREROUTING <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-SERVICES  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0           
+
+Chain INPUT <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain OUTPUT <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-SERVICES  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0           
+
+Chain POSTROUTING <span class="o">(</span>policy ACCEPT<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+
+Chain KUBE-MARK-MASQ <span class="o">(</span>3 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+MARK       all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0            MARK or 0x4000
+
+Chain KUBE-SEP-NGINX-1 <span class="o">(</span>1 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-MARK-MASQ  all  <span class="nt">--</span>  192.168.236.133      0.0.0.0/0           
+DNAT       tcp  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0            tcp to:192.168.236.133:80
+
+Chain KUBE-SEP-NGINX-2 <span class="o">(</span>1 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-MARK-MASQ  all  <span class="nt">--</span>  192.168.236.136      0.0.0.0/0           
+DNAT       tcp  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0            tcp to:192.168.236.136:80
+
+Chain KUBE-SERVICES <span class="o">(</span>2 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  0.0.0.0/0            10.107.122.198       tcp dpt:80
+KUBE-SVC-NGINX  tcp  <span class="nt">--</span> <span class="o">!</span>192.168.0.0/16       10.107.122.198       tcp dpt:80
+
+Chain KUBE-SVC-NGINX <span class="o">(</span>1 references<span class="o">)</span>
+target     prot opt <span class="nb">source               </span>destination         
+KUBE-SEP-NGINX-1  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0           
+KUBE-SEP-NGINX-2  all  <span class="nt">--</span>  0.0.0.0/0            0.0.0.0/0 
+</code></pre></div></div>
+
+<h1 id="负载均衡策略">负载均衡策略</h1>
+
+<p>在没有负载均衡的策略下 <code class="language-plaintext highlighter-rouge">iptables</code> 匹配到规则就会发生跳转和执行，也就是说永远会触发第一条规则，
+这显然不符合我们所期望的负载均衡。</p>
+
+<p>解决这个问题需要引入 <code class="language-plaintext highlighter-rouge">iptables</code> 的负载均衡模块：<code class="language-plaintext highlighter-rouge">statistic</code> ，这个模块会根据统计的信息跳过或者执行
+其中一条规则。</p>
+
+<p>这个模块只有两个基本的负载均衡算法：</p>
+
+<ul>
+  <li>random：基于概率跳过这个规则</li>
+  <li>nth：基于轮询跳过这个规则</li>
+</ul>
+
+<blockquote>
+  <p><strong>这个负载均衡仅在TCP链接建立阶段生效，一旦链接建立了，这个链接将会一直被转发到同一个后端服务器</strong></p>
+</blockquote>
+
+<h1 id="随机">随机</h1>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-A</span> KUBE-SVC-4N57TFCL4MD7ZTDA <span class="nt">-m</span> comment <span class="nt">--comment</span> <span class="s2">"default/nginx:"</span> <span class="nt">-m</span> statistic <span class="nt">--mode</span> random <span class="nt">--probability</span> 0.50000000000 <span class="nt">-j</span> KUBE-SEP-UGFJDGWZKFFMLNCL
+iptables <span class="nt">-A</span> KUBE-SVC-4N57TFCL4MD7ZTDA <span class="nt">-m</span> comment <span class="nt">--comment</span> <span class="s2">"default/nginx:"</span> <span class="nt">-j</span> KUBE-SEP-ATB57SP3HHRBIRYE
+</code></pre></div></div>
+
+<p><strong>–mode random</strong>: 基于概率跳过这个规则
+<strong>–probability 0.50000000000</strong>：有 <code class="language-plaintext highlighter-rouge">50%</code> 概率跳过这个规则</p>
+
+<h1 id="轮询">轮询</h1>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>iptables <span class="nt">-t</span> mangle <span class="nt">-A</span> PREROUTING <span class="nt">-p</span> tcp <span class="nt">-m</span> state <span class="nt">--state</span> NEW <span class="nt">-m</span> statistic <span class="nt">--mode</span> nth <span class="nt">--every</span> 2 <span class="nt">--packet</span> 0 <span class="nt">-j</span> CONNMARK1
+iptables <span class="nt">-t</span> mangle <span class="nt">-A</span> PREROUTING <span class="nt">-p</span> tcp <span class="nt">-m</span> state <span class="nt">--state</span> NEW <span class="nt">-m</span> statistic <span class="nt">--mode</span> nth <span class="nt">--every</span> 2 <span class="nt">--packet</span> 1 <span class="nt">-j</span> CONNMARK2
+</code></pre></div></div>
+
+<p><strong>–mode nth</strong>：使用轮询算法
+<strong>–every 2 –packet 0</strong>：每<code class="language-plaintext highlighter-rouge">2</code>个包匹配 <code class="language-plaintext highlighter-rouge">0</code> 个</p>
+
+<h1 id="看看源码">看看源码</h1>
+
+<p>kube-proxy 的主要功能是监听服务和端点事件，然后将代理策略委托给机器。底层调用<code class="language-plaintext highlighter-rouge">docker/libnetwork</code>和l<code class="language-plaintext highlighter-rouge">ibnetwork</code>
+最后调用<code class="language-plaintext highlighter-rouge">netlink</code>和<code class="language-plaintext highlighter-rouge">netns</code>来实现创建ipvs等动作</p>
+
+<p><strong>代码入口：<code class="language-plaintext highlighter-rouge">cmd/kube-proxy/app/server.go Run()</code> 函数</strong>，通过命令行参数初始化proxyServer的配置</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">proxyServer</span><span class="p">,</span> <span class="n">err</span> <span class="o">:=</span> <span class="n">NewProxyServer</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+
+<span class="k">type</span> <span class="n">ProxyServer</span> <span class="k">struct</span> <span class="p">{</span>
+  <span class="c">// k8s client</span>
+  <span class="n">Client</span>                 <span class="n">clientset</span><span class="o">.</span><span class="n">Interface</span>
+  <span class="n">EventClient</span>            <span class="n">v1core</span><span class="o">.</span><span class="n">EventsGetter</span>
+  <span class="c">// iptables and ipvs related interface</span>
+  <span class="n">IptInterface</span>           <span class="n">utiliptables</span><span class="o">.</span><span class="n">Interface</span>
+  <span class="n">IpvsInterface</span>          <span class="n">utilipvs</span><span class="o">.</span><span class="n">Interface</span>
+  <span class="n">IpsetInterface</span>         <span class="n">utilipset</span><span class="o">.</span><span class="n">Interface</span>
+  <span class="n">execer</span>                 <span class="n">exec</span><span class="o">.</span><span class="n">Interface</span>
+  <span class="c">// 同步器处理</span>
+  <span class="n">Proxier</span>                <span class="n">proxy</span><span class="o">.</span><span class="n">Provider</span>
+  <span class="n">Broadcaster</span>            <span class="n">events</span><span class="o">.</span><span class="n">EventBroadcaster</span>
+  <span class="n">Recorder</span>               <span class="n">events</span><span class="o">.</span><span class="n">EventRecorder</span>
+  <span class="c">// k8s 状态跟踪配置</span>
+  <span class="n">ConntrackConfiguration</span> <span class="n">kubeproxyconfig</span><span class="o">.</span><span class="n">KubeProxyConntrackConfiguration</span>
+  <span class="n">Conntracker</span>            <span class="n">Conntracker</span> <span class="c">// if nil, ignored</span>
+  <span class="c">// 代理模式</span>
+  <span class="n">ProxyMode</span>              <span class="kt">string</span>
+  <span class="n">NodeRef</span>                <span class="o">*</span><span class="n">v1</span><span class="o">.</span><span class="n">ObjectReference</span>
+  <span class="n">MetricsBindAddress</span>     <span class="kt">string</span>
+  <span class="n">BindAddressHardFail</span>    <span class="kt">bool</span>
+  <span class="n">EnableProfiling</span>        <span class="kt">bool</span>
+  <span class="n">UseEndpointSlices</span>      <span class="kt">bool</span>
+  <span class="n">OOMScoreAdj</span>            <span class="o">*</span><span class="kt">int32</span>
+  <span class="n">ConfigSyncPeriod</span>       <span class="n">time</span><span class="o">.</span><span class="n">Duration</span>
+  <span class="n">HealthzServer</span>          <span class="n">healthcheck</span><span class="o">.</span><span class="n">ProxierHealthUpdater</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+:ET

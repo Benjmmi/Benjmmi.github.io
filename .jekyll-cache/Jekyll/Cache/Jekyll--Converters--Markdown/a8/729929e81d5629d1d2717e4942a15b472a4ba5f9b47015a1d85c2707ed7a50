@@ -1,0 +1,47 @@
+I"^<h1 id="netty-深入理解">Netty 深入理解</h1>
+
+<p>先考虑几个问题：</p>
+
+<ol>
+  <li>Netty 启动的时候会做些什么操作</li>
+  <li>Netty 初始化的时候需要做些什么操作</li>
+  <li>流量怎么进入 Netty 的，Netty 对其怎么做出处理的</li>
+  <li>流量在Netty 内部如何流转的</li>
+  <li>Netty 如何做到高并发的</li>
+  <li>Netty 的线程模型是怎么样的</li>
+  <li>Netty 十万个为什么</li>
+</ol>
+
+<h1 id="netty-深入理解-1">Netty 深入理解</h1>
+
+<h2 id="netty-怎么接入请求的怎么处理这些请求的">Netty 怎么接入请求的，怎么处理这些请求的</h2>
+
+<p>先简单理解下 reactor 线程模型，即有个线程在不停的轮询绑定的端口直到有新的连接进来，然后封装成一个程序可以处理的对象扔给后面的线程组去处理。也就说监听线程和处理线程进行了一个解耦并不是传统的同一个线程。</p>
+
+<p>而在 Netty 中的接口轮询的线程成为 Boss 线程，处理线程称为 Worker 线程。不管是 Boss 线程还是 Worker 线程，所做的事情均分为以下三个步骤：</p>
+<ol>
+  <li>轮询注册在 Selector 的 IO 事件</li>
+  <li>处理 IO 事件</li>
+  <li>执行异步 task</li>
+</ol>
+
+<p>对于 boss 线程，第一步轮询处理的基本都是 accept 事件，表示有新的丽娜姐，而 worker 线程轮询处理的基本都是 read/write 事件，表示网络的读写事件。</p>
+
+<p>服务端启动过程是在用户线程中开启，第一次添加异步任务的时候启动 boss 线程被启动，netty 将处理新连接的过程封装成一个 Channel，对于的 pipeline 会按顺序处理新建立的连接。
+所以我们关注三个点：1.启动 boss 线程，监听新的连接，2. 将连接封装成 Channel ， 3. pipeline 按顺序处理新的连接</p>
+
+<p>回顾上一页的代码，在</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">abstract</span> <span class="kd">class</span> <span class="nc">SingleThreadEventLoop</span> <span class="kd">extends</span> <span class="nc">SingleThreadEventExecutor</span> <span class="kd">implements</span> <span class="nc">EventLoop</span> <span class="o">{</span>
+    <span class="kd">public</span> <span class="nc">ChannelFuture</span> <span class="nf">register</span><span class="o">(</span><span class="kd">final</span> <span class="nc">ChannelPromise</span> <span class="n">promise</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nc">ObjectUtil</span><span class="o">.</span><span class="na">checkNotNull</span><span class="o">(</span><span class="n">promise</span><span class="o">,</span> <span class="s">"promise"</span><span class="o">);</span>
+        <span class="n">promise</span><span class="o">.</span><span class="na">channel</span><span class="o">().</span><span class="na">unsafe</span><span class="o">().</span><span class="na">register</span><span class="o">(</span><span class="k">this</span><span class="o">,</span> <span class="n">promise</span><span class="o">);</span>
+        <span class="k">return</span> <span class="n">promise</span><span class="o">;</span>
+    <span class="o">}</span>
+<span class="o">}</span>    
+</code></pre></div></div>
+
+<h2 id="参考文档">参考文档</h2>
+<p><a href="https://jeff-duan.github.io/downloads/resource/netty/Netty%20in%20Action-%E4%B8%AD%E6%96%87%E7%89%88.pdf">Netty 实战</a>
+<a href="https://segmentfault.com/a/1190000007282628">源码之下无秘密</a>
+<a href="https://netty.io/wiki/related-articles.html">Related articles</a></p>
+:ET

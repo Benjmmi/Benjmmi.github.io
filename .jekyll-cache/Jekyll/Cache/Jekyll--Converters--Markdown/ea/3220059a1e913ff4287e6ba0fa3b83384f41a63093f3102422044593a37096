@@ -1,0 +1,212 @@
+I"��<p>减少系统调用的次数是 <code class="language-plaintext highlighter-rouge">io_uring</code> 的一个主要目的。为此， <code class="language-plaintext highlighter-rouge">io_uring</code> 允许你提交I/O请求，而不需要进行一次系统调用。这是通过 <code class="language-plaintext highlighter-rouge">io_uring</code> 支持的一个特殊的提交队列轮询功能实现的。在这种模式下，当你的程序设置了轮询模式后， <code class="language-plaintext highlighter-rouge">io_uring</code> 就会启动一个特殊的内核线程，轮询共享的提交队列，查看你的程序可能添加的条目。这样一来，你只需要向共享队列提交条目，内核线程就会看到它，并获取提交队列条目，而不需要你的程序进行 <a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_enter()</a> 系统调用，这通常由<code class="language-plaintext highlighter-rouge">liburing</code> 来处理。这是在用户空间和内核之间共享队列的一个好处。</p>
+
+<p>如何使用这种模式？这个想法很简单。你通过在 <code class="language-plaintext highlighter-rouge">io_uring_params</code> 结构的 <code class="language-plaintext highlighter-rouge">flags</code> 成员中设置 <code class="language-plaintext highlighter-rouge">IORING_SETUP_SQPOLL</code> 标志来告诉 <code class="language-plaintext highlighter-rouge">io_uring</code> 你想使用这个模式。如果和你的进程一起启动的内核线程在一段时间内没有看到任何提交，它就会退出，你的程序需要再调用一次 <a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_enter()</a>系统调用来唤醒它。这个时间段可以通过 :c:struct`io_uring_params` 结构的 <code class="language-plaintext highlighter-rouge">sq_thread_idle</code> 成员来配置。但是，如果不断收到提交，内核轮询器线程应该永远不会休眠</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> # 注意：
+ 当使用 liburing 时，你永远不会直接调用 [io_uring_enter()](https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter) 系统调用。这通常由liburing的 [io_uring_submit()](https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_submit) 函数来处理。它能自动判断你是否使用轮询模式，并处理你的程序何时需要调用 [io_uring_enter()](https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter)，而不需要你判断。
+
+ # 注意
+ 内核的轮询线程会占用大量的CPU。你需要小心使用这个功能。设置一个非常大的sq_thread_idle值会导致内核线程在你的程序没有提交时继续消耗CPU。如果你真的期望处理大量的I/O，那么使用这个特性是个好主意。而即使你这样做，也最好将轮询线程的空闲值设置为最多几秒钟。
+</code></pre></div></div>
+
+<p>但是，如果您需要使用此功能，则还需要将其与 <a href="https://unixism.net/loti/ref-liburing/advanced_usage.html#c.io_uring_register_files">io_uring_register_files()</a>结合使用。使用它，您可以预先告诉内核有关文件描述符数组的信息。这只是您在启动I/O之前打开的常规文件描述符的数组。在提交期间，您需要在SQE的 <code class="language-plaintext highlighter-rouge">flags</code> 字段中设置 <code class="language-plaintext highlighter-rouge">IOSQE_FIXED_FILE</code> 标志，并传递您之前设置的文件描述符数组中的文件描述符的索引，而不是像通常那样将文件描述符传递给<a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read">io_uring_prep_read()</a>或 <a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write">io_uring_prep_write()</a> 等调用。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;unistd.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;fcntl.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;liburing.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#define BUF_SIZE    512
+#define FILE_NAME1  "/tmp/io_uring_sq_test.txt"
+#define STR1        "What is this life if, full of care,\n"
+#define STR2        "We have no time to stand and stare."
+</span>
+<span class="kt">void</span> <span class="nf">print_sq_poll_kernel_thread_status</span><span class="p">()</span> <span class="p">{</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">system</span><span class="p">(</span><span class="s">"ps --ppid 2 | grep io_uring-sq"</span> <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Kernel thread io_uring-sq found running...</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">else</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Kernel thread io_uring-sq is not running.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">start_sq_polling_ops</span><span class="p">(</span><span class="k">struct</span> <span class="n">io_uring</span> <span class="o">*</span><span class="n">ring</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kt">int</span> <span class="n">fds</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span>
+    <span class="kt">char</span> <span class="n">buff1</span><span class="p">[</span><span class="n">BUF_SIZE</span><span class="p">];</span>
+    <span class="kt">char</span> <span class="n">buff2</span><span class="p">[</span><span class="n">BUF_SIZE</span><span class="p">];</span>
+    <span class="kt">char</span> <span class="n">buff3</span><span class="p">[</span><span class="n">BUF_SIZE</span><span class="p">];</span>
+    <span class="kt">char</span> <span class="n">buff4</span><span class="p">[</span><span class="n">BUF_SIZE</span><span class="p">];</span>
+    <span class="k">struct</span> <span class="n">io_uring_sqe</span> <span class="o">*</span><span class="n">sqe</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">io_uring_cqe</span> <span class="o">*</span><span class="n">cqe</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">str1_sz</span> <span class="o">=</span> <span class="n">strlen</span><span class="p">(</span><span class="n">STR1</span><span class="p">);</span>
+    <span class="kt">int</span> <span class="n">str2_sz</span> <span class="o">=</span> <span class="n">strlen</span><span class="p">(</span><span class="n">STR2</span><span class="p">);</span>
+
+    <span class="n">fds</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="n">FILE_NAME1</span><span class="p">,</span> <span class="n">O_RDWR</span> <span class="o">|</span> <span class="n">O_TRUNC</span> <span class="o">|</span> <span class="n">O_CREAT</span><span class="p">,</span> <span class="mo">0644</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">fds</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"open"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">memset</span><span class="p">(</span><span class="n">buff1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">BUF_SIZE</span><span class="p">);</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">buff2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">BUF_SIZE</span><span class="p">);</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">buff3</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">BUF_SIZE</span><span class="p">);</span>
+    <span class="n">memset</span><span class="p">(</span><span class="n">buff4</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">BUF_SIZE</span><span class="p">);</span>
+    <span class="n">strncpy</span><span class="p">(</span><span class="n">buff1</span><span class="p">,</span> <span class="n">STR1</span><span class="p">,</span> <span class="n">str1_sz</span><span class="p">);</span>
+    <span class="n">strncpy</span><span class="p">(</span><span class="n">buff2</span><span class="p">,</span> <span class="n">STR2</span><span class="p">,</span> <span class="n">str2_sz</span><span class="p">);</span>
+
+    <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_register_files</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="n">fds</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error registering buffers: %s"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">io_uring_prep_write</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buff1</span><span class="p">,</span> <span class="n">str1_sz</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_FIXED_FILE</span><span class="p">;</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">io_uring_prep_write</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buff2</span><span class="p">,</span> <span class="n">str2_sz</span><span class="p">,</span> <span class="n">str1_sz</span><span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_FIXED_FILE</span><span class="p">;</span>
+
+    <span class="n">io_uring_submit</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+
+    <span class="k">for</span><span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">;</span> <span class="n">i</span> <span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_wait_cqe</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cqe</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error waiting for completion: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+                    <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+            <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="cm">/* Now that we have the CQE, let's process the data */</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error in async operation: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">));</span>
+        <span class="p">}</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Result of the operation: %d</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">);</span>
+        <span class="n">io_uring_cqe_seen</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="n">cqe</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="n">print_sq_poll_kernel_thread_status</span><span class="p">();</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">io_uring_prep_read</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buff3</span><span class="p">,</span> <span class="n">str1_sz</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_FIXED_FILE</span><span class="p">;</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">io_uring_prep_read</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">buff4</span><span class="p">,</span> <span class="n">str2_sz</span><span class="p">,</span> <span class="n">str1_sz</span><span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_FIXED_FILE</span><span class="p">;</span>
+
+    <span class="n">io_uring_submit</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+
+    <span class="k">for</span><span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">;</span> <span class="n">i</span> <span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_wait_cqe</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cqe</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error waiting for completion: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+                    <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+            <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="cm">/* Now that we have the CQE, let's process the data */</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error in async operation: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">));</span>
+        <span class="p">}</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Result of the operation: %d</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">);</span>
+        <span class="n">io_uring_cqe_seen</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="n">cqe</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"Contents read from file:</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"%s%s"</span><span class="p">,</span> <span class="n">buff3</span><span class="p">,</span> <span class="n">buff4</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">io_uring</span> <span class="n">ring</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">io_uring_params</span> <span class="n">params</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">geteuid</span><span class="p">())</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"You need root privileges to run this program.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">print_sq_poll_kernel_thread_status</span><span class="p">();</span>
+
+    <span class="n">memset</span><span class="p">(</span><span class="o">&amp;</span><span class="n">params</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">params</span><span class="p">));</span>
+    <span class="n">params</span><span class="p">.</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IORING_SETUP_SQPOLL</span><span class="p">;</span>
+    <span class="n">params</span><span class="p">.</span><span class="n">sq_thread_idle</span> <span class="o">=</span> <span class="mi">2000</span><span class="p">;</span>
+
+    <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_queue_init_params</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">params</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Unable to setup io_uring: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">start_sq_polling_ops</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="n">io_uring_queue_exit</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h1 id="它是如何工作的">它是如何工作的</h1>
+
+<p>这个示例程序很像我们之前看到的固定缓冲区示例。虽然我们使用 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read_fixed">io_uring_prep_read_fixed()</a></strong> 和 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write_fixed">io_uring_prep_write_fixed()</a></strong> 等专门函数来处理固定缓冲区，但我们使用了 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read">io_uring_prep_read()</a></strong>、<strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_readv">io_uring_prep_readv()</a></strong>、<strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write">io_uring_prep_write()</a></strong>或<strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_writev">io_uring_prep_writev()</a></strong>等常规函数。然而，在使用描述提交的SQE中，设置 <code class="language-plaintext highlighter-rouge">IOSQE_FIXED_FILE</code> 标志时，在文件描述符数组中使用文件描述符的索引，而不是在调用<strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_readv">io_uring_prep_readv()</a></strong>和 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_writev">io_uring_prep_writev()</a></strong> 等调用中使用文件描述符本身。</p>
+
+<p>当程序启动时，在我们设置 <code class="language-plaintext highlighter-rouge">io_uring</code> 实例之前，我们打印执行提交队列轮询的内核线程的运行状态。此线程的名称为 <code class="language-plaintext highlighter-rouge">io_uring-sq</code> 。函数 <code class="language-plaintext highlighter-rouge">print_sq_poll_kernel_thread_status()</code> 负责打印此状态。当然，如果有任何其他进程使用提交队列轮询，您将看到该内核线程确实在运行。所有内核线程的父线是 <code class="language-plaintext highlighter-rouge">kthreadd</code> 内核线程，这个线程是在 <code class="language-plaintext highlighter-rouge">init</code>之后马上启动的，众所周知，它的进程ID为1。因此，<code class="language-plaintext highlighter-rouge">kthreadd</code> 的PID为2，我们可以利用这一事实作为一种简单的优化来只过滤内核线程。</p>
+
+<p>为了初始化<code class="language-plaintext highlighter-rouge">io_uring</code>，我们使用 <strong><a href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init_params">io_uring_queue_init_params()</a></strong> 而不是常用的 <strong><a href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init">io_uring_queue_init()</a></strong> ，因为这需要一个指向 <strong>io_uring_params</strong> 结构的指针作为参数。正是在这个参数中，我们指定了 <code class="language-plaintext highlighter-rouge">IORING_SETUP_SQPOLL</code> 作为 <code class="language-plaintext highlighter-rouge">flags</code> 字段的一部分，并将 <code class="language-plaintext highlighter-rouge">sq_thread_idle</code> 设置为2000，这是提交队列轮询器内核线程的空闲时间。如果在这许多毫秒内没有提交，线程就会退出，需要通过 <code class="language-plaintext highlighter-rouge">liburing</code> 在内部进行 <strong><a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_enter()</a></strong> 系统调用，让内核线程再次启动。</p>
+
+<p>由于提交队列轮询只能与固定文件结合使用，因此我们首先要注册处理的唯一文件描述符。如果要处理更多的文件，这时你要用 <strong><a href="https://unixism.net/loti/ref-liburing/advanced_usage.html#c.io_uring_register_files">io_uring_register_files()</a></strong> 函数打开并注册它们。对于每次提交，您需要使用 <code class="language-plaintext highlighter-rouge">io_sqe_set_flag()</code> 辅助函数设置 <code class="language-plaintext highlighter-rouge">IOSQE_FIXED_FILE</code> 标志，并将注册文件数组中打开文件的索引(而不是实际文件描述符本身)提供给 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read">io_uring_prep_read()</a></strong> 或 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write">io_uring_prep_write()</a></strong> 等函数。</p>
+
+<p>在这个例子中，我们有4个缓冲区。前2个缓冲区被2个写操作用来向文件中各写一行。之后，我们用第3个和第4个缓冲区再进行2次读操作，读取这2行写入的内容并打印出来。写操作结束后，我们打印 <code class="language-plaintext highlighter-rouge">io_uring-sq</code> 内核线程的状态，现在我们应该发现它正在运行。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>➜  sudo ./sq_poll
+[sudo] password for shuveb:
+Kernel thread io_uring-sq is not running.
+Result of the operation: 36
+Result of the operation: 35
+   1750 ?        00:00:00 io_uring-sq
+Kernel thread io_uring-sq found running...
+Result of the operation: 36
+Result of the operation: 35
+Contents read from file:
+What is this life if, full of care,
+We have no time to stand and stare.%    
+</code></pre></div></div>
+
+<h1 id="通过内核验证轮询">通过内核验证轮询</h1>
+
+<p>但是，您需要调用 <strong><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_submit">io_uring_submit()</a></strong>。我们在前面的示例中看到，这会导致发出 <strong><a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_enter()</a></strong> 系统调用。但是，在已经设置了 <code class="language-plaintext highlighter-rouge">IORING_SETUP_SQPOLL</code> 标志的情况下不是这样。 <code class="language-plaintext highlighter-rouge">liburing</code> 完全隐藏了这一点，同时保持了程序的持续接口。但是，我们能证实这一点吗?当然，我们可以通过使用eBPF的 <code class="language-plaintext highlighter-rouge">bpftrace</code> 程序来窥探系统。这里，我们将在 <code class="language-plaintext highlighter-rouge">io_uring</code> 设置的内核中使用跟踪点来证明，当我们设置 <code class="language-plaintext highlighter-rouge">IORING_SETUP_SQPOLL</code> 并提交I/O请求时，尽管我们调用了 <strong><a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_submit()</a></strong> 函数，但我们的程序不会执行 <strong><a href="https://unixism.net/loti/ref-iouring/io_uring_enter.html#c.io_uring_enter">io_uring_enter()</a></strong> 系统调用。如前所述，对于高吞吐量的程序，我们的想法是尽可能地避免系统调用。</p>
+
+<p>在下面的程序中，我们添加一个 tracepoint 到 <code class="language-plaintext highlighter-rouge">io_uring</code> 的 <code class="language-plaintext highlighter-rouge">io_uring_submit_sqe</code> 。每当一个SQE被提交给内核时，这个tracepoint就会被触发。每次这个tracepoint被触发，我们使用 <code class="language-plaintext highlighter-rouge">bpftrace</code> 来打印命令的名称和它的PID。首先，让我们在一个终端上运行 <code class="language-plaintext highlighter-rouge">bpftrace</code> 命令，同时在另一个终端上运行<a href="https://unixism.net/loti/tutorial/fixed_buffers.html#fixed-buffers">固定缓冲区</a>的例子。下面是我机器上的输出示例。你可以看到 <code class="language-plaintext highlighter-rouge">fixed_buffers</code> 是提交SQE的那个。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>➜  sudo bpftrace -e 'tracepoint:io_uring:io_uring_submit_sqe {printf("%s(%d)\n", comm, pid);}'
+Attaching 1 probe...
+fixed_buffers(30336)
+fixed_buffers(30336)
+fixed_buffers(30336)
+fixed_buffers(30336)
+</code></pre></div></div>
+
+<p>让我们重复前面的练习，但现在运行当前的例子。你可以看到，SQE的提交是通过 <code class="language-plaintext highlighter-rouge">io_uring_sq</code> 内核线程进行的。因此我们避免了系统调用。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>➜  sudo bpftrace -e 'tracepoint:io_uring:io_uring_submit_sqe {printf("%s(%d)\n", comm, pid);}'
+io_uring-sq(30429)
+io_uring-sq(30429)
+io_uring-sq(30429)
+io_uring-sq(30429)
+</code></pre></div></div>
+
+<h1 id="源代码">源代码</h1>
+
+<p>这个和其他例子的源代码可以在 <a href="https://github.com/shuveb/loti-examples">Github</a> 上找到。</p>
+:ET

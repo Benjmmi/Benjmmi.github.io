@@ -1,0 +1,221 @@
+I"�b<h1 id="cat-使用-liburing-实现">cat 使用 liburing 实现</h1>
+
+<p>我们看到，用io_uring构建一个读取文件的程序这么简单的东西，可能并不那么简单。事实证明，与读取同步 i/o 文件的程序相比，它的代码更多。但是，如果你分析使用<a href="https://unixism.net/loti/low_level.html#low-level">底层 io _ uring 接口的 cat 实用程序</a>的代码，你会发现大部分代码都是重复代码，可以很容易地隐藏在一个单独的文件中，它应该不会出现在应用逻辑。无论如何，无论如何，我们学习底层的io_uring细节是为了更好地理解它的工作原理。现在，让我们看看如何使用 liburing 实现功能类似的程序。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;sys/stat.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;sys/ioctl.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;liburing.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#define QUEUE_DEPTH 1
+#define BLOCK_SZ    1024
+</span>
+<span class="k">struct</span> <span class="n">file_info</span> <span class="p">{</span>
+    <span class="kt">off_t</span> <span class="n">file_sz</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">iovec</span> <span class="n">iovecs</span><span class="p">[];</span>      <span class="cm">/* Referred by readv/writev */</span>
+<span class="p">};</span>
+
+<span class="cm">/*
+* 返回传入打开文件描述符的文件的大小。 
+* 正确处理常规文件和块设备。
+* */</span>
+
+<span class="kt">off_t</span> <span class="nf">get_file_size</span><span class="p">(</span><span class="kt">int</span> <span class="n">fd</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">stat</span> <span class="n">st</span><span class="p">;</span>
+    <span class="c1">// 判断文件是否存在</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">fstat</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">st</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"fstat"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">S_ISBLK</span><span class="p">(</span><span class="n">st</span><span class="p">.</span><span class="n">st_mode</span><span class="p">))</span> <span class="p">{</span>
+        <span class="kt">unsigned</span> <span class="kt">long</span> <span class="kt">long</span> <span class="n">bytes</span><span class="p">;</span>
+        <span class="c1">// 获取文件字节大小64位</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ioctl</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">BLKGETSIZE64</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">bytes</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">perror</span><span class="p">(</span><span class="s">"ioctl"</span><span class="p">);</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">bytes</span><span class="p">;</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">S_ISREG</span><span class="p">(</span><span class="n">st</span><span class="p">.</span><span class="n">st_mode</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">st</span><span class="p">.</span><span class="n">st_size</span><span class="p">;</span>
+
+    <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/*
+ * 输出一串长度为len的字符到stdout。
+ * 我们在这里使用缓冲输出是有效的，因为我们需要逐字符输出。
+ * */</span>
+<span class="kt">void</span> <span class="nf">output_to_console</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">buf</span><span class="p">,</span> <span class="kt">int</span> <span class="n">len</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">while</span> <span class="p">(</span><span class="n">len</span><span class="o">--</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fputc</span><span class="p">(</span><span class="o">*</span><span class="n">buf</span><span class="o">++</span><span class="p">,</span> <span class="n">stdout</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="cm">/*
+ * 等待完成可用，从readv操作中获取数据并打印到控制台。
+ * */</span>
+
+<span class="kt">int</span> <span class="nf">get_completion_and_print</span><span class="p">(</span><span class="k">struct</span> <span class="n">io_uring</span> <span class="o">*</span><span class="n">ring</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">io_uring_cqe</span> <span class="o">*</span><span class="n">cqe</span><span class="p">;</span>
+    <span class="c1">// 等待完成队列</span>
+    <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_wait_cqe</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cqe</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"io_uring_wait_cqe"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="c1">// 如果完成队列的事件代码小于0</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Async readv failed.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="c1">// 获取完成队列的数据返回</span>
+    <span class="k">struct</span> <span class="n">file_info</span> <span class="o">*</span><span class="n">fi</span> <span class="o">=</span> <span class="n">io_uring_cqe_get_data</span><span class="p">(</span><span class="n">cqe</span><span class="p">);</span>
+    <span class="c1">// 文件字节大小初一数据块大小，按照 1024 字节切割</span>
+    <span class="kt">int</span> <span class="n">blocks</span> <span class="o">=</span> <span class="p">(</span><span class="kt">int</span><span class="p">)</span> <span class="n">fi</span><span class="o">-&gt;</span><span class="n">file_sz</span> <span class="o">/</span> <span class="n">BLOCK_SZ</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">fi</span><span class="o">-&gt;</span><span class="n">file_sz</span> <span class="o">%</span> <span class="n">BLOCK_SZ</span><span class="p">)</span> <span class="n">blocks</span><span class="o">++</span><span class="p">;</span>
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">blocks</span><span class="p">;</span> <span class="n">i</span> <span class="o">++</span><span class="p">)</span>
+        <span class="n">output_to_console</span><span class="p">(</span><span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">iov_base</span><span class="p">,</span> <span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">[</span><span class="n">i</span><span class="p">].</span><span class="n">iov_len</span><span class="p">);</span>
+
+    <span class="n">io_uring_cqe_seen</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="n">cqe</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/*
+ * 通过liburing提交readv请求
+ * */</span>
+<span class="kt">int</span> <span class="nf">submit_read_request</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">file_path</span><span class="p">,</span> <span class="k">struct</span> <span class="n">io_uring</span> <span class="o">*</span><span class="n">ring</span><span class="p">)</span> <span class="p">{</span>
+	<span class="c1">// 打开文件</span>
+    <span class="kt">int</span> <span class="n">file_fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="n">O_RDONLY</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">file_fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"open"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="c1">// 获取文件大小</span>
+    <span class="kt">off_t</span> <span class="n">file_sz</span> <span class="o">=</span> <span class="n">get_file_size</span><span class="p">(</span><span class="n">file_fd</span><span class="p">);</span>
+    <span class="c1">// 文件剩余字节数</span>
+    <span class="kt">off_t</span> <span class="n">bytes_remaining</span> <span class="o">=</span> <span class="n">file_sz</span><span class="p">;</span>
+    <span class="c1">// 偏移值</span>
+    <span class="kt">off_t</span> <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="c1">// 当前块大小</span>
+    <span class="kt">int</span> <span class="n">current_block</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="c1">// 计算文件可以切割多少快</span>
+    <span class="kt">int</span> <span class="n">blocks</span> <span class="o">=</span> <span class="p">(</span><span class="kt">int</span><span class="p">)</span> <span class="n">file_sz</span> <span class="o">/</span> <span class="n">BLOCK_SZ</span><span class="p">;</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">file_sz</span> <span class="o">%</span> <span class="n">BLOCK_SZ</span><span class="p">)</span> <span class="n">blocks</span><span class="o">++</span><span class="p">;</span>
+    <span class="c1">// 分配文件大小信息</span>
+    <span class="k">struct</span> <span class="n">file_info</span> <span class="o">*</span><span class="n">fi</span> <span class="o">=</span> <span class="n">malloc</span><span class="p">(</span><span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">fi</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span> <span class="n">iovec</span><span class="p">)</span> <span class="o">*</span> <span class="n">blocks</span><span class="p">));</span>
+    <span class="c1">// 分配空间</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">buff</span> <span class="o">=</span> <span class="n">malloc</span><span class="p">(</span><span class="n">file_sz</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">buff</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Unable to allocate memory.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/*
+     * 对于我们需要读取的文件的每个块，
+     * 我们分配一个iovec结构，它被索引到iovecs数组中。 
+     * 此数组作为提交的一部分传入。 如果您不明白这一点，
+     * 那么您需要查找readv()和writev()系统调用是如何工作的。
+     * */</span>
+    <span class="k">while</span> <span class="p">(</span><span class="n">bytes_remaining</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">off_t</span> <span class="n">bytes_to_read</span> <span class="o">=</span> <span class="n">bytes_remaining</span><span class="p">;</span>
+        <span class="c1">// 每次最多读 1024 字节</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">bytes_to_read</span> <span class="o">&gt;</span> <span class="n">BLOCK_SZ</span><span class="p">)</span>
+            <span class="n">bytes_to_read</span> <span class="o">=</span> <span class="n">BLOCK_SZ</span><span class="p">;</span>
+        <span class="c1">// 偏移值</span>
+        <span class="n">offset</span> <span class="o">+=</span> <span class="n">bytes_to_read</span><span class="p">;</span>
+
+        <span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">[</span><span class="n">current_block</span><span class="p">].</span><span class="n">iov_len</span> <span class="o">=</span> <span class="n">bytes_to_read</span><span class="p">;</span>
+        <span class="kt">void</span> <span class="o">*</span><span class="n">buf</span><span class="p">;</span>
+        <span class="c1">// posix_memalign:https://blog.csdn.net/wallwind/article/details/7461701</span>
+        <span class="c1">// 动态分配内存，1024 字节对齐</span>
+        <span class="k">if</span><span class="p">(</span> <span class="n">posix_memalign</span><span class="p">(</span><span class="o">&amp;</span><span class="n">buf</span><span class="p">,</span> <span class="n">BLOCK_SZ</span><span class="p">,</span> <span class="n">BLOCK_SZ</span><span class="p">))</span> <span class="p">{</span>
+            <span class="n">perror</span><span class="p">(</span><span class="s">"posix_memalign"</span><span class="p">);</span>
+            <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="c1">// 数据的基地地址</span>
+        <span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">[</span><span class="n">current_block</span><span class="p">].</span><span class="n">iov_base</span> <span class="o">=</span> <span class="n">buf</span><span class="p">;</span>
+        <span class="c1">// 当前块大小加一</span>
+        <span class="n">current_block</span><span class="o">++</span><span class="p">;</span>
+        <span class="c1">// 剩余字节数减一</span>
+        <span class="n">bytes_remaining</span> <span class="o">-=</span> <span class="n">bytes_to_read</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">fi</span><span class="o">-&gt;</span><span class="n">file_sz</span> <span class="o">=</span> <span class="n">file_sz</span><span class="p">;</span>
+
+    <span class="cm">/* 获取一个 SQE */</span>
+    <span class="k">struct</span> <span class="n">io_uring_sqe</span> <span class="o">*</span><span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="cm">/* 设置读操作n */</span>
+    <span class="n">io_uring_prep_readv</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">file_fd</span><span class="p">,</span> <span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">,</span> <span class="n">blocks</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+    <span class="cm">/* 设置用户数据 */</span>
+    <span class="n">io_uring_sqe_set_data</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">fi</span><span class="p">);</span>
+    <span class="cm">/* 最后提交请求 */</span>
+    <span class="n">io_uring_submit</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span> <span class="o">*</span><span class="n">argv</span><span class="p">[])</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">io_uring</span> <span class="n">ring</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">argc</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Usage: %s [file name] &lt;[file name] ...&gt;</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+                <span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="cm">/* Initialize io_uring */</span>
+    <span class="n">io_uring_queue_init</span><span class="p">(</span><span class="n">QUEUE_DEPTH</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ring</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">argc</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">submit_read_request</span><span class="p">(</span><span class="n">argv</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error reading file: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">argv</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span>
+            <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="n">get_completion_and_print</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="p">}</span>
+
+    <span class="cm">/* Call the clean-up function. */</span>
+    <span class="n">io_uring_queue_exit</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>重复的代码被提取后。让我们快速浏览一下。我们像这样初始化 io_uring:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">io_uring_queue_init</span><span class="p">(</span><span class="n">QUEUE_DEPTH</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ring</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+</code></pre></div></div>
+<p>在方法 submit_read_request()中，我们得到一个 SQE，准备执行 readv 操作并提交它。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cm">/* 获取一个 SQE */</span>
+<span class="k">struct</span> <span class="n">io_uring_sqe</span> <span class="o">*</span><span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+<span class="cm">/* 设置一个 readv 操作 */</span>
+<span class="n">io_uring_prep_readv</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">file_fd</span><span class="p">,</span> <span class="n">fi</span><span class="o">-&gt;</span><span class="n">iovecs</span><span class="p">,</span> <span class="n">blocks</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+<span class="cm">/* 设置 user_data */</span>
+<span class="n">io_uring_sqe_set_data</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">fi</span><span class="p">);</span>
+<span class="cm">/* 最后提交请求 */</span>
+<span class="n">io_uring_submit</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>我们等待一个完成事件，然后得到我们在提交端设置的用户数据，如下所示:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">io_uring_cqe</span> <span class="o">*</span><span class="n">cqe</span><span class="p">;</span>
+<span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_wait_cqe</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cqe</span><span class="p">);</span>
+<span class="k">struct</span> <span class="n">file_info</span> <span class="o">*</span><span class="n">fi</span> <span class="o">=</span> <span class="n">io_uring_cqe_get_data</span><span class="p">(</span><span class="n">cqe</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>当然，与使用原始界面相比，使用这个界面要简单得多。</p>
+
+<h1 id="参考">参考</h1>
+<ul>
+  <li><a href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init">io_uring_queue_init()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_get_sqe">io_uring_get_sqe()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_readv">io_uring_prep_readv()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_sqe_set_data">io_uring_sqe_set_data()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_submit">io_uring_submit()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/completion.html#c.io_uring_wait_cqe">io_uring_wait_cqe()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/completion.html#c.io_uring_cqe_get_data">io_uring_cqe_get_data()</a></li>
+  <li><a href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_exit">io_uring_queue_exit()</a></li>
+</ul>
+:ET

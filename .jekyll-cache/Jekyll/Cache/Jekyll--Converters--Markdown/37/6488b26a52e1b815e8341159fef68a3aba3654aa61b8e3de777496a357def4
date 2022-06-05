@@ -1,0 +1,179 @@
+I"EU<h1 id="linux-内核网络-理论篇-设备模型">Linux-内核网络-理论篇-设备模型</h1>
+
+<h2 id="初衷">初衷</h2>
+
+<p>设备模型诞生的初衷：为了<strong>解决</strong>越来越复杂的设备拓扑结构问题。
+问题描述：最早的内核中没有独立的数据结构来让内核获得整体系统的配合信息。虽然一开始可以正常
+的工作，但是随着拓扑结构越来越复杂，以及要支持更多的新特性内核就优点力不从心了，陷入无法维
+护的情况。
+<strong>总结</strong>来说设备模型是为了内核更好的管理设备和让开发者更好的扩展新设备新功能</p>
+
+<p>建立设备模型后内核系统具有了如下的优点：</p>
+<ol>
+  <li>代码重复降到最低</li>
+  <li>提供了统一的引用计数机制</li>
+  <li>可以很方便的罗列出所有的设备，很方便的检查他们的状态、连接的总线</li>
+  <li>可以将系统中的所有设备以树形结构展示。包括了总线和内部连接</li>
+  <li>可以将设备和对应的驱动程序相互联系起来</li>
+  <li>可以将设备按照类型分类</li>
+  <li>可以从设备树的叶节点向根遍历</li>
+</ol>
+
+<p>案例：关闭电源，若是想正确的关闭电源肯定要建立一个优先级的顺序和结构，先依次向下遍历叶节点中
+的子系统比如:<code class="language-plaintext highlighter-rouge">USB</code>、<code class="language-plaintext highlighter-rouge">PCI</code>。再逐个网上遍历父级系统，最终关闭根电源系统。（反思一下，如果这
+些关闭方式都由各个子系统自己负责，那是多么混乱）</p>
+
+<p>设备模型有几个简单的数据结构：<code class="language-plaintext highlighter-rouge">kobject</code>、<code class="language-plaintext highlighter-rouge">kset</code>、<code class="language-plaintext highlighter-rouge">ktype</code> 和 <code class="language-plaintext highlighter-rouge">子系统</code></p>
+
+<h2 id="kobject">kobject</h2>
+
+<p><code class="language-plaintext highlighter-rouge">kobject</code> 是设备模型中最核心的也是最基本的数据结构。最初只负责<code class="language-plaintext highlighter-rouge">引用计数</code>的功能，但是随着系
+统的更新 <code class="language-plaintext highlighter-rouge">kobject</code> 负责的任务越来越多。所以字段也增加了很多，数据结构：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kobject</span> <span class="p">{</span>
+	<span class="k">const</span> <span class="kt">char</span>		<span class="o">*</span><span class="n">name</span><span class="p">;</span> <span class="c1">// kobject 的名称</span>
+	<span class="k">struct</span> <span class="n">list_head</span>	<span class="n">entry</span><span class="p">;</span> <span class="c1">// </span>
+	<span class="k">struct</span> <span class="n">kobject</span>		<span class="o">*</span><span class="n">parent</span><span class="p">;</span> <span class="c1">// kobject 的父对象</span>
+	<span class="k">struct</span> <span class="n">kset</span>		<span class="o">*</span><span class="n">kset</span><span class="p">;</span> 
+	<span class="k">struct</span> <span class="n">kobj_type</span>	<span class="o">*</span><span class="n">ktype</span><span class="p">;</span>
+	<span class="k">struct</span> <span class="n">kernfs_node</span>	<span class="o">*</span><span class="n">sd</span><span class="p">;</span> <span class="c1">// 指向 sysfs_dirent 结构体</span>
+	<span class="k">struct</span> <span class="n">kref</span>		<span class="n">kref</span><span class="p">;</span> <span class="c1">// 引用计数器</span>
+<span class="cp">#ifdef CONFIG_DEBUG_KOBJECT_RELEASE
+</span>	<span class="k">struct</span> <span class="n">delayed_work</span>	<span class="n">release</span><span class="p">;</span>
+<span class="cp">#endif
+</span>	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">state_initialized</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">state_in_sysfs</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">state_add_uevent_sent</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">state_remove_uevent_sent</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">uevent_suppress</span><span class="o">:</span><span class="mi">1</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">kobject</code> 如果单独使用的话好像并没有什么意义，所以 <code class="language-plaintext highlighter-rouge">kobject</code> 一般是嵌入到其他结构中。可以
+认为通过 <code class="language-plaintext highlighter-rouge">kobject</code> 结构，让开发者使用面向对象的方式思考开发步骤，降低了开发难度。比如：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">cdev</span> <span class="p">{</span>
+	<span class="k">struct</span> <span class="n">kobject</span> <span class="n">kobj</span><span class="p">;</span>
+	<span class="k">struct</span> <span class="n">module</span> <span class="o">*</span><span class="n">owner</span><span class="p">;</span>
+	<span class="k">const</span> <span class="k">struct</span> <span class="n">file_operations</span> <span class="o">*</span><span class="n">ops</span><span class="p">;</span>
+	<span class="k">struct</span> <span class="n">list_head</span> <span class="n">list</span><span class="p">;</span>
+	<span class="n">dev_t</span> <span class="n">dev</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">count</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">__randomize_layout</span><span class="p">;</span>
+</code></pre></div></div>
+
+<h2 id="ktype">ktype</h2>
+
+<p><code class="language-plaintext highlighter-rouge">ktype</code> 是 <code class="language-plaintext highlighter-rouge">kobject</code> 依赖的一个特殊类型。<code class="language-plaintext highlighter-rouge">ktype</code> 原型为 <code class="language-plaintext highlighter-rouge">kobj_type</code> 结构体，主要定义了
+<code class="language-plaintext highlighter-rouge">kobject</code> 普遍的特性。比如：释放、<code class="language-plaintext highlighter-rouge">sysfs</code> 文件操作、属性字段等。
+<code class="language-plaintext highlighter-rouge">ktype</code> 特点：同类型的 <code class="language-plaintext highlighter-rouge">kobject</code> 可以共享 <code class="language-plaintext highlighter-rouge">ktype</code></p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kobj_type</span> <span class="p">{</span>
+	<span class="kt">void</span> <span class="p">(</span><span class="o">*</span><span class="n">release</span><span class="p">)(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">);</span> <span class="c1">// 析构函数</span>
+	<span class="k">const</span> <span class="k">struct</span> <span class="n">sysfs_ops</span> <span class="o">*</span><span class="n">sysfs_ops</span><span class="p">;</span> <span class="c1">// sysfs 文件读写时的特性</span>
+	<span class="k">struct</span> <span class="n">attribute</span> <span class="o">**</span><span class="n">default_attrs</span><span class="p">;</span>	 <span class="c1">// kobject 相关的默认属性</span>
+	<span class="k">const</span> <span class="k">struct</span> <span class="n">attribute_group</span> <span class="o">**</span><span class="n">default_groups</span><span class="p">;</span> <span class="c1">// 属性分组</span>
+	<span class="k">const</span> <span class="k">struct</span> <span class="n">kobj_ns_type_operations</span> <span class="o">*</span><span class="p">(</span><span class="o">*</span><span class="n">child_ns_type</span><span class="p">)(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">);</span>
+	<span class="k">const</span> <span class="kt">void</span> <span class="o">*</span><span class="p">(</span><span class="o">*</span><span class="n">namespace</span><span class="p">)(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">);</span>
+	<span class="kt">void</span> <span class="p">(</span><span class="o">*</span><span class="n">get_ownership</span><span class="p">)(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">,</span> <span class="n">kuid_t</span> <span class="o">*</span><span class="n">uid</span><span class="p">,</span> <span class="n">kgid_t</span> <span class="o">*</span><span class="n">gid</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">release</code>:指针指向 <code class="language-plaintext highlighter-rouge">kobject</code> 的析构函数，当应用计数降为 <code class="language-plaintext highlighter-rouge">0</code> 的时候将自动调用
+<code class="language-plaintext highlighter-rouge">sysfs_ops</code>:指向 <code class="language-plaintext highlighter-rouge">sysfs_ops</code> 结构体。主要描述了读写 <code class="language-plaintext highlighter-rouge">sysfs</code> 文件读写时的特性
+<code class="language-plaintext highlighter-rouge">default_attrs</code>: 定义了 <code class="language-plaintext highlighter-rouge">kobject</code> 默认属性，会随着 <code class="language-plaintext highlighter-rouge">kobject</code> 导出到 <code class="language-plaintext highlighter-rouge">sysfs</code> 而导出</p>
+
+<h2 id="kobject-使用"><code class="language-plaintext highlighter-rouge">kobject</code> 使用</h2>
+
+<p>按照惯例都需要初始化，<code class="language-plaintext highlighter-rouge">kobject</code> 也不例外在初始化之前需要清空<code class="language-plaintext highlighter-rouge">kobject</code> ，如果没有整个清空
+在使用的时候经常会发生一些奇奇怪怪的事情，然后调用 <code class="language-plaintext highlighter-rouge">kobject_init</code> 函数。</p>
+
+<p><code class="language-plaintext highlighter-rouge">void kobject_init(struct kobject *kobj, struct kobj_type *ktype);</code></p>
+
+<p>第一个参数就是需要初始的 <code class="language-plaintext highlighter-rouge">kobject</code> 对象，第二个参数就是 <code class="language-plaintext highlighter-rouge">ktype</code> ，调用步骤如下参考:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">;</span>
+<span class="n">kobj</span> <span class="o">=</span> <span class="n">kzmalloc</span><span class="p">(</span><span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">kobj</span><span class="p">),</span> <span class="n">GFP_KERNEL</span><span class="p">);</span>
+<span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="n">kobj</span><span class="p">)</span>
+	<span class="k">return</span> <span class="o">-</span><span class="n">ENOMEM</span><span class="p">;</span>
+<span class="n">kobj</span><span class="o">-&gt;</span><span class="n">set</span> <span class="o">=</span> <span class="n">mykset</span><span class="p">;</span>
+<span class="n">kobject_init</span><span class="p">(</span><span class="n">kobj</span><span class="p">,</span> <span class="n">myktyp</span><span class="p">);</span>
+</code></pre></div></div>
+<p>通过上述的步骤就可以获得一个初始化后的 <code class="language-plaintext highlighter-rouge">kobject</code> 当然现在为了方便使用已经将很多操作步骤
+整合为一个函数了: <code class="language-plaintext highlighter-rouge">kobject_create</code> 。当调用这个函数时会自动返回一个 <code class="language-plaintext highlighter-rouge">kobject</code> 使用起
+来相当便捷:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">;</span>
+<span class="n">kobj</span> <span class="o">=</span> <span class="n">kobject_create</span><span class="p">();</span>
+<span class="k">if</span><span class="p">(</span><span class="o">!</span><span class="n">kobj</span><span class="p">)</span>
+	<span class="k">return</span> <span class="o">-</span><span class="n">ENOMEM</span><span class="p">;</span>
+</code></pre></div></div>
+<p>然后在使用 <code class="language-plaintext highlighter-rouge">kobject</code> 的时候最起码要给 <code class="language-plaintext highlighter-rouge">kobject</code> 一个名字，使用如下函数:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">kobject_set_name</span><span class="p">(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">name</span><span class="p">,</span> <span class="p">...);</span>
+<span class="kt">int</span> <span class="nf">kobject_set_name_vargs</span><span class="p">(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">fmt</span><span class="p">,</span><span class="kt">va_list</span> <span class="n">vargs</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">kobject</code> 主要功能之一就是提供了统一的引用基数。初始化之后 <code class="language-plaintext highlighter-rouge">kobject</code> 的引用基数就会被
+自动初始化为 <code class="language-plaintext highlighter-rouge">1</code> 。只要引用计数不为 <code class="language-plaintext highlighter-rouge">0</code>，那么 <code class="language-plaintext highlighter-rouge">kobject</code> 就会永远的保留在内存中。底层对引用
+计数的操作函数有:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="nf">kobject_get</span><span class="p">(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">);</span>
+<span class="kt">void</span> <span class="nf">kobject_put</span><span class="p">(</span><span class="k">struct</span> <span class="n">kobject</span> <span class="o">*</span><span class="n">kobj</span><span class="p">);</span>
+</code></pre></div></div>
+<p><code class="language-plaintext highlighter-rouge">kobject_get</code> 调用成功后会增加 <code class="language-plaintext highlighter-rouge">kobject</code> 引用计数，并返回指向 <code class="language-plaintext highlighter-rouge">kobject</code> 的指针，如果
+<code class="language-plaintext highlighter-rouge">kobject</code> 处于销毁状态那么就会调用失败，返回 <code class="language-plaintext highlighter-rouge">NULL</code> 。当引用被释放时调用 <code class="language-plaintext highlighter-rouge">kobject_put</code>
+减少引用计数，当计数为 <code class="language-plaintext highlighter-rouge">0</code> 的情况之下可能会自动调用 <code class="language-plaintext highlighter-rouge">release</code> 释放当前对象. 所以 <code class="language-plaintext highlighter-rouge">release</code>
+不可以为空，如果为空将会带来不可预知的后果。</p>
+
+<h2 id="kset">kset</h2>
+
+<p><code class="language-plaintext highlighter-rouge">kset</code> 是 <code class="language-plaintext highlighter-rouge">kobject</code> 对象的集合体，可以把 <code class="language-plaintext highlighter-rouge">kset</code> 看做一个容器，可将所有相关的 <code class="language-plaintext highlighter-rouge">kobject</code> 对象
+置于同一父级结构下。代码：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">kset</span> <span class="p">{</span>
+	<span class="k">struct</span> <span class="n">list_head</span> <span class="n">list</span><span class="p">;</span>
+	<span class="n">spinlock_t</span> <span class="n">list_lock</span><span class="p">;</span>
+	<span class="k">struct</span> <span class="n">kobject</span> <span class="n">kobj</span><span class="p">;</span>
+	<span class="k">const</span> <span class="k">struct</span> <span class="n">kset_uevent_ops</span> <span class="o">*</span><span class="n">uevent_ops</span><span class="p">;</span>
+<span class="p">}</span> <span class="n">__randomize_layout</span><span class="p">;</span>
+</code></pre></div></div>
+<p><code class="language-plaintext highlighter-rouge">list</code>: 连接该集合中所有的 <code class="language-plaintext highlighter-rouge">kobject</code> 对象
+<code class="language-plaintext highlighter-rouge">list_lock</code>:是保护这个链表中元素的自旋锁
+<code class="language-plaintext highlighter-rouge">kobj</code>:指向的 <code class="language-plaintext highlighter-rouge">kobject</code> 为 <code class="language-plaintext highlighter-rouge">kset</code> 基础类型.
+<code class="language-plaintext highlighter-rouge">uevent_ops</code>:用于处理集合中 <code class="language-plaintext highlighter-rouge">kobject</code> 对象的热插拔操作。
+<code class="language-plaintext highlighter-rouge">uevent</code> 就是 <code class="language-plaintext highlighter-rouge">user event</code> 的意思，提供与用户空间热插拔信息进行通信的机制
+<code class="language-plaintext highlighter-rouge">kset</code> 也有一个名字，它保存在内嵌的 <code class="language-plaintext highlighter-rouge">kobject</code> 中。如果要设置 <code class="language-plaintext highlighter-rouge">kset</code> 的名字方式如下:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">kobject_set_name</span><span class="p">(</span><span class="o">&amp;</span><span class="n">my_set</span><span class="o">-&gt;</span><span class="n">kobj</span><span class="p">,</span> <span class="s">"myname"</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">kset</code> 中也有一个指针指向 <code class="language-plaintext highlighter-rouge">ktype</code> ，用来描述它所包含的 <code class="language-plaintext highlighter-rouge">kobject</code> ，该类型的使用优先于 <code class="language-plaintext highlighter-rouge">kobject</code>
+的 <code class="language-plaintext highlighter-rouge">ktype</code> 。所以大多时候 <code class="language-plaintext highlighter-rouge">kobject</code> 中的 <code class="language-plaintext highlighter-rouge">ktype</code> 被设置为 <code class="language-plaintext highlighter-rouge">NULL</code></p>
+
+<h2 id="子系统">子系统</h2>
+
+<p>子系统是对整个内核中一些高级部分的描述。子系统通常显示在 <code class="language-plaintext highlighter-rouge">sysfs</code> 分层结构的顶层。比如：
+<code class="language-plaintext highlighter-rouge">/sys/devices</code>、<code class="language-plaintext highlighter-rouge">/sys/block</code> 还有其他的子系统通过查看 <code class="language-plaintext highlighter-rouge">/sys/</code> 目录可见，因为子系统
+相当稳定，基本不需要开发新的子系统，所以不在讲解</p>
+
+<p>最终呈现的视图如下：</p>
+
+<p><a href="/jony.github.io/source/images/core/17fig01.gif">!image</a></p>
+
+<h1 id="参考">参考</h1>
+<p>[Linux 内核设计与实现]
+[Linux 驱动设计]
+[http://www.iakovlev.org/index.html?p=1025]</p>
+
+<p>git send-email –to kuba@kernel.org –cc edumazet@google.com,davem@davemloft.net,yoshfuji@linux-ipv6.org,dsahern@kernel.org,netdev@vger.kernel.org,linux-kernel@vger.kernel.org</p>
+
+<p>Eric Dumazet <a href="mailto:edumazet@google.com">edumazet@google.com</a> (maintainer:NETWORKING [TCP])
+“David S. Miller” <a href="mailto:davem@davemloft.net">davem@davemloft.net</a> (maintainer:NETWORKING [IPv4/IPv6])
+Hideaki YOSHIFUJI <a href="mailto:yoshfuji@linux-ipv6.org">yoshfuji@linux-ipv6.org</a> (maintainer:NETWORKING [IPv4/IPv6])
+David Ahern <a href="mailto:dsahern@kernel.org">dsahern@kernel.org</a> (maintainer:NETWORKING [IPv4/IPv6])
+Jakub Kicinski <a href="mailto:kuba@kernel.org">kuba@kernel.org</a> (maintainer:NETWORKING [GENERAL])
+netdev@vger.kernel.org (open list:NETWORKING [TCP])
+linux-kernel@vger.kernel.org (open list)</p>
+
+:ET

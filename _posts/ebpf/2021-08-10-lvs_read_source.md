@@ -1,8 +1,7 @@
 ---
 title: LVS  学习： 源码阅读-iptables 整篇文档不行可以不看
 date: 2021-08-10 11:18:19
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
   - lvs

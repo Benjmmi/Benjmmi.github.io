@@ -1,0 +1,127 @@
+I"d<h1 id="感言">感言</h1>
+
+<p>真正的学习就是输出</p>
+
+<h1 id="前因">前因</h1>
+
+<p>在公司里遇到了技术转型的一个问题。如之前整理的文章：</p>
+
+<blockquote>
+  <p>相对于相对于技术方案的落地，其实人为因素是方案落地中的最大的阻碍。技术方案的落地不仅仅涉及到技术上的转变
+还很可能涉及到工作环境的转变，对于处在工作环境中的人进行转变。人是情绪化的生物，如果忽略人的因素那么落地
+一个技术方案将会是一个非常拧巴和纠结的过程。人对于变化作出的情绪化的反应分为三个阶段：</p>
+
+  <ol>
+    <li><code class="language-plaintext highlighter-rouge">结束、失落和抛弃</code>：当人们被告知变化的时候，这种变化就会将他们从舒适区拉出来，这类情绪就开始滋生蔓延
+会念叨之前的种种好处。比如：对于负责全局数据建模的团队来说，每个服务团队负责自己数据建模，这对他们是
+一种威胁</li>
+    <li><code class="language-plaintext highlighter-rouge">中立区</code>：处理新旧工作交替过程中，人们普遍会对新的工作方式无所适从。人们开始纠结并必须学习新的工作处
+理方式</li>
+    <li><code class="language-plaintext highlighter-rouge">新的开始</code>：最终人们发自内心地热情拥抱新的工作方式，并且开始体验到新的工作方式代理的种种好处</li>
+  </ol>
+</blockquote>
+
+<p>总结就是落地方案没有十足让人信服的理由，在推广注册中心落地时，业务方提出了服务发现和注册中心的价值体现在哪</p>
+
+<p>这个价值体现让我深有体会，做任何问题都需要价值体现不管是现在还是未来，无价值的事情可能推广起来非常的困难。</p>
+
+<p>在微服务中注册中心将不再是只是有服务治理的注册与发现过程，还有较强的流量调度能力。</p>
+
+<h1 id="注册中心与服务发现的价值">注册中心与服务发现的价值</h1>
+
+<p>服务发现的功能，就是在服务正在发起调用之前，调用方需要从注册中心拿到相应服务的可用 <code class="language-plaintext highlighter-rouge">IP:Port</code> 。服务发现
+具有两种方式即 SDK 模式和 DNS 模式</p>
+
+<h2 id="dns">DNS</h2>
+
+<p><code class="language-plaintext highlighter-rouge">DNS</code> 是域名解析系统，也是最早的提供注册中心和服务发现的系统。可以满足简单的服务发现场景，如双方约定好：
+端口、序列化协议等。不可否认的就是所有的操作系统都实现了 <code class="language-plaintext highlighter-rouge">DNS</code> 客户端，所以 <code class="language-plaintext highlighter-rouge">DNS</code> 具有天然的跨语言的特性而
+且，这也是接入微服务的最快的方式。<code class="language-plaintext highlighter-rouge">DNS</code> 作为服务发现大体分为两个步骤：</p>
+
+<ol>
+  <li>将注册中心的数据以<code class="language-plaintext highlighter-rouge">DNS</code>的数据格式暴露出来</li>
+  <li>任何系统的<code class="language-plaintext highlighter-rouge">DNS</code> 客户端都可以通过<code class="language-plaintext highlighter-rouge">DNS</code>协议获取服务列表</li>
+</ol>
+
+<p>基于 DNS 服务的系统优点如下：</p>
+
+<ol>
+  <li>集中的DNS服务器，便于升级维护</li>
+  <li>面向开发友好，操作系统原生支持，跨语言天生支持</li>
+</ol>
+
+<p>缺点：</p>
+
+<ol>
+  <li>对DNS服务器性能要求高</li>
+  <li>一般需要LVS设备为DNS服务器集群做请求转发，存在单点问题</li>
+  <li>功能单一无法完成多元化的需求</li>
+  <li>无法准确的获取服务占用的端口</li>
+</ol>
+
+<h2 id="dns-proxy">DNS Proxy</h2>
+
+<p>DNS Proxy 模式分为两种模式：</p>
+<ol>
+  <li>本机 DNS 代理，拦截 DNS 请求做转发与服务发现</li>
+  <li>应用程序中 DNS 代理，在应用程序中将 DNS 请求拦截做服务发现并返回</li>
+</ol>
+
+<p>目前我们支持的注册中心是 Nacos ，Nacos 提供了一组简单易用的特性集，帮助您快速实现动态服务发现、服务
+配置、服务元数据及流量管理。除了这些基本功能外还提供下面特性：</p>
+
+<ol>
+  <li>主动和被动健康检查心跳上报功能，实时监控后端状态</li>
+  <li>多种负载均衡策略，包括权重、同机房、同地域、同环境等</li>
+  <li>多重容灾策略，比如：
+    <ol>
+      <li>服务端保护阈值，防止单点服务器压力过大宕机</li>
+      <li>客户端空列表保护，有效的防止误删 IP 操作或者服务端异常</li>
+    </ol>
+  </li>
+  <li>流量动态摘除，在后端某单点实例出现问题时，可以将流量摘除而不影响整体服务</li>
+</ol>
+
+<p>这两种模式都是通过拦截本机域名解析请求后将请求转发至注册中心解析。在获取到服务的真是 IP 之后发起调用。
+目前我们支持第二种模式，简单开发、减少运维，拦截域名解析需求可以很好的解决服务发现的问题，并且以后的
+方向也是转向轻薄化 SDK 方向。处理 Nacos 注册中心提供以上的优点以外，客户端还有以下几点特性：</p>
+
+<ol>
+  <li>客户端缓存策略，如果注册中心宕机客户端本地缓存可以提供服务，不影响正常调用</li>
+  <li>降低开发复杂度，不用使用硬编码的网络地址，只需服务的名字就能使用服务</li>
+  <li>易扩展，向后扩展方向可以完全掌控。比如将会支持：泳道、故障</li>
+</ol>
+
+<p>比较与 Service 方式，Service 方式采用 ClusterIP 代理后端 IP 的方式，通常采用 Iptables 的
+来处理流量的转发，iptables 通常使用三种模式：DNAT、Nat、Tunnel 三种模式。Iptables 本身执行方式
+就是通过串行模式来执行，当服务实例达到一定规模之后会出现性能瓶颈，延迟的增加给用户带来一定的损失。
+而且整个通信流程完全依赖于 ClusterIP 的转发，如果后端某一实例出现问题，无法准确的定位和流量摘除。</p>
+
+<p>比较与 envoy 方式，envoy 是一个 Sidecar 系统，可以替代 SDN 大部分功能，但是 Envoy 存在一些如下
+问题：</p>
+<ol>
+  <li>相较于目前公司采用技术栈，有较高的门槛</li>
+  <li>落地 envoy 使得运维成本指数上升</li>
+  <li>如果完全依赖于 envoy 做服务发现， envoy 本身就存在稳定性问题</li>
+  <li>envoy 较耗时敏感的不友好，Envoy 本身就存在二次转发</li>
+</ol>
+
+<p>当然微服务的发展方向倾向于 Service Mesh ，微服务的方向也将想 Envoy 靠拢，Envoy 可以提供如下功能：</p>
+
+<ol>
+  <li>轻薄化 SDK</li>
+  <li>提供集群限流、集群熔断功能简单</li>
+  <li>无感升级，在轻薄化 SDK 的情况下 Envoy 升级相对简单，无需通知业务和运维即可原地升级</li>
+</ol>
+
+<p>在服务化改造的过程中遇到一些调研公司内部遇到的一些问题，有服务治理概念，但是服务治理能力有很多欠缺，如下：</p>
+
+<ol>
+  <li>注册、调用需要运维手动维护 <code class="language-plaintext highlighter-rouge">hosts</code></li>
+  <li>服务方、调用方都需要了解目前使用的具体端口</li>
+  <li>服务方状态无法探知，完全靠 <code class="language-plaintext highlighter-rouge">kuberntes</code> 探活设计</li>
+  <li>基于 RESTFul 方式，使用简单，但是协议标准没有制定，带来管理困难</li>
+  <li>调用 IP 为 Service IP，需要二次转发，不利于排查问题，存在性能损耗，运维需要维护这些 <code class="language-plaintext highlighter-rouge">IP</code></li>
+</ol>
+
+:ET

@@ -1,0 +1,202 @@
+I"�T<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Usage:
+  pilot-discovery discovery <span class="o">[</span>flags]
+
+Flags:
+      <span class="nt">--caCertFile</span> string                          包含 x509 服务器 CA 证书的文件
+      <span class="nt">--clusterAliases</span> stringToString              集群的别名（默认 <span class="o">[]</span>）
+      <span class="nt">--clusterID</span> string                           该Istiod实例所在集群的ID（默认为 <span class="s2">"Kubernetes"</span>）
+      <span class="nt">--clusterRegistriesNamespace</span> string          用于存储集群配置的ConfigMap的命名空间（默认为 <span class="s2">"istio-system"</span>）
+      <span class="nt">--configDir</span> string                           观察配置yaml文件更新的目录。如果指定，这些文件将被用作配置的来源，而不是CRD客户端。
+      <span class="nt">--ctrlz_address</span> string                       要侦听的ControlZ自检工具的IP地址。使用‘<span class="k">*</span>’表示所有地址。<span class="o">(</span>默认为“localhost”<span class="o">)</span>
+      <span class="nt">--ctrlz_port</span> uint16                          用于ControlZ自检设施的IP端口<span class="o">(</span>默认值为9876<span class="o">)</span>
+      <span class="nt">--domain</span> string                              DNS 域后缀（默认为“cluster.local”）
+      <span class="nt">--grpcAddr</span> string                            发现服务 gRPC 地址（默认“:15010”）
+  <span class="nt">-h</span>, <span class="nt">--help</span>                                       discovery 帮助信息
+      <span class="nt">--httpAddr</span> string                            服务发现HTTP地址<span class="o">(</span>默认值“：8080”<span class="o">)</span>
+      <span class="nt">--httpsAddr</span> string                           注入和验证服务HTTPS地址<span class="o">(</span>默认为“：15017”<span class="o">)</span>
+      <span class="nt">--keepaliveInterval</span> duration                 时间间隔<span class="o">(</span>如果连接上没有任何活动<span class="o">)</span>，它会ping对等方以查看传输是否处于活动状态<span class="o">(</span>默认值为30秒<span class="o">)</span>
+      <span class="nt">--keepaliveMaxServerConnectionAge</span> duration   连接在正常关闭之前将在服务器上保持打开的最长持续时间。<span class="o">(</span>默认为2562047h47m16.854775807s<span class="o">)</span>
+      <span class="nt">--keepaliveTimeout</span> duration                  在ping了keepalive检查后，客户/服务器等待keepaliveTimeout的时间，如果之后没有看到任何活动，则关闭连接。<span class="o">(</span>默认为10s<span class="o">)</span>
+      <span class="nt">--kubeconfig</span> string                          使用Kubernetes配置文件而不是集群内配置
+      <span class="nt">--kubernetesApiBurst</span> int                     与kubernetes API通信时节点流量的最大爆发量（默认为160）
+      <span class="nt">--kubernetesApiQPS</span> float32                   与kubernetes API通信时的最大QPS（默认80）。
+      <span class="c"># --log_as_json                                是将输出格式化为JSON还是使用简单的控制台格式</span>
+      <span class="c"># --log_caller string                          逗号分隔的作用域列表，其中包括调用者信息，作用域可以是[ads, adsc, all, analysis, authn, authorization, ca, controllers, default, file, gateway, grpcgen, installer, klog, kube, model, monitor, pkica, processing, proxyconfig, retry, rootcertrotator, secretcontroller, serverca, spiffe, status, telemetry, tpath, trustBundle, util, validation, validationController, validationServer, wasm, wle] 中的任何一个。</span>
+      <span class="c"># --log_output_level string                    以逗号分隔的要输出的每个范围的最小日志级别的消息，形式为&lt;scope&gt;:&lt;level&gt;,&lt;scope&gt;:&lt;level&gt;,... 其中范围可以是[ads, adsc, all, analysis, authn, authorization, ca, controllers, default, file, gateway, grpcgen, installer, klog, kube, model, monitor, pkica, processing, proxyconfig, retry, rootcertrotator, secretcontroller, serverca, spiffe, status, telemetry, tpath, trustBundle, util, validation, validationController, validationServer, wasm, wle]，级别可以是[debug, info, warn, error, fatal, none]之一（默认 "default: info"）。</span>
+      <span class="c"># --log_rotate string                          可选rotate日志文件的路径</span>
+      <span class="c"># --log_rotate_max_age int                     日志文件的最长使用期限(以天为单位)，超过该天数后，该文件将被 rotate(0表示没有限制)(默认值为30)</span>
+      <span class="c"># --log_rotate_max_backups int                 删除旧文件之前保留的日志文件备份的最大数量(0表示没有限制)(默认值为1000)</span>
+      <span class="c"># --log_rotate_max_size int                    日志文件的最大大小(以MB为单位)，超过此大小，文件将被轮换(默认值为104857600)</span>
+      <span class="c"># --log_stacktrace_level string                逗号分隔的最小每个范围的日志级别，在该级别上捕获堆栈痕迹，形式为&lt;scope&gt;:&lt;level&gt;,&lt;scope:level&gt;,... 其中范围可以是[ads, adsc, all, analysis, authn, authorization, ca, controllers, default, file, gateway, grpcgen, installer, klog, kube, model, monitor, pkica, processing, proxyconfig, retry, rootcertrotator, secretcontroller, serverca, spiffe, status, telemetry, tpath, trustBundle, util, validation, validationController, validationServer, wasm, wle]，级别可以是[debug, info, warn, error, fatal, none]之一（默认 "default: none"）。</span>
+      <span class="c"># --log_target stringArray                     输出日志的路径集。这可以是任何路径，也可以是特殊值stdout和stderr（默认[stdout]）。</span>
+      <span class="nt">--meshConfig</span> string                          Istio网格配置的文件名。如果没有指定，将使用默认的网格。<span class="o">(</span>默认为<span class="s2">"./etc/istio/config/mesh"</span><span class="o">)</span>
+      <span class="nt">--monitoringAddr</span> string                      用于 Polit 自我监测信息的HTTP地址（默认为<span class="s2">":15014"</span>）。
+  <span class="nt">-n</span>, <span class="nt">--namespace</span> string                           选择一个控制器所在的命名空间。如果没有设置，使用<span class="k">${</span><span class="nv">POD_NAMESPACE</span><span class="k">}</span>环境变量（默认为 <span class="s2">"istio-system"</span>）。
+      <span class="nt">--networksConfig</span> string                      Istio网状网络配置的文件名。如果不指定，将使用默认的网状网络。<span class="o">(</span>默认为<span class="s2">"./etc/istio/config/meshNetworks"</span><span class="o">)</span>
+      <span class="nt">--plugins</span> strings                            使用逗号分隔的网络插件列表<span class="o">(</span>默认[ext_authz,authn,authz]<span class="o">)</span>
+      <span class="nt">--profile</span>                                    通过Web界面启用分析功能 host:port/debug/pprof（默认为true）。
+      <span class="nt">--registries</span> strings                         逗号分隔的要读取的平台服务注册表（从<span class="o">{</span>Kubernetes, Mock<span class="o">}</span>中选择一个或多个）（默认[Kubernetes]）。
+      <span class="nt">--resync</span> duration                            控制器resync间隔<span class="o">(</span>默认为1m0s<span class="o">)</span>
+      <span class="nt">--secureGRPCAddr</span> string                      发现服务安全的gRPC地址（默认为<span class="s2">":15012"</span>）。
+      <span class="nt">--shutdownDuration</span> duration                  发现服务器需要优雅地终止的时间（默认为10s）。
+      <span class="nt">--tls-cipher-suites</span> strings                  逗号分隔的istiod TLS服务器的密码套件列表。如果省略，将使用默认的Go密码套件。
+                                                   首选值: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, TLS_RSA_WITH_AES_128_CBC_SHA, TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_256_GCM_SHA384. 
+                                                   不安全的值: TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_RC4_128_SHA, TLS_RSA_WITH_3DES_EDE_CBC_SHA, TLS_RSA_WITH_AES_128_CBC_SHA256, TLS_RSA_WITH_RC4_128_SHA.
+      <span class="nt">--tlsCertFile</span> string                         包含x509服务器证书的文件
+      <span class="nt">--tlsKeyFile</span> string                          包含x509私钥匹配的文件 <span class="nt">--tlsCertFile</span>
+
+Global Flags:
+      <span class="nt">--vklog</span> Level   日志级别粗略程度的数字。例如： <span class="nt">--vklog</span><span class="o">=</span>9
+</code></pre></div></div>
+
+<p>run</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>discovery
+<span class="nt">--registries</span>
+Mock
+</code></pre></div></div>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="s">---</span>
+<span class="na">proxyListenPort</span><span class="pi">:</span> <span class="m">15001</span>
+<span class="na">connectTimeout</span><span class="pi">:</span> <span class="s">10s</span>
+<span class="na">protocolDetectionTimeout</span><span class="pi">:</span> <span class="s">0s</span>
+<span class="na">ingressClass</span><span class="pi">:</span> <span class="s">istio</span>
+<span class="na">ingressService</span><span class="pi">:</span> <span class="s">istio-ingressgateway</span>
+<span class="na">ingressControllerMode</span><span class="pi">:</span> <span class="s">STRICT</span>
+<span class="na">enableTracing</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">defaultConfig</span><span class="pi">:</span>
+  <span class="na">configPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">./etc/istio/proxy"</span>
+  <span class="na">binaryPath</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/usr/local/bin/envoy"</span>
+  <span class="na">serviceCluster</span><span class="pi">:</span> <span class="s">istio-proxy</span>
+  <span class="na">drainDuration</span><span class="pi">:</span> <span class="s">45s</span>
+  <span class="na">parentShutdownDuration</span><span class="pi">:</span> <span class="s">60s</span>
+  <span class="na">discoveryAddress</span><span class="pi">:</span> <span class="s">istiod.istio-system.svc:15012</span>
+  <span class="na">proxyAdminPort</span><span class="pi">:</span> <span class="m">15000</span>
+  <span class="na">controlPlaneAuthPolicy</span><span class="pi">:</span> <span class="s">MUTUAL_TLS</span>
+  <span class="na">statNameLength</span><span class="pi">:</span> <span class="m">189</span>
+  <span class="na">concurrency</span><span class="pi">:</span> <span class="m">2</span>
+  <span class="na">tracing</span><span class="pi">:</span>
+    <span class="na">zipkin</span><span class="pi">:</span>
+      <span class="na">address</span><span class="pi">:</span> <span class="s">zipkin.istio-system:9411</span>
+  <span class="na">statusPort</span><span class="pi">:</span> <span class="m">15020</span>
+  <span class="na">terminationDrainDuration</span><span class="pi">:</span> <span class="s">5s</span>
+<span class="na">outboundTrafficPolicy</span><span class="pi">:</span>
+  <span class="na">mode</span><span class="pi">:</span> <span class="s">ALLOW_ANY</span>
+<span class="na">enableAutoMtls</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">trustDomain</span><span class="pi">:</span> <span class="s">cluster.local</span>
+<span class="na">trustDomainAliases</span><span class="pi">:</span> <span class="pi">[]</span>
+<span class="na">defaultServiceExportTo</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s2">"</span><span class="s">*"</span>
+<span class="na">defaultVirtualServiceExportTo</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s2">"</span><span class="s">*"</span>
+<span class="na">defaultDestinationRuleExportTo</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s2">"</span><span class="s">*"</span>
+<span class="na">rootNamespace</span><span class="pi">:</span> <span class="s">istio-system</span>
+<span class="na">localityLbSetting</span><span class="pi">:</span>
+  <span class="na">enabled</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">dnsRefreshRate</span><span class="pi">:</span> <span class="s">5s</span>
+<span class="na">certificates</span><span class="pi">:</span> <span class="pi">[]</span>
+<span class="na">thriftConfig</span><span class="pi">:</span> <span class="pi">{}</span>
+<span class="na">serviceSettings</span><span class="pi">:</span> <span class="pi">[]</span>
+<span class="na">extensionProviders</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">prometheus</span>
+  <span class="na">prometheus</span><span class="pi">:</span> <span class="pi">{}</span>
+<span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">stackdriver</span>
+  <span class="na">stackdriver</span><span class="pi">:</span> <span class="pi">{}</span>
+<span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">envoy</span>
+  <span class="na">envoyFileAccessLog</span><span class="pi">:</span>
+    <span class="na">path</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/dev/stdout"</span>
+<span class="na">defaultProviders</span><span class="pi">:</span> <span class="pi">{}</span>
+
+
+
+
+ <span class="s">---</span>
+<span class="na">ServerOptions</span><span class="pi">:</span>
+  <span class="na">HTTPAddr</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:8080"</span>
+  <span class="na">HTTPSAddr</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:15017"</span>
+  <span class="na">GRPCAddr</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:15010"</span>
+  <span class="na">MonitoringAddr</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:15014"</span>
+  <span class="na">EnableProfiling</span><span class="pi">:</span> <span class="no">true</span>
+  <span class="na">TLSOptions</span><span class="pi">:</span>
+    <span class="na">CaCertFile</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+    <span class="na">CertFile</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+    <span class="na">KeyFile</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+    <span class="na">TLSCipherSuites</span><span class="pi">:</span>
+    <span class="na">CipherSuits</span><span class="pi">:</span>
+  <span class="na">SecureGRPCAddr</span><span class="pi">:</span> <span class="s2">"</span><span class="s">:15012"</span>
+<span class="na">InjectionOptions</span><span class="pi">:</span>
+  <span class="na">InjectionDirectory</span><span class="pi">:</span> <span class="s2">"</span><span class="s">./var/lib/istio/inject"</span>
+<span class="na">PodName</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+<span class="na">Namespace</span><span class="pi">:</span> <span class="s">istio-system</span>
+<span class="na">Revision</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+<span class="na">MeshConfigFile</span><span class="pi">:</span> <span class="s2">"</span><span class="s">./etc/istio/config/mesh"</span>
+<span class="na">NetworksConfigFile</span><span class="pi">:</span> <span class="s2">"</span><span class="s">./etc/istio/config/meshNetworks"</span>
+<span class="na">RegistryOptions</span><span class="pi">:</span>
+  <span class="na">FileDir</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+  <span class="na">Registries</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">Mock</span>
+  <span class="na">KubeOptions</span><span class="pi">:</span>
+    <span class="na">SystemNamespace</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+    <span class="na">MeshServiceController</span><span class="pi">:</span>
+    <span class="na">ResyncPeriod</span><span class="pi">:</span> <span class="m">60000000000</span>
+    <span class="na">DomainSuffix</span><span class="pi">:</span> <span class="s">cluster.local</span>
+    <span class="na">ClusterID</span><span class="pi">:</span> <span class="s">Kubernetes</span>
+    <span class="na">ClusterAliases</span><span class="pi">:</span> <span class="pi">{}</span>
+    <span class="na">Metrics</span><span class="pi">:</span>
+    <span class="na">XDSUpdater</span><span class="pi">:</span>
+    <span class="na">NetworksWatcher</span><span class="pi">:</span>
+    <span class="na">MeshWatcher</span><span class="pi">:</span>
+    <span class="na">EndpointMode</span><span class="pi">:</span> <span class="m">0</span>
+    <span class="na">KubernetesAPIQPS</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">KubernetesAPIBurst</span><span class="pi">:</span> <span class="m">160</span>
+    <span class="na">SyncInterval</span><span class="pi">:</span> <span class="m">0</span>
+    <span class="na">SyncTimeout</span><span class="pi">:</span>
+    <span class="na">DiscoveryNamespacesFilter</span><span class="pi">:</span>
+  <span class="na">ClusterRegistriesNamespace</span><span class="pi">:</span> <span class="s">istio-system</span>
+  <span class="na">KubeConfig</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+  <span class="na">DistributionCacheRetention</span><span class="pi">:</span> <span class="m">60000000000</span>
+  <span class="na">DistributionTrackingEnabled</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">CtrlZOptions</span><span class="pi">:</span>
+  <span class="na">Port</span><span class="pi">:</span> <span class="m">9876</span>
+  <span class="na">Address</span><span class="pi">:</span> <span class="s">localhost</span>
+<span class="na">Plugins</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">ext_authz</span>
+<span class="pi">-</span> <span class="s">authn</span>
+<span class="pi">-</span> <span class="s">authz</span>
+<span class="na">KeepaliveOptions</span><span class="pi">:</span>
+  <span class="na">Time</span><span class="pi">:</span> <span class="m">30000000000</span>
+  <span class="na">Timeout</span><span class="pi">:</span> <span class="m">10000000000</span>
+  <span class="na">MaxServerConnectionAge</span><span class="pi">:</span> <span class="m">9223372036854776000</span>
+  <span class="na">MaxServerConnectionAgeGrace</span><span class="pi">:</span> <span class="m">10000000000</span>
+<span class="na">ShutdownDuration</span><span class="pi">:</span> <span class="m">10000000000</span>
+<span class="na">JwtRule</span><span class="pi">:</span> <span class="s1">'</span><span class="s">'</span>
+
+
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl 10.42.77.70:8080/debug
+/debug/adsz ADS的状态和调试接口
+/debug/adsz?push<span class="o">=</span><span class="nb">true </span>启动向所有连接的端点推送当前状态的程序
+/debug/authorizationz 内部授权政策
+/debug/cachez 关于内部XDS缓存的信息
+/debug/config_distribution 连接到这个Pilot实例的所有Envoy的版本状态。     
+/debug/config_dump 以Envoy admin config dump API的形式对传递的proxyID进行配置转储。     
+/debug/configz 对配置的调试支持     
+/debug/edsz EDS的状态和调试接口     
+/debug/endpointShardz 关于端点分片的信息     
+/debug/endpointz 对端点的调试支持     
+/debug/inject 活跃的注入模板     
+/debug/instancesz 对服务实例的调试支持     
+/debug/ndsz NDS的状态和调试接口     
+/debug/pprof/ 显示pprof索引     
+/debug/pprof/cmdline 当前程序的命令行调用。     
+/debug/pprof/profile CPU简介     
+/debug/pprof/symbol 符号查找请求中列出的程序计数器     
+/debug/pprof/trace 对当前程序的执行情况进行跟踪。     
+/debug/push_status 最后的PushContext细节     
+/debug/registryz 对注册表的调试支持     
+/debug/resourcesz 对被监视资源的调试支持     
+/debug/syncz 连接到这个Pilot实例的所有Envoys的同步状态     
+</code></pre></div></div>
+
+:ET

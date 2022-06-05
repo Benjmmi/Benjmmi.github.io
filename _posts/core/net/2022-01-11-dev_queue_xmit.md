@@ -1,11 +1,7 @@
 ---
 title: dev_queue_xmit
 date: 2022-01-11 00:05:51
-categories: 
-	- [eBPF]
-	- [Linux]
-	- [内核]
-	- [网络代码]
+categories: 'eBPF,Linux,内核,网络代码'
 tags:
   - ebpf
 author: Benjamin Yim

@@ -1,0 +1,19 @@
+I"�<h1 id="12-术语和定义">1.2 术语和定义</h1>
+
+<p>QUIC 文档中常用的术语信息：</p>
+
+<p><code class="language-plaintext highlighter-rouge">QUIC</code>：这个文档描述的传输协议。<code class="language-plaintext highlighter-rouge">QUIC</code> 是一个名字，不是一个首字母缩写
+<code class="language-plaintext highlighter-rouge">Endpoint 端点</code>：一个可以通过参与生成、接受和处理包的 <code class="language-plaintext highlighter-rouge">QUIC</code> 链接的实体。
+只有两个类型的实体：客户端和服务端
+<code class="language-plaintext highlighter-rouge">Client 客户端</code>：初始化 QUIC 链接的端点
+<code class="language-plaintext highlighter-rouge">Server 服务端</code>：监听 QUIC 链接的端点
+<code class="language-plaintext highlighter-rouge">QUIC 包</code>：封装在 UDP 协议中的一个完整的  QUIC 可处理单元
+<code class="language-plaintext highlighter-rouge">Ack-eliciting 包</code>：包含在 ACK、PADDING 和 CONNECTION_CLOSE 帧以外的 QUIC 包
+<code class="language-plaintext highlighter-rouge">Frame 帧</code>：一种结构化协议信息单元。有多种帧类型，每一种都携带不同的信息。帧包含在QUIC包中。
+<code class="language-plaintext highlighter-rouge">Address 地址</code>：当没有使用限制是，那么以 IP 版本、IP 地址 和 UDP 端口号三元组表示为网络中的一端
+<code class="language-plaintext highlighter-rouge">Connection ID 连接 ID</code>：用于表示端点上的 QUIC 连接的标识符。每个端点为其对等端选择一个
+或多个连接id，将其包含在发送到端点的包中。该值对对等体是不透明的。
+<code class="language-plaintext highlighter-rouge">Stream 流</code>：QUIC连接中有序字节的单向或双向通道。QUIC连接可以同时承载多个流。
+<code class="language-plaintext highlighter-rouge">应用程序</code>：使用QUIC发送和接收数据的实体</p>
+
+:ET

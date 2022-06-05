@@ -1,0 +1,338 @@
+I"�<h1 id="连接跟踪表">连接跟踪表</h1>
+
+<p>连接跟踪也是最近学习下来的最关心、最有疑问的的一个问题了，但是应该属于一劳永逸的问题。</p>
+
+<p>问题如下：
+lvs 是个四层负载均衡转发器，负责将数据包转给后端的服务器。根据调度规则将数据包转发给正确的后端 Server。
+因为每个 TCP 连接需要包含若干的数据包进行交互，如果每个 Packet 都按照调度规则来调度，比如按照 RR 模式来进行调度，
+那么该 TCP 连接相关的若干数据包则被轮询转发给了 N 个后端服务器，那么整个数据包就乱套了。显然负载均衡需要将同属
+于同一个 TCP 连接的数据流的若干数据包转发至其中一台后端服务器上，而不是分散到多个服务器。</p>
+
+<p>解决方案：
+lvs 若想正确转发数据包，需要维护记录数据包五元组代表的连接信息，包括首次建立连接时调度的 RS。
+那么后续的同一个连接（会话）的数据包到来后，查询系统维护的连接信息，查到该连接后就能确定这条连接对应的 RS 服务器，
+最终将数据包正确转发给服务器，这样就完成了将一个 TCP 连接转发给后端服务器了。</p>
+
+<p><strong>复制博客 https://www.linuxblogs.cn/articles/20011018.html</strong></p>
+
+<p>看这个字面意思好像根据五元组将同一个连接的请求打到同一个服务其上，从 L4 负载感觉不是很均衡啊。 和理想的有点差异的样子</p>
+
+<p>lvs 标识一个连接信息，结构体如下:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">hlist_node</span> <span class="n">c_list</span><span class="p">;</span>         <span class="cm">/* 哈希链表头 */</span>
+  <span class="cm">/* Protocol, addresses and port numbers */</span>
+  <span class="n">__be16</span>                  <span class="n">cport</span><span class="p">;</span>          <span class="cm">/* 客户端请求源端口 */</span>
+  <span class="n">__be16</span>                  <span class="n">dport</span><span class="p">;</span>          <span class="cm">/* 后端服务器的端口，可以不同于 vport */</span>
+  <span class="n">__be16</span>                  <span class="n">vport</span><span class="p">;</span>          <span class="cm">/* 访问的业务端口，一般为 80 或 443 */</span>
+  <span class="n">u16</span>     <span class="n">af</span><span class="p">;</span>   <span class="cm">/* 协议族，代表 v4 或 v6 */</span>
+  <span class="k">union</span> <span class="n">nf_inet_addr</span>      <span class="n">caddr</span><span class="p">;</span>          <span class="cm">/* 客户端 IP 地址 */</span>
+  <span class="k">union</span> <span class="n">nf_inet_addr</span>      <span class="n">vaddr</span><span class="p">;</span>          <span class="cm">/* 客户端访问的 vip */</span>
+  <span class="k">union</span> <span class="n">nf_inet_addr</span>      <span class="n">daddr</span><span class="p">;</span>          <span class="cm">/* 后端 RS 服务器 IP 地址 */</span>
+  <span class="k">volatile</span> <span class="n">__u32</span>          <span class="n">flags</span><span class="p">;</span>          <span class="cm">/* status flags */</span>
+  <span class="n">__u16</span>                   <span class="n">protocol</span><span class="p">;</span>       <span class="cm">/* Which protocol (TCP/UDP) */</span>
+  <span class="n">__u16</span>     <span class="n">daf</span><span class="p">;</span>    <span class="cm">/* dest 协议族，代表 v4 或 v6 */</span>
+  <span class="k">struct</span> <span class="n">netns_ipvs</span> <span class="o">*</span><span class="n">ipvs</span><span class="p">;</span>
+
+  <span class="cm">/* counter and timer */</span>
+  <span class="n">refcount_t</span>    <span class="n">refcnt</span><span class="p">;</span>   <span class="cm">/* 引用计数 */</span>
+  <span class="k">struct</span> <span class="n">timer_list</span> <span class="n">timer</span><span class="p">;</span>    <span class="cm">/* 连接对应的定时器 */</span>
+  <span class="k">volatile</span> <span class="kt">unsigned</span> <span class="kt">long</span>  <span class="n">timeout</span><span class="p">;</span>  <span class="cm">/* 超时时间 */</span>
+
+  <span class="cm">/* Flags and state transition */</span>
+  <span class="n">spinlock_t</span>              <span class="n">lock</span><span class="p">;</span>           <span class="cm">/* 状态转化时需要锁操作 */</span>
+  <span class="k">volatile</span> <span class="n">__u16</span>          <span class="n">state</span><span class="p">;</span>          <span class="cm">/* 状态信息 */</span>
+  <span class="k">volatile</span> <span class="n">__u16</span>          <span class="n">old_state</span><span class="p">;</span>      <span class="cm">/* 保存上一个状态
+             */</span>
+  <span class="n">__u32</span>     <span class="n">fwmark</span><span class="p">;</span>   <span class="cm">/* Fire wall mark from skb */</span>
+  <span class="kt">unsigned</span> <span class="kt">long</span>   <span class="n">sync_endtime</span><span class="p">;</span> <span class="cm">/* jiffies + sent_retries */</span>
+
+  <span class="cm">/* Control members */</span>
+  <span class="k">struct</span> <span class="n">ip_vs_conn</span>       <span class="o">*</span><span class="n">control</span><span class="p">;</span>       <span class="cm">/* Master control connection */</span>
+  <span class="n">atomic_t</span>                <span class="n">n_control</span><span class="p">;</span>      <span class="cm">/* Number of controlled ones */</span>
+  <span class="k">struct</span> <span class="n">ip_vs_dest</span>       <span class="o">*</span><span class="n">dest</span><span class="p">;</span>          <span class="cm">/* real server */</span>
+  <span class="n">atomic_t</span>                <span class="n">in_pkts</span><span class="p">;</span>        <span class="cm">/* incoming packet counter */</span>
+
+  <span class="cm">/* Packet transmitter for different forwarding methods.  If it
+   * mangles the packet, it must return NF_DROP or better NF_STOLEN,
+   * otherwise this must be changed to a sk_buff **.
+   * NF_ACCEPT can be returned when destination is local.
+   */</span>
+  <span class="kt">int</span> <span class="p">(</span><span class="o">*</span><span class="n">packet_xmit</span><span class="p">)(</span><span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">,</span> <span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="o">*</span><span class="n">cp</span><span class="p">,</span>
+         <span class="k">struct</span> <span class="n">ip_vs_protocol</span> <span class="o">*</span><span class="n">pp</span><span class="p">,</span> <span class="k">struct</span> <span class="n">ip_vs_iphdr</span> <span class="o">*</span><span class="n">iph</span><span class="p">);</span>
+
+  <span class="k">struct</span> <span class="n">ip_vs_app</span>        <span class="o">*</span><span class="n">app</span><span class="p">;</span>           <span class="cm">/* bound ip_vs_app object */</span>
+  <span class="kt">void</span>                    <span class="o">*</span><span class="n">app_data</span><span class="p">;</span>      <span class="cm">/* Application private data */</span>
+  <span class="k">struct</span> <span class="n">ip_vs_seq</span>        <span class="n">in_seq</span><span class="p">;</span>         <span class="cm">/* incoming seq. struct */</span>
+  <span class="k">struct</span> <span class="n">ip_vs_seq</span>        <span class="n">out_seq</span><span class="p">;</span>        <span class="cm">/* outgoing seq. struct */</span>
+
+  <span class="k">const</span> <span class="k">struct</span> <span class="n">ip_vs_pe</span> <span class="o">*</span><span class="n">pe</span><span class="p">;</span>
+  <span class="kt">char</span>      <span class="o">*</span><span class="n">pe_data</span><span class="p">;</span>
+  <span class="n">__u8</span>      <span class="n">pe_data_len</span><span class="p">;</span>
+
+  <span class="k">struct</span> <span class="n">rcu_head</span>   <span class="n">rcu_head</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>通过这些信息就完成了一个链接表管理。
+<strong>反思：好像和 conntrack 不太一样</strong></p>
+
+<p>lvs 为了提高性能，采用了 hash 表存储，根据 <code class="language-plaintext highlighter-rouge">caddr</code>、<code class="language-plaintext highlighter-rouge">cport</code>、<code class="language-plaintext highlighter-rouge">proto</code> 关键字计算，得到一个 hash 值。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="n">ip_vs_conn_hashkey</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">ipvs</span><span class="p">,</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">af</span><span class="p">,</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">protocol</span><span class="p">,</span> <span class="n">addr</span><span class="p">,</span> <span class="n">port</span><span class="p">);</span>
+
+<span class="k">static</span> <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">ip_vs_conn_hashkey</span><span class="p">(</span><span class="k">struct</span> <span class="n">netns_ipvs</span> <span class="o">*</span><span class="n">ipvs</span><span class="p">,</span> <span class="kt">int</span> <span class="n">af</span><span class="p">,</span> <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">proto</span><span class="p">,</span>
+               <span class="k">const</span> <span class="k">union</span> <span class="n">nf_inet_addr</span> <span class="o">*</span><span class="n">addr</span><span class="p">,</span>
+               <span class="n">__be16</span> <span class="n">port</span><span class="p">)</span>
+</code></pre></div></div>
+<p>然后再根据 hash 下面的链表计算除槽位，相当于 二次 hash 的意思。找对应的连接。</p>
+
+<p>关于连接表的建立：客户端发起  <code class="language-plaintext highlighter-rouge">syn</code> 建立连接的时候触发新建连接，相同连接的话其他数据包到来时，只需要查找存在的连接表即可继续后面的转发工作。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+  <span class="p">...</span>
+  <span class="c1">// 只有在成功调度可用的后端 RS 服务器后才去新建连接</span>
+  <span class="n">cp</span> <span class="o">=</span> <span class="n">ip_vs_conn_new</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">type</span><span class="p">,</span> <span class="n">daddr</span><span class="p">,</span> <span class="n">dport</span><span class="p">,</span> <span class="n">flags</span><span class="p">,</span> <span class="n">dest</span><span class="p">,</span>
+            <span class="n">fwmark</span><span class="p">);</span>
+  <span class="p">...</span>
+
+
+<span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="o">*</span>
+<span class="n">ip_vs_conn_new</span><span class="p">(</span><span class="k">const</span> <span class="k">struct</span> <span class="n">ip_vs_conn_param</span> <span class="o">*</span><span class="n">p</span><span class="p">,</span> <span class="kt">int</span> <span class="n">dest_af</span><span class="p">,</span>
+         <span class="k">const</span> <span class="k">union</span> <span class="n">nf_inet_addr</span> <span class="o">*</span><span class="n">daddr</span><span class="p">,</span> <span class="n">__be16</span> <span class="n">dport</span><span class="p">,</span> <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">flags</span><span class="p">,</span>
+         <span class="k">struct</span> <span class="n">ip_vs_dest</span> <span class="o">*</span><span class="n">dest</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">fwmark</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>连接创建步骤：</p>
+<ol>
+  <li>分配 <code class="language-plaintext highlighter-rouge">连接</code> 所需要的内存资源空间</li>
+  <li>初始化链表相关字段</li>
+  <li>设置注册定时器工作函数</li>
+  <li>填充核心关键字段</li>
+  <li>关联绑定调度到的后端 RS 服务器</li>
+  <li>初始化状态、超时时间、绑定 xmit 函数</li>
+  <li>准备就绪，将 new_conn 挂再全局的哈希表上</li>
+</ol>
+
+<p>后续的数据包就可以通过 <code class="language-plaintext highlighter-rouge">标识参数</code> 查找<strong>连接表</strong>。 找到改数据包所属的连接信息，也就能确定本次数据包需要转发给后端内的那一台 RS 服务器，
+通过相关操作后将数据包转发给连接所对应的 目标服务器。</p>
+
+<p>如果使用 <code class="language-plaintext highlighter-rouge">DR 模式</code> ，只有客户端请求的流量会经过 LVS 服务器，数据包到达 LVS 会触发下面的函数：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">ip_vs_conn_param</span> <span class="p">{</span>
+  <span class="k">struct</span> <span class="n">netns_ipvs</span>   <span class="o">*</span><span class="n">ipvs</span><span class="p">;</span>
+  <span class="k">const</span> <span class="k">union</span> <span class="n">nf_inet_addr</span>  <span class="o">*</span><span class="n">caddr</span><span class="p">;</span>
+  <span class="k">const</span> <span class="k">union</span> <span class="n">nf_inet_addr</span>  <span class="o">*</span><span class="n">vaddr</span><span class="p">;</span>
+  <span class="n">__be16</span>        <span class="n">cport</span><span class="p">;</span>
+  <span class="n">__be16</span>        <span class="n">vport</span><span class="p">;</span>
+  <span class="n">__u16</span>       <span class="n">protocol</span><span class="p">;</span>
+  <span class="n">u16</span>       <span class="n">af</span><span class="p">;</span>
+
+  <span class="k">const</span> <span class="k">struct</span> <span class="n">ip_vs_pe</span>   <span class="o">*</span><span class="n">pe</span><span class="p">;</span>
+  <span class="kt">char</span>        <span class="o">*</span><span class="n">pe_data</span><span class="p">;</span>
+  <span class="n">__u8</span>        <span class="n">pe_data_len</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="o">*</span><span class="nf">ip_vs_conn_in_get</span><span class="p">(</span><span class="k">const</span> <span class="k">struct</span> <span class="n">ip_vs_conn_param</span> <span class="o">*</span><span class="n">p</span><span class="p">)</span>
+
+
+<span class="c1">// 查找表达式</span>
+<span class="k">static</span> <span class="kr">inline</span> <span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="o">*</span>
+<span class="n">__ip_vs_conn_in_get</span><span class="p">(</span><span class="k">const</span> <span class="k">struct</span> <span class="n">ip_vs_conn_param</span> <span class="o">*</span><span class="n">p</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">hash</span><span class="p">;</span>
+  <span class="k">struct</span> <span class="n">ip_vs_conn</span> <span class="o">*</span><span class="n">cp</span><span class="p">;</span>
+  <span class="c1">// 获取hash</span>
+  <span class="n">hash</span> <span class="o">=</span> <span class="n">ip_vs_conn_hashkey_param</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
+
+  <span class="n">rcu_read_lock</span><span class="p">();</span>
+  <span class="c1">// 根据hash 查找链表桶</span>
+  <span class="n">hlist_for_each_entry_rcu</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ip_vs_conn_tab</span><span class="p">[</span><span class="n">hash</span><span class="p">],</span> <span class="n">c_list</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">cport</span> <span class="o">==</span> <span class="n">cp</span><span class="o">-&gt;</span><span class="n">cport</span> <span class="o">&amp;&amp;</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">vport</span> <span class="o">==</span> <span class="n">cp</span><span class="o">-&gt;</span><span class="n">vport</span> <span class="o">&amp;&amp;</span>
+        <span class="n">cp</span><span class="o">-&gt;</span><span class="n">af</span> <span class="o">==</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">af</span> <span class="o">&amp;&amp;</span>
+        <span class="n">ip_vs_addr_equal</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">af</span><span class="p">,</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">caddr</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cp</span><span class="o">-&gt;</span><span class="n">caddr</span><span class="p">)</span> <span class="o">&amp;&amp;</span>
+        <span class="n">ip_vs_addr_equal</span><span class="p">(</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">af</span><span class="p">,</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">vaddr</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cp</span><span class="o">-&gt;</span><span class="n">vaddr</span><span class="p">)</span> <span class="o">&amp;&amp;</span>
+        <span class="p">((</span><span class="o">!</span><span class="n">p</span><span class="o">-&gt;</span><span class="n">cport</span><span class="p">)</span> <span class="o">^</span> <span class="p">(</span><span class="o">!</span><span class="p">(</span><span class="n">cp</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">&amp;</span> <span class="n">IP_VS_CONN_F_NO_CPORT</span><span class="p">)))</span> <span class="o">&amp;&amp;</span>
+        <span class="n">p</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">==</span> <span class="n">cp</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">&amp;&amp;</span>
+        <span class="n">cp</span><span class="o">-&gt;</span><span class="n">ipvs</span> <span class="o">==</span> <span class="n">p</span><span class="o">-&gt;</span><span class="n">ipvs</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">__ip_vs_conn_get</span><span class="p">(</span><span class="n">cp</span><span class="p">))</span>
+        <span class="k">continue</span><span class="p">;</span>
+      <span class="cm">/* HIT */</span>
+      <span class="n">rcu_read_unlock</span><span class="p">();</span>
+      <span class="k">return</span> <span class="n">cp</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+
+  <span class="n">rcu_read_unlock</span><span class="p">();</span>
+
+  <span class="k">return</span> <span class="nb">NULL</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<ol>
+  <li>通过给定参数获取 hash 值，根据哈希值获取链表数据</li>
+  <li>遍历 <code class="language-plaintext highlighter-rouge">ip_vs_conn_tab[hash]</code> 链表数据，查找除真实的连接</li>
+</ol>
+
+<p>关于锁的问题：</p>
+
+<p>我们现在生产环境使用的服务器都是多核处理器，在 lvs 转发处理逻辑中需要频繁的查连接表，由于连接表是全局的一张表结构，
+绝大部分时间 N 个 cpu 会同时操作（包括查找、新建和删除）连接表，这样会导致连接表不一致的问题。因此，每个 cpu 
+对连接表进行相关操作时需要加上相应的 <strong><code class="language-plaintext highlighter-rouge">ReadLock 或 WriteLock</code></strong>，才能保证连接表的原子性操作。</p>
+
+<ul>
+  <li>
+    <p><strong>全局锁操作</strong>。假如我们为连接表定义一个全局锁，每个 cpu 在对连接表做读写操作时，
+都需要先加锁，获取锁后进行相关操作，操作完毕再释放锁资源。这样在高并发的业务场景下，
+同一时刻锁只能被一个 cpu 占用，因此各 cpu 之间对锁的竞争会非常严重，导致整体 lvs 性能会随着 cpu 个数增加而逐渐下降。</p>
+  </li>
+  <li>
+    <p><strong>局部锁优化</strong>。lvs 在设计上没有使用全局的锁，而是根据连接表的哈希结构，为 N 个哈希桶设置一个 Lock，这里的 N 为 256，
+也就是 256 个桶使用一个锁，总共有 4096 个哈希桶。如果有 16 个 cpu 的话，那么同一时间内平均每个 cpu 都可能占有一个锁，
+从系统整体上看，cpu 对锁操作的竞争就会大大减弱，提高了系统整体的转发能力。</p>
+  </li>
+  <li>
+    <p><strong>为每个桶绑定一个锁，进一步优化</strong>。局部优化能够很大程度上提高系统性能，同样思路，系统资源允许的情况下，我们可以为每
+个哈希桶分配设置一个 “锁”，那么各 cpu 之间锁竞争就会变得更小啦，系统性能肯定会有更好地优化。</p>
+  </li>
+  <li>
+    <p><strong>无锁化，每个 cpu 一张连接表</strong>。既然每个 cpu 都要访问连接表，且会引起锁的竞争恶化，为何不给每个 cpu 维护一张连接表，
+每个 cpu 只维护自己相关数据连接组成的连接表，每个 cpu 读写 连接表时互不干扰，这样就实现无锁化，完美的避开了锁。</p>
+    <ul>
+      <li>每个 cpu 一张连接表</li>
+      <li>网卡按照 4 元组哈希，同一个数据流肯定会打到同一个 cpu 上去</li>
+      <li><em>对于 NAT 模式来说，就比较麻烦不好处理</em>
+  主要原因： NAT 回包还会经过 lvs，回包到达 lvs 网卡时，按照 4 元哈希后，数据包可能到达网卡队列 2 了，
+  而近来的请求数据包到达网卡队列 1 了，那么同一个连接的数据包不在同个 cpu 上就会出现异常现象了，
+  因为回包到达的 cpu 无法处理该数据包</li>
+    </ul>
+  </li>
+</ul>
+
+<p>总结：总体来说 conntrack 状态维护最基础通过五元组来完成。将一个 TCP 内的流量打到同一台机器，不同次的请求也同样会
+打到同一台，初始感觉不合理，可能和思维定位在 L7 有关系。将每次请求都转发至不同 RS 上，但是相对 L4 层，每个连接就是每次
+请求，通过两个五元组决定转发方向和转发目标。也不会影响到流量。
+考虑：优化如果每次报文发送都是连续性的</p>
+
+<h1 id="源码分析">源码分析</h1>
+
+<p>总结下来 LVS 依然是在 netfilter 上展开的，但是相对于 LVS 来说核心概念主要涉及连接表和调度算法。它们是 LVS 的核心内容</p>
+
+<p>netfilter 的 HOOK 点对应于内核中的方法：</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">NF_INET_PRE_ROUTING</code> 这是所有入栈数据包的第一个挂载点，挂载点位于 <code class="language-plaintext highlighter-rouge">ip_rcv</code> 中，v6 的是 <code class="language-plaintext highlighter-rouge">ip6_rcf</code></li>
+  <li><code class="language-plaintext highlighter-rouge">NF_INET_LOCAL_IN</code> 对于所有发送到当前主机的入栈数据包，经过挂载点 <code class="language-plaintext highlighter-rouge">NF_INET_PRE_ROUTING</code> 并执行路由选择，挂载点位于方法 <code class="language-plaintext highlighter-rouge">ip_local_deliver</code> 中</li>
+  <li><code class="language-plaintext highlighter-rouge">NF_INET_FORWARD</code> 对于所有转发的数据包，经过挂载点 <code class="language-plaintext highlighter-rouge">NF_INET_PRE_ROUTING</code> 并执行路由选择子系统查找后。挂载点位于 <code class="language-plaintext highlighter-rouge">ip_forward</code> 中</li>
+  <li><code class="language-plaintext highlighter-rouge">NF_INET_POST_ROUTING</code> 所有要转发的数据包和当前主机生成的数据包都经过这个挂载点，挂载点位于 <code class="language-plaintext highlighter-rouge">ip_output</code> 中</li>
+  <li><code class="language-plaintext highlighter-rouge">NF_INET_LOCAL_OUT</code> 当前主机生成的所有出战数据包都经过这个挂载点，挂载点位于方法 <code class="language-plaintext highlighter-rouge">__ip_local_out</code> 中</li>
+</ul>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="k">const</span> <span class="k">struct</span> <span class="n">nf_hook_ops</span> <span class="n">ip_vs_ops4</span><span class="p">[]</span> <span class="o">=</span> <span class="p">{</span>
+  <span class="cm">/* 包过滤后，只更改VS/NAT的 source */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_reply4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_LOCAL_IN</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="n">NF_IP_PRI_NAT_SRC</span> <span class="o">-</span> <span class="mi">2</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="cm">/* 包过滤后，通过VS/DR、VS/TUN或VS/NAT(change destination)转发包，
+   * 这样过滤规则就可以应用于IPVS。 */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_remote_request4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_LOCAL_IN</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="n">NF_IP_PRI_NAT_SRC</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="cm">/* 在 ip_vs_in 之前，只为 VS/NAT 更改source */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_local_reply4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_LOCAL_OUT</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="n">NF_IP_PRI_NAT_DST</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="cm">/* 在 mangle 之后，调度和转发本地请求 */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_local_request4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_LOCAL_OUT</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="n">NF_IP_PRI_NAT_DST</span> <span class="o">+</span> <span class="mi">2</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="cm">/* 在包过滤之后（但在 ip_vs_out_icmp 之前），
+  *  捕获发往 0.0.0.0/0 的 icmp，用于传入的 IPVS 连接 */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_forward_icmp</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_FORWARD</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="mi">99</span><span class="p">,</span>
+  <span class="p">},</span>
+  <span class="cm">/* 包过滤后，只更改VS/NAT的 source */</span>
+  <span class="p">{</span>
+    <span class="p">.</span><span class="n">hook</span>   <span class="o">=</span> <span class="n">ip_vs_reply4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pf</span>   <span class="o">=</span> <span class="n">NFPROTO_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">hooknum</span>  <span class="o">=</span> <span class="n">NF_INET_FORWARD</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">priority</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+  <span class="p">},</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>这里的 hook 函数是 <code class="language-plaintext highlighter-rouge">ip_vs_in</code> 是数据包的入口位置。从上边注册代码段中，可以知道它注册的挂载点位置是 <code class="language-plaintext highlighter-rouge">NF_INET_LOCAL_IN</code> 已经通过了
+prerouting 和 filter 路由查找的过程。
+假设在 DR 模式下，数据包转发将会经过如下过程：</p>
+<ol>
+  <li><code class="language-plaintext highlighter-rouge">[pp = ip_vs_proto_get(iph.protocol);](https://elixir.bootlin.com/linux/v5.11.2/source/net/netfilter/xt_ipvs.c#L81)</code> 查找是否是 LVS 所支持的协议
+lvs 所支持。lvs 能够支持 tcp、udp、ah、esp 协议，如果不是 LVS  所支持的协议，那么将直接返回 NF_ACCEPT 也就没有继续执行下去的意义了</li>
+  <li>调度并新建连接信息 
+  根据数据包 5 元组相关字段进行查找 <code class="language-plaintext highlighter-rouge">conn_in_get</code>，这里假设是一个新连接的请求数据包，那么在连接表中是查不到连接表项，将会调用 <code class="language-plaintext highlighter-rouge">conn_schedule</code> 新建表项
+  新建表现的条件：
+    <ul>
+      <li>数据包必须携带 SYN 标记</li>
+      <li>数据包所访问请求必须是我们定义的 service 才行
+  满足上述条件之后，会调用 <code class="language-plaintext highlighter-rouge">ip_vs_schedule</code> 方法，从 svc 指向的 dests 中更具调度算法选出一个合适的后端服务器</li>
+    </ul>
+  </li>
+  <li>在成功调度 dest 后，调用 <code class="language-plaintext highlighter-rouge">ip_vs_conn_new</code> 函数来常见真正的连接条目：
+    <ul>
+      <li>分配 cp 内存资源</li>
+      <li>设置定时器</li>
+      <li>填充相关字段</li>
+      <li>绑定并设置 dest 相关信息，调用 <code class="language-plaintext highlighter-rouge">ip_vs_bind_dest</code> 函数</li>
+      <li>绑定 conn 所需的 xmit 函数，调用 <code class="language-plaintext highlighter-rouge">ip_vs_bind_xmit</code> 函数</li>
+      <li>将 cp 连接条目 hash 到全局的连接表中</li>
+    </ul>
+  </li>
+</ol>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_app</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_conn</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_core</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_ctl</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_dh</span><span class="p">.</span><span class="n">c</span>         <span class="err">目的地址哈希调度</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_est</span><span class="p">.</span><span class="n">c</span>        <span class="err">简单的速率估计</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_fo</span><span class="p">.</span><span class="n">c</span>         <span class="err">添加了基于权重的初始功能</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_ftp</span><span class="p">.</span><span class="n">c</span>        <span class="n">ftp</span><span class="err">应用模块</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_lblc</span><span class="p">.</span><span class="n">c</span>           <span class="err">基于局部性的最少连接</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_lblcr</span><span class="p">.</span><span class="n">c</span>      <span class="err">带复制的基于局部性最少链接</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_lc</span><span class="p">.</span><span class="n">c</span>         <span class="err">最少连接调度</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_mh</span><span class="p">.</span><span class="n">c</span>         <span class="err">磁悬浮哈希调度模块</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_nfct</span><span class="p">.</span><span class="n">c</span>       <span class="err">支持</span><span class="n">IPVS</span><span class="err">的</span><span class="n">Netfilter</span><span class="err">连接跟踪</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_nq</span><span class="p">.</span><span class="n">c</span>         <span class="err">永不排队调度算法</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_ovf</span><span class="p">.</span><span class="n">c</span>        <span class="err">溢出连接调度模块</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_pe</span><span class="p">.</span><span class="n">c</span>         <span class="err">持久化模块</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_pe_sip</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_proto</span><span class="p">.</span><span class="n">c</span>      <span class="n">transport</span><span class="err">协议支持</span><span class="n">ipv4</span><span class="err">负载均衡</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_proto_ah_esp</span><span class="p">.</span><span class="n">c</span>   <span class="err">针对</span><span class="n">IPV</span><span class="err">的</span><span class="n">AH</span><span class="o">/</span><span class="n">ESP</span> <span class="n">IPSec</span><span class="err">负载平衡支持</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_proto_tcp</span><span class="p">.</span><span class="n">c</span>      <span class="n">IPVS</span><span class="err">的</span><span class="n">TCP</span><span class="err">负载平衡支持</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_proto_udp</span><span class="p">.</span><span class="n">c</span>    <span class="n">IPVS</span><span class="err">的</span><span class="n">UDP</span><span class="err">负载平衡支持</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_rr</span><span class="p">.</span><span class="n">c</span>           <span class="err">轮询调度算法</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_sched</span><span class="p">.</span><span class="n">c</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_sed</span><span class="p">.</span><span class="n">c</span>          <span class="err">最少期望延迟调度算法</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_sh</span><span class="p">.</span><span class="n">c</span>           <span class="err">源地址哈希调度</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_sync</span><span class="p">.</span><span class="n">c</span>       
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_wlc</span><span class="p">.</span><span class="n">c</span>          <span class="err">加权最少连接</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_wrr</span><span class="p">.</span><span class="n">c</span>          <span class="err">加权轮询调度</span>
+<span class="n">net</span><span class="o">/</span><span class="n">netfilter</span><span class="o">/</span><span class="n">ipvs</span><span class="o">/</span><span class="n">ip_vs_xmit</span><span class="p">.</span><span class="n">c</span>
+</code></pre></div></div>
+<p><a href="https://elixir.bootlin.com/linux/v5.11.2/C/ident/KMSG_COMPONENT">KMSG_COMPONENT</a></p>
+
+:ET

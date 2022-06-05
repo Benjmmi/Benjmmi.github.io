@@ -1,11 +1,7 @@
 ---
 title: net_rx_action
 date: 2022-01-08 23:47:45
-categories: 
-	- [eBPF]
-	- [Linux]
-	- [内核]
-	- [网络代码]
+categories: 'eBPF,Linux,内核,网络代码'
 tags:
   - ebpf
 author: Benjamin Yim

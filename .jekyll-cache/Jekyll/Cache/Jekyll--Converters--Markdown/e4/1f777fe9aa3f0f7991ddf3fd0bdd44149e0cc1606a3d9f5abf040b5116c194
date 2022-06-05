@@ -1,0 +1,360 @@
+I"r�<h1 id="ebpf-扩展阅读---bpf-maps">eBPF 扩展阅读 - BPF Maps</h1>
+
+<p>通过向程序传递消息而引起程序行为被调用，这种方式在软件工程中使用广泛。BPF 的功能之一就是内核中运行的代码和加载这些代码的程序可以通过<strong>消息传递</strong>的方式实现实时通信。</p>
+
+<p>BPF Map 以键/值保存在内核中，可以被任何 BPF 程序访问。<strong>用户空间</strong> 使用文件描述符的方式访问 BPF Map。BPF Map 中可以保存任何类型的数据。本质是是保存的<strong>二进制数据</strong>，所以内核并不关心 BPF Map  保存的内容。</p>
+
+<h2 id="1-创建-bpf-maps">1. 创建 BPF Maps</h2>
+
+<p>创建 BPF Maps 最直接的方法是使用 bpf 系统调用。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">bpf</span><span class="p">(</span><span class="kt">int</span> <span class="n">cmd</span><span class="p">,</span> <span class="k">union</span> <span class="n">bpf_attr</span> <span class="o">*</span><span class="n">attr</span><span class="p">,</span> <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">size</span> <span class="p">);</span>
+</code></pre></div></div>
+
+<p>cmd是eBPF支持的cmd，分为三类： 操作注入的代码、操作用于通信的map、前两个操作的混合。
+创建一个新的 Map ：</p>
+
+<p><strong>第一个参数</strong>：BPF_MAP_CREATE 表示创建一个新的 Map 。调用后将返回与创建 Map 相关的文件描述符。
+<strong>第二个参数</strong>是 Map 的设置。如下：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">union</span> <span class="n">bpf_attr</span> <span class="p">{</span>
+	<span class="k">struct</span> 
+	<span class="p">{</span>
+		<span class="n">__u32</span> <span class="n">map_type</span><span class="p">;</span>
+		<span class="n">__u32</span> <span class="n">key_size</span><span class="p">;</span>
+		<span class="n">__u32</span> <span class="n">value_size</span><span class="p">;</span>
+		<span class="n">__u32</span> <span class="n">max_entries</span><span class="p">;</span>
+		<span class="n">__u32</span> <span class="n">map_flags</span><span class="p">;</span>
+	<span class="p">};</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p><strong>第三个参数</strong>是设置属性的大小。</p>
+
+<p>实际操作创建一个 Key 和 Value 为无符号整数的哈希表 Map：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">union</span> <span class="n">bpf_attr</span> <span class="n">my_map</span> <span class="p">{</span>
+	<span class="p">.</span><span class="n">map_type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_HASH</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">map_flags</span> <span class="o">=</span> <span class="n">BPF_F_NO_PREALLOC</span><span class="p">,</span>
+<span class="p">};</span>
+
+<span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">bpf</span><span class="p">(</span><span class="n">BPF_MAP_CREATE</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">my_map</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">my_map</span><span class="p">));</span>
+</code></pre></div></div>
+<p>如果系统调用失败，内核将会返回 <code class="language-plaintext highlighter-rouge">-1</code>,失败有三种原因，可以通过 <code class="language-plaintext highlighter-rouge">errno</code> 来区分你：</p>
+<ul>
+  <li>属性无效：内核将 <code class="language-plaintext highlighter-rouge">errno</code> 变量设置为 <code class="language-plaintext highlighter-rouge">EINVAL</code></li>
+  <li>无权操作：内核将 <code class="language-plaintext highlighter-rouge">errno</code> 变量设置为 <code class="language-plaintext highlighter-rouge">EPERM</code></li>
+  <li>内存不足：内核将 <code class="language-plaintext highlighter-rouge">errno</code> 变量设置为 <code class="language-plaintext highlighter-rouge">ENOMEM</code></li>
+</ul>
+
+<hr />
+
+<p>当然内核也包含了一些约定和帮助函数，用于生成和使用 BPF Map。调用这些约定比直接执行系统调用更为常用，因为约定的方式更具有可读性且更易遵循。但是这些约定底层仍然是通过 bpf 系统调用来创建 <code class="language-plaintext highlighter-rouge">Map</code>。比如 <code class="language-plaintext highlighter-rouge">bpf_create_map</code> 就封装了上述的编写的代码，如下：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">fd</span><span class="p">;</span>
+<span class="n">fd</span> <span class="o">=</span> <span class="n">bpf_create_map</span><span class="p">(</span><span class="n">BPF_MAP_TYPE_HASH</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span> <span class="mi">100</span><span class="p">,</span> <span class="n">BPF_F_NO_PREALLOC</span><span class="p">);</span>
+</code></pre></div></div>
+
+<hr />
+
+<p>当然如果事先知道将要使用的 Map 类型的话，我们也可以预先定义 Map。让程序更易于理解：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"maps"</span><span class="p">)</span> <span class="n">my_map</span> <span class="o">=</span> <span class="p">{</span>
+	<span class="p">.</span><span class="n">map_type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_HASH</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">map_flags</span> <span class="o">=</span> <span class="n">BPF_F_NO_PREALLOC</span><span class="p">,</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>这种方式使用 <code class="language-plaintext highlighter-rouge">section</code> 属性来定义 Map，本示例中为 <code class="language-plaintext highlighter-rouge">SEC("maps")</code>。这个<code class="language-plaintext highlighter-rouge">宏</code>告诉内核该结构是 BPF Map ，并告诉内核创建相应的 Map。使用这种方式的创建 Map 如果需要使用与之想关联的文件描述符可以使用如下方式：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>因为内核使用 <code class="language-plaintext highlighter-rouge">map_data	</code> 全局变量来保存 BPF 程序 Map 信息。这个变量是数组结构，存储的内容是按照程序中指定 Map 的顺序进行排序。
+初始化完成后，就可以使用它们在<strong>内核和用户空间</strong>之间传递消息。</p>
+
+<h2 id="使用-map">使用 Map</h2>
+
+<p>内核和用户空间之间通信的基础就是编写 BPF 程序。内核和用户空间都可以访问 Map。</p>
+
+<h3 id="更新-bpf-map-元素">更新 BPF Map 元素</h3>
+
+<p>创建 Map 后，就需要使用其保存数据。我们可以使用 <code class="language-plaintext highlighter-rouge">bpf_map_update_elem</code> 来实现功能。
+<strong>内核程序</strong>需要从 <code class="language-plaintext highlighter-rouge">bpf/bpf_helpers.h</code> 文件加载 <code class="language-plaintext highlighter-rouge">bpf_map_update_elem</code> 函数。
+<strong>用户空间程序</strong>则需要从 <code class="language-plaintext highlighter-rouge">tools/lib/bpf/bpf.h</code> 文件加载 <code class="language-plaintext highlighter-rouge">bpf_map_update_elem</code> 函数。</p>
+
+<p>因为二者的访问方式不同，<strong>内核程序</strong> 可以直接访问 <code class="language-plaintext highlighter-rouge">Map</code> ，而用户空间需要使用<strong>文件描述符</strong>来引用 <code class="language-plaintext highlighter-rouge">Map</code> 。而且两者访问 <code class="language-plaintext highlighter-rouge">Map</code> 的行为也略有不同。在内核上可以直接访问内存中的 <code class="language-plaintext highlighter-rouge">Map</code> ，而且操作也是<strong>原子性</strong>的。但是在<strong>用户控件</strong>中运行的代码需要发送消息到内核，需要先复制值再进行更新 <code class="language-plaintext highlighter-rouge">Map</code>，这使得更新操作非<strong>原子性</strong>的。如果更新操作成功就会范围 <code class="language-plaintext highlighter-rouge">0</code>，否则返回 <code class="language-plaintext highlighter-rouge">-1</code> 错误信息将会写入到全局变量 errno 中。</p>
+
+<p><strong><code class="language-plaintext highlighter-rouge">内核</code></strong>调用 <code class="language-plaintext highlighter-rouge">bpf_map_update_elem</code> 函数需要四个参数。</p>
+<ul>
+  <li>第一个指向已定义 <code class="language-plaintext highlighter-rouge">Map</code> 的指针。</li>
+  <li>第二个指向要更新的<strong>键</strong>的指针。</li>
+  <li>第三个参数是我们要存入的值</li>
+  <li>第四个参数是指定更新 <code class="language-plaintext highlighter-rouge">Map</code> 的方式：
+    <ul>
+      <li>如果传递 0（常量：BPF_ANY），表示如果元素存在，<strong>内核</strong>将<strong>更新元素</strong>；如果不存在则<strong>创建</strong></li>
+      <li>如果传递 1（常量：BPF_NOEXIST），表示仅在元素不存在时，内核<strong>创建元素</strong></li>
+      <li>如果传递 2（常量：BPF_EXIST），表示仅在元素存在时，内核<strong>更新元素</strong></li>
+    </ul>
+  </li>
+</ul>
+
+<h4 id="示例程序">示例程序</h4>
+
+<p>在<strong>内核空间</strong>直接访问元素：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="mi">12</span><span class="p">;</span>
+<span class="c1">// other operator BPF_NOEXSIT and BPF_EXSIT etd;</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_update_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">my_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value</span><span class="p">,</span> <span class="n">BPF_ANY</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"Kernel create or update element Success !</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"Kernel create or update elem Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>在<strong>用户空间</strong>访问元素需要使用到<strong>文件描述符</strong>，而不是直接使用 <code class="language-plaintext highlighter-rouge">Map</code> 的指针，当然<strong>文件描述符</strong>使用全局文件描述<code class="language-plaintext highlighter-rouge">map_data[0].fd</code>：</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="mi">12</span><span class="p">;</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_update_elem</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value</span><span class="p">,</span> <span class="n">BPF_ANY</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space create or update element Success !</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space create or update element Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h3 id="读取-bpf-map-元素">读取 BPF Map 元素</h3>
+
+<p>BPF 根据程序执行的位置提供了<strong>两个不同</strong>的帮助函数来读取 <code class="language-plaintext highlighter-rouge">Map</code> 元素，即<strong>内核</strong>与<strong>用户空间</strong>。这两个帮助函数名都为 <code class="language-plaintext highlighter-rouge">bpf_map_lookup_elem</code>。与更新帮助函数一样，它们仅在第一个参数上有所不同。第二个参数即为读取的键，第三个参数是指向变量的指针，该变量将保存从 <code class="language-plaintext highlighter-rouge">Map</code> 中读取的值。</p>
+
+<h4 id="示例程序-1">示例程序</h4>
+
+<p>在<strong>内核空间</strong>访问 <code class="language-plaintext highlighter-rouge">BPF Map</code> 中的值：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">my_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value</span><span class="p">);</span>
+
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"Kernel lookup element Success %d!</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">value</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"Kernel create or update elem Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>在<strong>用户空间</strong>访问 <code class="language-plaintext highlighter-rouge">BPF Map</code> 的值：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space lookup element Success %d!</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">value</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space lookup element Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h3 id="删除-bpf-map-元素">删除 BPF Map 元素</h3>
+
+<p>下面将要介绍的是<strong>删除</strong>操作。与读取 <code class="language-plaintext highlighter-rouge">BPF Map</code> 元素相同， BPF 为我们提供了两个帮助函数来删除，函数名都为 <code class="language-plaintext highlighter-rouge">bpf_map_delete_element</code> 。</p>
+<ul>
+  <li>第一个参数与之前介绍帮助函数的一样</li>
+  <li>第二个参数即为要删除的键的引用</li>
+  <li>返回值也与之前的一样，但是情况有所不同，如果存在则返回正常结果，如果不存在则返回负数，并返回 <code class="language-plaintext highlighter-rouge">not found</code> 信息。</li>
+</ul>
+
+<h4 id="示例程序-2">示例程序</h4>
+
+<p><strong>内核空间</strong>操作删除帮助函数：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_delete_element</span><span class="p">(</span><span class="o">&amp;</span><span class="n">my_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space delete element Success %d!</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">value</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space delete element Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p><strong>用户空间</strong>操作删除帮助函数：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">result</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_delete_element</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">);</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space delete element Success %d!</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">value</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"User Space delete element Fail :%d %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h3 id="迭代-bpf-map-元素">迭代 BPF Map 元素</h3>
+
+<p>当然除了 CURD 之外，我们还需要查找指定的 <code class="language-plaintext highlighter-rouge">Map</code> 元素。BPF 也提供了此类功能的帮助函数 <code class="language-plaintext highlighter-rouge">bpf_map_get_next_key</code> 指令。该指令与之前的指令不同，该指令只能运行与 <code class="language-plaintext highlighter-rouge">用户空间</code> 。
+该指令需要三个参数：</p>
+<ul>
+  <li>第一个参数是 <code class="language-plaintext highlighter-rouge">Map</code> 的文件描述符</li>
+  <li>第二个参数是要查找的 Key</li>
+  <li>第三个参数是 <code class="language-plaintext highlighter-rouge">Map</code> 中的下一个 Key 即：next_key</li>
+</ul>
+
+<p>一般情况下获取 <code class="language-plaintext highlighter-rouge">key</code> 的内容只需要调用 <code class="language-plaintext highlighter-rouge">bpf_map_lookup_elem</code> 即可，但是某些情况下想要获取当前 <code class="language-plaintext highlighter-rouge">key</code> 的下一个 <code class="language-plaintext highlighter-rouge">next_key</code> 是什么就需要调用这个帮助函数。</p>
+
+<h4 id="示例代码">示例代码</h4>
+
+<p>我们打印 <code class="language-plaintext highlighter-rouge">Map</code> 中的所有 <code class="language-plaintext highlighter-rouge">Key</code> ，只需要设置 <code class="language-plaintext highlighter-rouge">next_key</code> 为不存在的 <code class="language-plaintext highlighter-rouge">key</code> 即可，当返回值为<strong>负数</strong>时，代表以及遍历了 <code class="language-plaintext highlighter-rouge">Map</code> 的全部元素：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">next_key</span><span class="p">,</span> <span class="n">lookup_key</span><span class="p">;</span>
+<span class="n">lookup_key</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+
+<span class="k">while</span><span class="p">(</span><span class="n">bpf_map_get_next_key</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lookup_key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">next_key</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="p">){</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"The next key in the map is: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">next_key</span><span class="p">);</span>
+	<span class="n">lookup_key</span> <span class="o">=</span> <span class="n">next_key</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>如果我们之前存入了Key ：1、2、3、4
+则将会输出：
+	The next key in the map is: 1
+	The next key in the map is: 2
+	The next key in the map is: 3
+	The next key in the map is: 4</p>
+
+<p><strong>注意</strong>
+另外需要注意的是。BPF 使用 <code class="language-plaintext highlighter-rouge">bpf_map_get_next_key</code> 在遍历 <code class="language-plaintext highlighter-rouge">Map</code> 前不复制 <code class="language-plaintext highlighter-rouge">Map</code> 的值。如果程序正在遍历 <code class="language-plaintext highlighter-rouge">Map</code> 元素，程序的其他代码删除了映射中的元素，当遍历程序尝试查找下一个值是<strong>已经删除的键</strong>时，<code class="language-plaintext highlighter-rouge">bpf_map_get_next_key</code> 将重新开始查找，代码如下：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">next_key</span><span class="p">,</span> <span class="n">lookup_key</span><span class="p">;</span>
+<span class="n">lookup_key</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+
+<span class="k">while</span><span class="p">(</span><span class="n">bpf_map_get_next_key</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lookup_key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">next_key</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">){</span>
+	<span class="n">printf</span><span class="p">(</span><span class="s">"The next key in the map is: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">next_key</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">next_key</span> <span class="o">==</span> <span class="mi">2</span><span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">printf</span><span class="p">(</span><span class="s">"Deleting key `2`</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="p">);</span>
+		<span class="n">bpf_map_delete_element</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">next_key</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="n">lookup_key</span> <span class="o">=</span> <span class="n">next_key</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>如果我们之前存入了Key ：1、2、3、4、5
+则将会输出：
+	The next key in the map is: 1
+	The next key in the map is: 2
+	Deleting key <code class="language-plaintext highlighter-rouge">2</code>
+	The next key in the map is: 1
+	The next key in the map is: 3
+	The next key in the map is: 4
+	The next key in the map is: 5</p>
+
+<h3 id="查找并删除元素">查找并删除元素</h3>
+
+<p>内核为 BPF Map 提供了一个在 <code class="language-plaintext highlighter-rouge">Map</code> 中查找指定的键并删除元素同时将该元素的值赋予元素的功能 <code class="language-plaintext highlighter-rouge">bpf_map_lookup_and_delete_element</code>。当我们使用<strong>队列</strong>和<strong>栈映射</strong>时，这个功能将会派上用场。</p>
+
+<h4 id="示例代码-1">示例代码</h4>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">it</span><span class="p">;</span>
+<span class="n">key</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+
+<span class="k">for</span> <span class="p">(</span><span class="n">it</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">it</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">;</span> <span class="o">++</span><span class="n">it</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">result</span> <span class="o">=</span> <span class="n">bpf_map_lookup_and_delete_element</span><span class="p">(</span><span class="n">map_data</span><span class="p">[</span><span class="mi">0</span><span class="p">].</span><span class="n">fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value</span><span class="p">);</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">result</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+	<span class="p">{</span>
+		<span class="n">printf</span><span class="p">(</span><span class="s">"Value read from the map: '%d'</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">value</span><span class="p">);</span>
+	<span class="p">}</span><span class="k">else</span><span class="p">{</span>
+		<span class="n">printf</span><span class="p">(</span><span class="s">"Failed to read value from the map: %d (%s)</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">result</span><span class="p">,</span> <span class="n">stderror</span><span class="p">(</span><span class="n">errno</span><span class="p">)</span> <span class="p">);</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>在这个示例中，我们尝试两次提取并删除相同的元素。第一次可能执行成功，但是第二次将会失败，并且错误为 <code class="language-plaintext highlighter-rouge">not found</code> 。</p>
+
+<h3 id="并发访问-map-元素">并发访问 Map 元素</h3>
+
+<p>既然 <code class="language-plaintext highlighter-rouge">Map</code> 是全局共享的，那么就肯定会存在多个应用程序并发访问相同的 <code class="language-plaintext highlighter-rouge">Map</code> 。这可能会在 BPF 程序中产生竞争条件，并使得 <code class="language-plaintext highlighter-rouge">Map</code> 的行为不可预测。为了防止竞争条件，BPF 引入了 BPF <strong>自旋锁</strong>的概念，可以在操作 <code class="language-plaintext highlighter-rouge">Map</code> 映射时对访问的 <code class="language-plaintext highlighter-rouge">Map</code> 元素进行锁定，<strong>自旋锁</strong>仅适用于 <code class="language-plaintext highlighter-rouge">数组</code>、<code class="language-plaintext highlighter-rouge">哈希</code>、<code class="language-plaintext highlighter-rouge">cgroup</code> 存储 Map。</p>
+
+<p><strong>内核</strong>中有两个帮组函数与<strong>自旋锁</strong>一起使用：bpf_spin_lock 锁定，bpf_spin_unlock 解锁。工作原理：<code class="language-plaintext highlighter-rouge">使用充当信号的数据结构访问包括信号的元素，当信号锁定后，其他程序无法访问该元素值，直至信号被解除</code>。
+<strong>用户空间</strong>可以使用一个标志来改变锁的状态：<code class="language-plaintext highlighter-rouge">BPF_F_LOCK</code>。</p>
+
+<h4 id="示例代码-2">示例代码</h4>
+
+<p>使用<strong>自旋锁</strong>，我们需要做的第一件事就是创建要锁定访问的元素，然后为该元素添加信号：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">concurrent_element</span>
+<span class="p">{</span>
+	<span class="k">struct</span> <span class="n">bpf_spin_lock</span> <span class="n">semaphore</span><span class="p">;</span>
+	<span class="kt">int</span> <span class="n">count</span><span class="p">;</span>
+<span class="p">};</span>
+</code></pre></div></div>
+
+<p>我们需要将这个结构保存在 BPF Map 中，并在元素中使用 semaphore 防止对元素不可预测的访问。
+<strong>该元素必须使用 BPF 类型格式（BPF Type Format，BTF）进行注释，以便验证器知道如何解释 BTF</strong>。</p>
+
+<p>这里我们使用 <code class="language-plaintext highlighter-rouge">libbpf</code> 的内核宏来注释这个并发映射，代码如下：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"maps"</span><span class="p">)</span> <span class="n">concurrent_map</span>
+<span class="p">{</span>
+	<span class="p">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_HASH</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">int</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span> <span class="n">concurrent_element</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+<span class="p">};</span>
+
+<span class="n">BPF_ANNOTATE_KV_PAIR</span><span class="p">(</span><span class="n">concurrent_map</span><span class="p">,</span> <span class="kt">int</span><span class="p">,</span> <span class="k">struct</span> <span class="n">concurrent_element</span><span class="p">);</span>
+</code></pre></div></div>
+<p>在 BPF 程序中，我们可以使用这两个锁帮助函数保护这些元素防止竞争条件。Map 元素的信号被锁定，程序就可以安全的修改元素的值：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">bpf_program</span><span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">ctx</span><span class="p">){</span>
+	<span class="kt">int</span> <span class="n">key</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="k">struct</span> <span class="n">concurrent_element</span> <span class="n">init_value</span> <span class="o">=</span> <span class="p">{},</span>
+	<span class="k">struct</span> <span class="n">concurrent_element</span> <span class="o">*</span><span class="n">read_value</span><span class="p">,</span>
+
+	<span class="n">bpf_map_create_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">concurrent_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">init_value</span><span class="p">,</span> <span class="n">BPF_NOEXSIT</span><span class="p">);</span>
+
+	<span class="n">read_value</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">concurrent_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">);</span>
+	<span class="n">bpf_spin_lock</span><span class="p">(</span><span class="o">&amp;</span><span class="n">read_value</span><span class="o">-&gt;</span><span class="n">semaphore</span><span class="p">);</span> <span class="c1">// lock</span>
+	<span class="n">read_value</span><span class="o">-&gt;</span><span class="n">count</span> <span class="o">+=</span> <span class="mi">100</span><span class="p">;</span> <span class="c1">//原子更新</span>
+	<span class="n">bpf_spin_unlock</span><span class="p">(</span><span class="o">&amp;</span><span class="n">read_value</span><span class="o">-&gt;</span><span class="n">semaphore</span><span class="p">);</span> <span class="c1">// unlock</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>上述是在内核空间，对 Map 元素的并发访问进行控制。</p>
+
+<p>在<strong>用户空间</strong>上，我们可以使用标识 <code class="language-plaintext highlighter-rouge">BPF_F_LOCK</code> 保存并发映射的引用。我们可以在 <code class="language-plaintext highlighter-rouge">bpf_map_update_elem</code> 和 <code class="language-plaintext highlighter-rouge">bpf_map_lookup_elem_flags</code> 两个帮助函数中使用此标志。从而无需担心数据竞争问题。</p>
+
+<p>到目前为止，BPF 已经支持大于 150 个辅助函数，30 个 BPF Maps。</p>
+
+<h2 id="参考文档">参考文档</h2>
+<ul>
+  <li><a href="https://www.cnblogs.com/zhangzl2013/p/4008838.html">BPF系统调用API v1</a></li>
+  <li><a href="https://blog.csdn.net/eydwyz/article/details/107983479">Linux内核功能eBPF入门学习</a></li>
+</ul>
+:ET

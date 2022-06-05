@@ -1,8 +1,7 @@
 ---
 title: 流量控制：令牌和桶算法
 date: 2021-02-26 11:14:23
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
   - tc

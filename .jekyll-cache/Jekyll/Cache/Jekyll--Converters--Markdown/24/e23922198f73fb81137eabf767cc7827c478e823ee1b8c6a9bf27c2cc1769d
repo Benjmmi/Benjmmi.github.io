@@ -1,0 +1,220 @@
+I"�;<h1 id="cilium-源码阅读-如何制定和执行-l3-策略-续续续-解读-ebpf-执行">Cilium 源码阅读： 如何制定和执行 L3 策略 续续续 解读 eBPF 执行</h1>
+
+<h2 id="high-level">High-level</h2>
+
+<p><strong>api</strong>
+  Cilium &amp; Hubble API 定义
+<strong>bpf</strong>
+  BPF数据路径代码
+<strong>bpftool</strong>
+  命令行收集代理和系统信息，用于bug报告
+<strong>cilium</strong>
+  Cilium CLI客户端
+<strong>contrib, tools</strong>
+  用于开发的其他工具和资源
+<strong>daemon</strong>
+  在每个节点上运行的cilium代理
+<strong>examples</strong>
+  各种示例资源和清单。通常需要修改才能使用。
+<strong>hubble-relay</strong>
+  哈勃中继服务器
+<strong>install</strong>
+  Helm 所有组件的部署清单<br />
+<strong>pkg</strong>
+  所有组件之间共享的通用Go包
+<strong>operator</strong>
+  负责集中任务的操作员，这些任务不需要在每个节点上执行。
+<strong>plugins</strong>
+  与Kubernetes和Docker集成的插件
+<strong>test</strong>
+  端到端集成测试在端到端测试框架中运行。</p>
+
+<h2 id="cilium">Cilium</h2>
+
+<p><strong>api/v1/openapi.yaml</strong>
+  Cilium的API规范。用于代码生成。
+<strong>api/v1/models/</strong>
+  从代表所有API资源的openapi.yaml生成的Go代码
+<strong>bpf</strong>
+  BPF数据路径代码<br />
+<strong>cilium</strong>
+  Cilium CLI客户端
+<strong>cilium-health</strong>
+  Cilium集群连接的CLI客户端
+<strong>daemon</strong>
+  cilium-agent的具体代码  <br />
+<strong>plugins/cilium-cni</strong>
+  与Kubernetes集成的CNI插件
+<strong>plugins/cilium-docker</strong>
+  Docker集成插件</p>
+
+<h1 id="重要的通用包">重要的通用包</h1>
+
+<p><strong>pkg/allocator</strong>
+  安全身份分配
+<strong>pkg/bpf</strong>
+  抽象层，与BPF运行时进行交互<br />
+<strong>pkg/client</strong>
+  访问Cilium API的Go客户端
+<strong>pkg/clustermesh</strong>
+  多集群实现包括控制平面和全局服务
+<strong>pkg/controller</strong>
+  任何需要重试或基于间隔的调用的后台操作的基本控制器实现。
+<strong>pkg/datapath</strong>
+  用于数据通路交互的抽象层
+<strong>pkg/default</strong>
+  所有默认值
+<strong>pkg/elf</strong>
+  用于BPF加载器的ELF抽象库
+<strong>pkg/endpoint</strong>
+  对Cilium endpoint 的抽象，代表所有的工作负载。
+<strong>pkg/endpointmanager</strong>
+  管理所有 Endpoint
+<strong>pkg/envoy</strong>
+  Envoy 集成代理
+<strong>pkg/fqdn</strong>
+  FQDN 代理 和 FQDN 策略实现
+<strong>pkg/health</strong>
+  网络连接健康检查
+<strong>pkg/identity</strong>
+    代表工作负载的安全身份
+<strong>pkg/ipam</strong>
+  IP 地址管理
+<strong>pkg/ipcache</strong>
+  全局缓存将IP映射到端点和安全标识
+<strong>pkg/k8s</strong>
+  与Kubernetes的所有交互
+<strong>pkg/kafka</strong>
+  Kafka协议代理和策略实现
+<strong>pkg/kvstore</strong>
+  带etcd和consul后端的键值存储抽象层
+<strong>pkg/labels</strong>
+  基本元数据类型，用于描述工作负载标识规范和策略匹配的所有标签/元数据要求。
+<strong>pkg/loadbalancer</strong>
+  用于负载平衡功能的控制平面
+<strong>pkg/maps</strong>
+  BPF map 表述
+<strong>pkg/metrics</strong>
+  Prometheus 指标实现
+<strong>pkg/monitor</strong>
+  BPF数据路径监视抽象
+<strong>pkg/node</strong>
+  网络节点的表示
+<strong>pkg/option</strong>
+  所有可用配置选项
+<strong>pkg/policy</strong>
+  策略实施规范与实施
+<strong>pkg/proxy</strong>
+  第7层代理抽象
+<strong>pkg/service</strong>
+  负载均衡 service 的表示
+<strong>pkg/trigger</strong>
+  实现触发器功能以实现事件驱动功能</p>
+
+<p>一般代码都  attach 到内核中，所以直接看前一页的内容就基本知道了 哪些  section。</p>
+
+<p>bpf 下主要有：bpf_host.c、bpf_lxc.c、bpf_network.c、bpf_overlay.c、bpf_sock.c、bp_xdp.c 几个文件</p>
+
+<p>从架构图上看在底层起到拦截作用的应该是 bpf_lxc.c 看下面代码执行：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__section</span><span class="p">(</span><span class="s">"from-container"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">handle_xgress</span><span class="p">(</span><span class="k">struct</span> <span class="n">__ctx_buff</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+
+  <span class="n">__u16</span> <span class="n">proto</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">ret</span><span class="p">;</span>
+
+<span class="p">...</span>
+  <span class="k">switch</span> <span class="p">(</span><span class="n">proto</span><span class="p">)</span> <span class="p">{</span>
+<span class="p">...</span>
+  <span class="k">case</span> <span class="n">bpf_htons</span><span class="p">(</span><span class="n">ETH_P_IP</span><span class="p">):</span>
+    <span class="n">invoke_tailcall_if</span><span class="p">(</span><span class="n">__or</span><span class="p">(</span><span class="n">__and</span><span class="p">(</span><span class="n">is_defined</span><span class="p">(</span><span class="n">ENABLE_IPV4</span><span class="p">),</span> 
+           <span class="n">is_defined</span><span class="p">(</span><span class="n">ENABLE_IPV6</span><span class="p">)),</span><span class="n">is_defined</span><span class="p">(</span><span class="n">DEBUG</span><span class="p">)),</span>
+           <span class="n">CILIUM_CALL_IPV4_FROM_LXC</span><span class="p">,</span> <span class="n">tail_handle_ipv4</span><span class="p">);</span>
+    <span class="k">break</span><span class="p">;</span>
+    <span class="p">...</span>
+<span class="p">}</span>
+  <span class="k">return</span> <span class="n">ret</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">declare_tailcall_if</span><span class="p">(</span><span class="n">__or</span><span class="p">(</span><span class="n">__and</span><span class="p">(</span><span class="n">is_defined</span><span class="p">(</span><span class="n">ENABLE_IPV4</span><span class="p">),</span> <span class="n">is_defined</span><span class="p">(</span><span class="n">ENABLE_IPV6</span><span class="p">)),</span>
+       <span class="n">is_defined</span><span class="p">(</span><span class="n">DEBUG</span><span class="p">)),</span> <span class="n">CILIUM_CALL_IPV4_FROM_LXC</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">tail_handle_ipv4</span><span class="p">(</span><span class="k">struct</span> <span class="n">__ctx_buff</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="n">__u32</span> <span class="n">dstID</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">handle_ipv4_from_lxc</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">dstID</span><span class="p">);</span>
+<span class="p">...</span>
+  <span class="k">return</span> <span class="n">ret</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">static</span> <span class="n">__always_inline</span> <span class="kt">int</span> <span class="nf">handle_ipv4_from_lxc</span><span class="p">(</span><span class="k">struct</span> <span class="n">__ctx_buff</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span>
+            <span class="n">__u32</span> <span class="o">*</span><span class="n">dstID</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="p">...</span>
+    <span class="k">struct</span> <span class="n">remote_endpoint_info</span> <span class="o">*</span><span class="n">info</span><span class="p">;</span>
+
+    <span class="n">info</span> <span class="o">=</span> <span class="n">lookup_ip4_remote_endpoint</span><span class="p">(</span><span class="n">orig_dip</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">info</span> <span class="o">!=</span> <span class="nb">NULL</span> <span class="o">&amp;&amp;</span> <span class="n">info</span><span class="o">-&gt;</span><span class="n">sec_label</span><span class="p">)</span> <span class="p">{</span>
+      <span class="o">*</span><span class="n">dstID</span> <span class="o">=</span> <span class="n">info</span><span class="o">-&gt;</span><span class="n">sec_label</span><span class="p">;</span>
+      <span class="n">tunnel_endpoint</span> <span class="o">=</span> <span class="n">info</span><span class="o">-&gt;</span><span class="n">tunnel_endpoint</span><span class="p">;</span>
+      <span class="n">encrypt_key</span> <span class="o">=</span> <span class="n">get_min_encrypt_key</span><span class="p">(</span><span class="n">info</span><span class="o">-&gt;</span><span class="n">key</span><span class="p">);</span>
+    <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+      <span class="o">*</span><span class="n">dstID</span> <span class="o">=</span> <span class="n">WORLD_ID</span><span class="p">;</span>
+    <span class="p">}</span>
+
+  <span class="n">verdict</span> <span class="o">=</span> <span class="n">policy_can_egress4</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">tuple</span><span class="p">,</span> <span class="n">SECLABEL</span><span class="p">,</span> <span class="o">*</span><span class="n">dstID</span><span class="p">,</span>
+             <span class="o">&amp;</span><span class="n">policy_match_type</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">audited</span><span class="p">);</span>
+
+<span class="p">}</span>  
+<span class="c1">// lookup_ip4_remote_endpoint -----&gt;&gt;&gt;&gt;&gt;&gt; ipcache_lookup4</span>
+
+<span class="k">static</span> <span class="n">__always_inline</span> <span class="n">__maybe_unused</span> <span class="k">struct</span> <span class="n">remote_endpoint_info</span> <span class="o">*</span>
+<span class="nf">ipcache_lookup4</span><span class="p">(</span><span class="k">struct</span> <span class="n">bpf_elf_map</span> <span class="o">*</span><span class="n">map</span><span class="p">,</span> <span class="n">__be32</span> <span class="n">addr</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">prefix</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">struct</span> <span class="n">ipcache_key</span> <span class="n">key</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">.</span><span class="n">lpm_key</span> <span class="o">=</span> <span class="p">{</span> <span class="n">IPCACHE_PREFIX_LEN</span><span class="p">(</span><span class="n">prefix</span><span class="p">),</span> <span class="p">{}</span> <span class="p">},</span>
+    <span class="p">.</span><span class="n">family</span> <span class="o">=</span> <span class="n">ENDPOINT_KEY_IPV4</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">ip4</span> <span class="o">=</span> <span class="n">addr</span><span class="p">,</span>
+  <span class="p">};</span>
+  <span class="n">key</span><span class="p">.</span><span class="n">ip4</span> <span class="o">&amp;=</span> <span class="n">GET_PREFIX</span><span class="p">(</span><span class="n">prefix</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">map_lookup_elem</span><span class="p">(</span><span class="n">map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">);</span>
+<span class="p">}</span>
+
+
+<span class="k">static</span> <span class="n">__always_inline</span> <span class="kt">int</span>
+<span class="nf">__policy_can_access</span><span class="p">(</span><span class="k">const</span> <span class="kt">void</span> <span class="o">*</span><span class="n">map</span><span class="p">,</span> <span class="k">struct</span> <span class="n">__ctx_buff</span> <span class="o">*</span><span class="n">ctx</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">localID</span><span class="p">,</span>
+        <span class="n">__u32</span> <span class="n">remoteID</span><span class="p">,</span> <span class="n">__u16</span> <span class="n">dport</span><span class="p">,</span> <span class="n">__u8</span> <span class="n">proto</span><span class="p">,</span> <span class="kt">int</span> <span class="n">dir</span><span class="p">,</span>
+        <span class="n">bool</span> <span class="n">is_untracked_fragment</span><span class="p">,</span> <span class="n">__u8</span> <span class="o">*</span><span class="n">match_type</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">struct</span> <span class="n">policy_entry</span> <span class="o">*</span><span class="n">policy</span><span class="p">;</span>
+  <span class="k">struct</span> <span class="n">policy_key</span> <span class="n">key</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">.</span><span class="n">sec_label</span> <span class="o">=</span> <span class="n">remoteID</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">dport</span> <span class="o">=</span> <span class="n">dport</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">protocol</span> <span class="o">=</span> <span class="n">proto</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">egress</span> <span class="o">=</span> <span class="o">!</span><span class="n">dir</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">pad</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+  <span class="p">};</span>
+  <span class="c1">// Start with L3/L4 lookup. </span>
+  <span class="c1">// L4-only lookup.</span>
+  <span class="c1">// If L4 policy check misses, fall back to L3.</span>
+  <span class="c1">// Final fallback if allow-all policy is in place.</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<p>禁止访问的流程就是这么多了，还是用 c 语言写出的代码比较精简，易懂。
+流程与之前分析的差不多。流量进入了之后根据目前的网络协议发起网络尾调用，先通过 lookup_ip4_remote_endpoint 查出来源IP的唯一标识，这里查的就是 ipcache。如果没查到
+就直接判断失败，也就是不允许访问。（PS：这里感觉有bug，或者设计的问题，因为自己访问自己都访问不通）。如果查出了之后会调用 policy_can_egress4 查看策略是否允许访问。</p>
+<ol>
+  <li>先从已经跟踪的 ct 进行 L3L4 联合查找、没找到就只从 L4 查找，</li>
+  <li>如果不是已经跟中的 ct 则进行 L3 层 查找</li>
+  <li>如果都找不到最后就会在是否允许所有流量中进行查找。</li>
+</ol>
+
+<p>c 这边处理的相对要简单。所以重点应该还是上层的架构设计，繁杂适合多样性。</p>
+
+<p>后面可能需要分析 ct 的概念和监控的概念。</p>
+
+<p>完结</p>
+
+:ET

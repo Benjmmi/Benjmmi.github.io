@@ -1,0 +1,24 @@
+I"‰<p>Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz</p>
+
+<h1 id="katran">katran</h1>
+
+<p>wrk -c 10000 -t 32 -d 300s http://10.210.9.103/t  -v 
+Requests/sec: 2356919.98
+Transfer/sec:    388.61MB</p>
+
+<p>wrk -c 10000 -t 32 -d 300s http://10.210.9.103/t  -v 
+Requests/sec: 2351944.52
+Transfer/sec:    387.86MB</p>
+
+<h1 id="lvs">LVS</h1>
+
+<p>wrk -c 10000 -t 32 -d 300s http://10.210.9.103/t  -v
+Requests/sec: 2021869.63
+Transfer/sec:    333.26MB</p>
+
+<p>wrk -c 10000 -t 32 -d 300s http://10.210.9.103/t  -v
+Requests/sec: 2093134.23
+Transfer/sec:    344.92MB</p>
+
+<p><a href="https://github.com/facebookincubator/katran/issues/21">performance of katran</a></p>
+:ET

@@ -1,0 +1,77 @@
+I"�<h1 id="实践">实践</h1>
+
+<p>在 <code class="language-plaintext highlighter-rouge">ebpf</code> 实践中遇到了一些问题。
+首先是在虚拟机上支持不了 <code class="language-plaintext highlighter-rouge">xdpdrv</code> 让人很头大，只能通过 <code class="language-plaintext highlighter-rouge">xdpgeneric</code></p>
+
+<p>另外在加载 <code class="language-plaintext highlighter-rouge">tc</code> 层的时候由于没有指定 <code class="language-plaintext highlighter-rouge">classifier</code> 直接报错，让我排查了一天都不知道什么问题。现场还原：
+在编辑完 <code class="language-plaintext highlighter-rouge">c</code> 代码以后编译成二进制文件，然后使用下面的命令加载到 <code class="language-plaintext highlighter-rouge">tc</code> 层：</p>
+
+<p><code class="language-plaintext highlighter-rouge">sudo tc filter add dev ens33 ingress bpf da obj tc-example.o</code></p>
+
+<p>然后报错：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Program section <span class="s1">'classifier'</span> not found <span class="k">in </span>ELF file!
+Error fetching program/map!
+Unable to load program
+</code></pre></div></div>
+
+<p>命名修改后：</p>
+
+<p><code class="language-plaintext highlighter-rouge">sudo tc filter add dev ens33 ingress bpf da obj tc-example.o  sec ingress</code></p>
+
+<p>没有任何提示，查看一下是否加载成功</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$:</span>tc filter show dev ens33 ingress
+filter protocol all pref 49151 bpf chain 0 
+filter protocol all pref 49151 bpf chain 0 handle 0x1 tc-example.o:[ingress] direct-action not_in_hw <span class="nb">id </span>21 tag c5f7825e5dac396f 
+</code></pre></div></div>
+
+<p>在做 JIT 反编译的时候遇到如下问题：</p>
+
+<pre><code class="language-base">sudo bpftool prog dump jited id 20
+Error: No libbfd support
+
+</code></pre>
+
+<p>此问题未解决，没有怎么查找资料，不影响主流程</p>
+
+<p>使用 clang 单独编译一个文件参考：<a href="https://blog.csdn.net/Longyu_wlz/article/details/109900096">运行第一个 bpf 程序</a></p>
+
+<p>了解 libbfd 是啥？
+libbfd 二进制文件描述器，在安装 binutils 工具后选择性安装。利用 libbfd 可以获取 elf 的 section 以及 symbol 信息。
+<a href="https://blog.csdn.net/zxremail/article/details/5192400">bpf库</a></p>
+
+<p>运行加载器遇到问题:libbpf: BTF is required, but is missing or corrupted.
+搜索出来的结果都指向了内核bug 行为。
+<a href="https://yhbt.net/lore/all/20210319205909.1748642-1-andrii@kernel.org/T/">内核 patch</a>
+通过内核 patch 觉得好像是 map 声明出现了问题，内校验器拒绝。所以map 只要从</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="p">{</span>
+	<span class="n">__uint</span><span class="p">(</span><span class="n">type</span><span class="p">,</span> <span class="n">BPF_MAP_TYPE_ARRAY</span><span class="p">);</span>
+	<span class="n">__type</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">__u32</span><span class="p">);</span>
+	<span class="n">__type</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="kt">long</span><span class="p">);</span>
+	<span class="n">__uint</span><span class="p">(</span><span class="n">max_entries</span><span class="p">,</span> <span class="mi">256</span><span class="p">);</span>
+<span class="p">}</span> <span class="n">my_map</span> <span class="nf">SEC</span><span class="p">(</span><span class="s">".maps"</span><span class="p">);</span>
+</code></pre></div></div>
+<p>改为:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="nf">SEC</span><span class="p">(</span><span class="s">"maps"</span><span class="p">)</span> <span class="n">my_map</span> <span class="o">=</span> <span class="p">{</span>
+	<span class="n">__uint</span><span class="p">(</span><span class="n">type</span><span class="p">,</span> <span class="n">BPF_MAP_TYPE_ARRAY</span><span class="p">);</span>
+	<span class="n">__type</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">u32</span><span class="p">);</span>
+	<span class="n">__type</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="kt">long</span><span class="p">);</span>
+	<span class="n">__uint</span><span class="p">(</span><span class="n">max_entries</span><span class="p">,</span> <span class="mi">256</span><span class="p">);</span>
+<span class="err">}</span><span class="p">;</span>
+</code></pre></div></div>
+<p>就会报另一个错:<code class="language-plaintext highlighter-rouge">libbpf: object file doesn't contain bpf program</code></p>
+
+<p>思路一时想不起来，一开始看上面的定义发现好像使用来定义一个map的形式，而导致报上面的错。然后翻了一下资料使用 map 的方式。就改成了如下的形式：</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"maps"</span><span class="p">)</span> <span class="n">my_map</span> <span class="o">=</span>  <span class="p">{</span>
+	<span class="p">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_ARRAY</span><span class="p">,</span>
+	<span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">__u32</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="kt">long</span><span class="p">),</span>
+	<span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>然后就可以正常运行了， 很 Nice .
+程序就是内核代码下的 <code class="language-plaintext highlighter-rouge">sockex1_kern.c</code> 的代码，只要修改一下 map 的定义方式就可以，该程序用于统计字节数。</p>
+
+:ET

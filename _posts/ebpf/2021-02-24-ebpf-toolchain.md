@@ -1,8 +1,7 @@
 ---
 title: 3. eBPF 工具链
 date: 2021-02-24 09:59:45
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
 author: Jony

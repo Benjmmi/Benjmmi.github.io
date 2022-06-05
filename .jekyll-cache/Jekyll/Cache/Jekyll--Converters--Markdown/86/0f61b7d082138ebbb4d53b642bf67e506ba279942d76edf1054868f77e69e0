@@ -1,0 +1,216 @@
+I"U{<h1 id="grpc">GRPC</h1>
+
+<p>grpc 本质上还是 RPC 框架，为了远程调用而产生的一个产物。所以尝试从微服务的角度是看 gRPC 。</p>
+
+<p>微服务主要涉及：服务注册、服务发现、服务调用。主要的还是这三个功能，其他的熔断、限流的不过是在这三个基础上增加的新功能。</p>
+
+<h2 id="服务注册">服务注册</h2>
+
+<p>服务注册主要的功能就是将用户写的服务经过扫描存储到同一个地方，然后等待用户的请求时，将对应的服务取出来执行并返回结果。所以这里首先看的是如何扫描。</p>
+
+<p>简单实现一个服务：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">class</span> <span class="nc">GreeterImpl</span> <span class="kd">extends</span> <span class="nc">HelloServiceGrpc</span><span class="o">.</span><span class="na">HelloServiceImplBase</span> <span class="o">{</span>
+
+    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kt">void</span> <span class="nf">sayFuchGrp</span><span class="o">(</span><span class="nc">HelloRequest</span> <span class="n">request</span><span class="o">,</span> <span class="nc">StreamObserver</span><span class="o">&lt;</span><span class="nc">HelloResponse</span><span class="o">&gt;</span> <span class="n">responseObserver</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nc">String</span> <span class="n">name</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="na">getName</span><span class="o">();</span>
+        <span class="nc">HelloResponse</span> <span class="n">response</span> <span class="o">=</span> <span class="nc">HelloResponse</span><span class="o">.</span><span class="na">newBuilder</span><span class="o">().</span><span class="na">setReply</span><span class="o">(</span><span class="n">name</span> <span class="o">+</span> <span class="s">"\t"</span> <span class="o">+</span> <span class="s">"hahahhhaa"</span><span class="o">).</span><span class="na">build</span><span class="o">();</span>
+        <span class="n">responseObserver</span><span class="o">.</span><span class="na">onNext</span><span class="o">(</span><span class="n">response</span><span class="o">);</span>
+        <span class="n">responseObserver</span><span class="o">.</span><span class="na">onCompleted</span><span class="o">();</span>
+    <span class="o">}</span>
+    <span class="o">....</span>
+<span class="o">}</span>
+
+    <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="nf">main</span><span class="o">(</span><span class="nc">String</span><span class="o">[]</span> <span class="n">args</span><span class="o">)</span> <span class="o">{</span>
+            <span class="n">server</span> <span class="o">=</span> <span class="nc">ServerBuilder</span><span class="o">.</span><span class="na">forPort</span><span class="o">(</span><span class="n">port</span><span class="o">)</span>
+                    <span class="o">.</span><span class="na">addService</span><span class="o">(</span><span class="k">new</span> <span class="nc">GreeterImpl</span><span class="o">())</span>
+                    <span class="o">.</span><span class="na">build</span><span class="o">()</span>
+                    <span class="o">.</span><span class="na">start</span><span class="o">();</span>
+	<span class="o">}</span>                    
+</code></pre></div></div>
+
+<p>从这里看可以发现是通过手动注册一个服务到 gRPC 的注册中心。看下 addService 的详细过程，因为主要看注册中心的功能管理，所以启动相关的分析直接忽略或者查看参考文档。通过 Debug 跟踪主要涉及三个 class 文件：<code class="language-plaintext highlighter-rouge">AbstractServerImplBuilder</code>、<code class="language-plaintext highlighter-rouge">ServerImplBuilder</code>、<code class="language-plaintext highlighter-rouge">InternalHandlerRegistry</code>，这三个文件基本已经涵盖了服务注册到注册中心的整个流程。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>	<span class="c1">//  AbstractServerImplBuilder</span>
+  <span class="nd">@Override</span>
+  <span class="kd">public</span> <span class="no">T</span> <span class="nf">addService</span><span class="o">(</span><span class="nc">BindableService</span> <span class="n">bindableService</span><span class="o">)</span> <span class="o">{</span>
+    <span class="n">delegate</span><span class="o">().</span><span class="na">addService</span><span class="o">(</span><span class="n">bindableService</span><span class="o">);</span>
+    <span class="k">return</span> <span class="nf">thisT</span><span class="o">();</span>
+  <span class="o">}</span>
+  	<span class="c1">// ServerImplBuilder</span>
+   <span class="nd">@Override</span>
+  <span class="kd">public</span> <span class="nc">ServerImplBuilder</span> <span class="nf">addService</span><span class="o">(</span><span class="nc">BindableService</span> <span class="n">bindableService</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">return</span> <span class="nf">addService</span><span class="o">(</span><span class="n">checkNotNull</span><span class="o">(</span><span class="n">bindableService</span><span class="o">,</span> <span class="s">"bindableService"</span><span class="o">).</span><span class="na">bindService</span><span class="o">());</span>
+  <span class="o">}</span>
+
+  <span class="nd">@Override</span>
+  <span class="kd">public</span> <span class="nc">ServerImplBuilder</span> <span class="nf">addService</span><span class="o">(</span><span class="nc">ServerServiceDefinition</span> <span class="n">service</span><span class="o">)</span> <span class="o">{</span>
+    <span class="n">registryBuilder</span><span class="o">.</span><span class="na">addService</span><span class="o">(</span><span class="n">checkNotNull</span><span class="o">(</span><span class="n">service</span><span class="o">,</span> <span class="s">"service"</span><span class="o">));</span>
+    <span class="k">return</span> <span class="k">this</span><span class="o">;</span>
+  <span class="o">}</span>
+	<span class="c1">// InternalHandlerRegistry</span>
+    <span class="nc">Builder</span> <span class="nf">addService</span><span class="o">(</span><span class="nc">ServerServiceDefinition</span> <span class="n">service</span><span class="o">)</span> <span class="o">{</span>
+      <span class="nc">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="n">getClass</span><span class="o">()</span> <span class="o">+</span> <span class="s">",将接口注册到注册中心"</span><span class="o">);</span>
+      <span class="n">services</span><span class="o">.</span><span class="na">put</span><span class="o">(</span><span class="n">service</span><span class="o">.</span><span class="na">getServiceDescriptor</span><span class="o">().</span><span class="na">getName</span><span class="o">(),</span> <span class="n">service</span><span class="o">);</span>
+      <span class="k">return</span> <span class="k">this</span><span class="o">;</span>
+    <span class="o">}</span>
+</code></pre></div></div>
+
+<p>从代码上看与 Spring 类似最后都将实例化的服务存放到了一个 HashMap 中，<code class="language-plaintext highlighter-rouge">Key</code> 就是服务名，<code class="language-plaintext highlighter-rouge">Value</code> 就是已经构建好的实例。这里可能需要看下 bindService 触发的时候做了哪些工作，Debug 进去之后就会进入通过 <code class="language-plaintext highlighter-rouge">protoc</code> 生成的 RPC 文件中，所以这里的 BindableService 就是所有 RPC 类的父类，通过统一的抽象方法来生成一个实例，绑定所有服务接口。这里也间接的说明方法支持二级路径调用。通过代码分析得知注册中心其实就是一个 HashMap 容器，将所有服务注册到容器里面方便调用。</p>
+
+<h2 id="服务发现和服务调用">服务发现和服务调用</h2>
+
+<h3 id="服务调用">服务调用</h3>
+
+<p>服务注册并启动成功后就可以对外提供服务，外部响应的接口也就可以发起调用。调用代码如下：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        <span class="c1">// 创建 ManagedChannelImpl</span>
+        <span class="nc">ManagedChannel</span> <span class="n">channel</span> <span class="o">=</span> <span class="nc">ManagedChannelBuilder</span><span class="o">.</span><span class="na">forAddress</span><span class="o">(</span><span class="s">"127.0.0.1"</span><span class="o">,</span><span class="mi">8080</span><span class="o">).</span><span class="na">usePlaintext</span><span class="o">().</span><span class="na">build</span><span class="o">();</span>
+ 		<span class="c1">// 创建客户端 Stub     </span>
+        <span class="nc">HelloServiceGrpc</span><span class="o">.</span><span class="na">HelloServiceBlockingStub</span> <span class="n">stub</span>  <span class="o">=</span> <span class="nc">HelloServiceGrpc</span><span class="o">.</span><span class="na">newBlockingStub</span><span class="o">(</span><span class="n">channel</span><span class="o">);</span>
+        <span class="nc">HelloRequest</span> <span class="n">request</span> <span class="o">=</span> <span class="nc">HelloRequest</span><span class="o">.</span><span class="na">newBuilder</span><span class="o">().</span><span class="na">setName</span><span class="o">(</span><span class="s">"fadsfasfsafsafsafdsf"</span><span class="o">).</span><span class="na">build</span><span class="o">();</span>
+        <span class="c1">// 发起 RPC 调用，获取响应</span>
+        <span class="nc">HelloResponse</span> <span class="n">response</span> <span class="o">=</span> <span class="n">stub</span><span class="o">.</span><span class="na">sayFuchGrp</span><span class="o">(</span><span class="n">request</span><span class="o">);</span>
+        <span class="nc">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"返回结果 ==========&gt;"</span> <span class="o">+</span><span class="n">response</span><span class="o">.</span><span class="na">toString</span><span class="o">());</span>
+        <span class="n">channel</span><span class="o">.</span><span class="na">shutdown</span><span class="o">();</span>
+</code></pre></div></div>
+<p>（忽略注释行）第一行代码就是连接远程服务，底层使用到了 Netty 的 Bootstrap。 第二第三行只是声明了调用方式和构建一个参数，真正的调用再第四行。所以主要分析第四行代码，看客户端如何连接服务端发起远程调用。</p>
+
+<p><strong>ManagedChannel 提供了接口式的切面 ClientInterceptor，它可以拦截 RPC 客户端调用，注入扩展点，以及功能定制，方便框架的使用者对 gRPC 进行功能扩展。</strong></p>
+
+<p>主要过程如下：</p>
+<ol>
+  <li>客户端 Stub 调用 sayFuchGrp 发起 RPC 调用</li>
+  <li>通过 DnsNameResolver 进行域名解析，然后使用负载均衡策略，选择具体实例</li>
+  <li>如果和具体实例没有可用连接，则创建一个新的连接</li>
+  <li>对消息做序列化，然后通过 stream 发送给服务端</li>
+  <li>接收到服务端响应后做反序列化操作</li>
+  <li>回掉环境阻塞的客户都按线程，获取响应</li>
+</ol>
+
+<p>因为主要分析请求和寻址，所以主要分析步骤2、3、4。先来看下主要流程经过的类：HelloServiceGrpc、ClientCall、ForwardingManagedChannel、ManagedChannelImpl 。主要涉及的就是这三个类。
+因为整体调用时异步，所以会涉及很多的上下文切换，但是核心的点还是很明显：1. 异步何时发起调用，2.异步如何获取返回结果。</p>
+
+<h3 id="异步何时发起调用">异步何时发起调用</h3>
+
+<p>在 ManagedChannel 创建之后，ManagedChannel 会创建一个新的 ClientCall 实例。ClientCall 的用途是业务应用层的消息调度和处理，典型用法：</p>
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nc">ClientCall</span><span class="o">&lt;</span><span class="nc">ReqT</span><span class="o">,</span> <span class="nc">RespT</span><span class="o">&gt;</span> <span class="n">call</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="na">newCall</span><span class="o">(</span><span class="n">method</span><span class="o">,</span><span class="n">callOptions</span><span class="o">);</span>
+<span class="nc">GrpcFuture</span><span class="o">&lt;</span><span class="nc">RespT</span><span class="o">&gt;</span> <span class="n">responseFuture</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">GrpcFuture</span><span class="o">&lt;&gt;(</span><span class="n">call</span><span class="o">);</span>
+<span class="n">startCall</span><span class="o">(</span><span class="n">call</span><span class="o">,</span> <span class="n">responseListener</span><span class="o">);</span>
+<span class="n">call</span><span class="o">.</span><span class="na">sendMessage</span><span class="o">(</span><span class="n">req</span><span class="o">);</span>
+<span class="n">call</span><span class="o">.</span><span class="na">halfClose</span><span class="o">();</span>
+<span class="n">call</span><span class="o">.</span><span class="na">request</span><span class="o">(</span><span class="mi">1</span><span class="o">);</span>
+<span class="no">V</span> <span class="n">v</span> <span class="o">=</span> <span class="n">responseFuture</span><span class="o">.</span><span class="na">get</span><span class="o">();</span>
+</code></pre></div></div>
+
+<p>在创建 call 的时候传入了两个参数，分别是 method 和 callOptions，method 是 <code class="language-plaintext highlighter-rouge">MethodDescriptor</code> 的实例，由类名就可以知道是一个方法的描述，具体看下 <code class="language-plaintext highlighter-rouge">MethodDescriptor</code> 都有什么内容：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kd">public</span> <span class="kd">final</span> <span class="kd">class</span> <span class="nc">MethodDescriptor</span><span class="o">&lt;</span><span class="nc">ReqT</span><span class="o">,</span> <span class="nc">RespT</span><span class="o">&gt;</span> <span class="o">{</span>
+
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">MethodType</span> <span class="n">type</span><span class="o">;</span> <span class="c1">// 调用方式</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">String</span> <span class="n">fullMethodName</span><span class="o">;</span> <span class="c1">// 方法名称</span>
+  <span class="nd">@Nullable</span> <span class="kd">private</span> <span class="kd">final</span> <span class="nc">String</span> <span class="n">serviceName</span><span class="o">;</span> <span class="c1">// 服务名称</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">Marshaller</span><span class="o">&lt;</span><span class="nc">ReqT</span><span class="o">&gt;</span> <span class="n">requestMarshaller</span><span class="o">;</span> <span class="c1">//请求序列化方式</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">Marshaller</span><span class="o">&lt;</span><span class="nc">RespT</span><span class="o">&gt;</span> <span class="n">responseMarshaller</span><span class="o">;</span> <span class="c1">//响应序列化方式</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nd">@Nullable</span> <span class="nc">Object</span> <span class="n">schemaDescriptor</span><span class="o">;</span> <span class="c1">// 方法的模式描述符。方便服务器反射服务使用</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="kt">boolean</span> <span class="n">idempotent</span><span class="o">;</span>  <span class="c1">// 返回此方法是否为幂等函数。</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="kt">boolean</span> <span class="n">safe</span><span class="o">;</span> <span class="c1">// 返回此方法是否安全。</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="kt">boolean</span> <span class="n">sampledToLocalTracing</span><span class="o">;</span> <span class="c1">// 是否可以将此方法的RPC采样</span>
+  <span class="kd">private</span> <span class="kd">final</span> <span class="nc">AtomicReferenceArray</span><span class="o">&lt;</span><span class="nc">Object</span><span class="o">&gt;</span> <span class="n">rawMethodNames</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">AtomicReferenceArray</span><span class="o">&lt;&gt;(</span><span class="mi">2</span><span class="o">);</span>
+<span class="o">}</span>  
+</code></pre></div></div>
+
+<p>根据字段可以判断 <code class="language-plaintext highlighter-rouge">MethodDescriptor</code> 主要存储一些调用时需要使用到的基本信息，callOptions 主要存放 RPC 调用调用时附加信息，例如超时、鉴权、长度限制和线程池等，选项可以从 <code class="language-plaintext highlighter-rouge">ClientCalls</code> 中获取常用的值。跟踪 newCall 最后调用的是新建一个 <code class="language-plaintext highlighter-rouge">PendingCall</code> 的实例。</p>
+
+<p>当 Calls 实例化完成之后，就会调用 startCall 和 sendMessage 方法，startCall 后面单独分析。sendMessage 的调用主要是为了完成请求对象的序列化和 HTTP2 Frame 的初始化。sendMessage 会调用 如下代码：</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>      <span class="k">if</span> <span class="o">(</span><span class="n">stream</span> <span class="k">instanceof</span> <span class="nc">RetriableStream</span><span class="o">)</span> <span class="o">{</span>
+        <span class="nd">@SuppressWarnings</span><span class="o">(</span><span class="s">"unchecked"</span><span class="o">)</span>
+        <span class="nc">RetriableStream</span><span class="o">&lt;</span><span class="nc">ReqT</span><span class="o">&gt;</span> <span class="n">retriableStream</span> <span class="o">=</span> <span class="o">(</span><span class="nc">RetriableStream</span><span class="o">&lt;</span><span class="nc">ReqT</span><span class="o">&gt;)</span> <span class="n">stream</span><span class="o">;</span>
+        <span class="n">retriableStream</span><span class="o">.</span><span class="na">sendMessage</span><span class="o">(</span><span class="n">message</span><span class="o">);</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="n">stream</span><span class="o">.</span><span class="na">writeMessage</span><span class="o">(</span><span class="n">method</span><span class="o">.</span><span class="na">streamRequest</span><span class="o">(</span><span class="n">message</span><span class="o">));</span>
+      <span class="o">}</span>
+      <span class="c1">// 知道 end_stream 为 true 才会调用 flush</span>
+    <span class="k">if</span> <span class="o">(!</span><span class="n">unaryRequest</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">stream</span><span class="o">.</span><span class="na">flush</span><span class="o">();</span>
+    <span class="o">}</span>      
+</code></pre></div></div>
+
+<p>通过方法分析，发现在 sendMessage 之前 MethdoDescriptor 将 requestMessage 转成了 InputStream 类型，看下这 InputStream 类型的实现 ProtoInputStream 接收了两个参数：MessageLite 和 Parser。Parser 好解释就是之前说的 Request 序列化工具，MessageLite 看注释大概就是 Protocol Message 对象实现的抽象接口。在基础资源受限时使用 LITE_RUNTIME ，在基础资源比较大时使用 CODE_SIZE，以牺牲性能为代价更好的压缩。具体可能需要了解 protobuf 的实现了，这里大概就这个意思吧。</p>
+
+<p>消息被转为 InputStream 类型之后就会进入 stream.writeMessage 方法继续往下跟踪会到跟踪到 <code class="language-plaintext highlighter-rouge">MessageFramer.writeKnownLengthUncompressed</code> 这里大概的意思就是写出没有经过序列化已知长度和为压缩的数据，会再次将数据转存存放到一个 ByteBuffer 中，最后 ByteBuffer 中的数据格式如下：</p>
+
+<p><img src="/jony.github.io/images/grpc/grpc_payload.png" alt="ByteBuffer 数据格式" /></p>
+
+<p>将数据转存写出完成后，会调用 Message.close 方法以此释放原有的资源，所以这里整个流程看下来 sendMessage 并非 <code class="language-plaintext highlighter-rouge">send Message</code> 只是将消息进行了序列化和格式化处理。然后接下来调用的时 halfClose 方法。halfClose -&gt; endOfMessages -&gt; close -&gt; commitToSink -&gt; deliverFrame -&gt; writeFrameInternal -&gt;  新建 SendGrpcFrameCommand 类，将 请求 Frame 封装成自定义的 SendGrpcFrameCommand 放入写队列中。</p>
+
+<p>配合流程图查看：</p>
+
+<p><img src="/jony.github.io/images/grpc/grpc-02-11.png" alt="ByteBuffer 数据格式" /></p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="kd">private</span> <span class="kt">void</span> <span class="nf">writeFrameInternal</span><span class="o">(</span><span class="nc">WritableBuffer</span> <span class="n">frame</span><span class="o">,</span> <span class="kt">boolean</span> <span class="n">endOfStream</span><span class="o">,</span> <span class="kt">boolean</span> <span class="n">flush</span><span class="o">,</span> <span class="kd">final</span> <span class="kt">int</span> <span class="n">numMessages</span><span class="o">)</span> <span class="o">{</span>
+      <span class="nc">Preconditions</span><span class="o">.</span><span class="na">checkArgument</span><span class="o">(</span><span class="n">numMessages</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="o">);</span>
+      <span class="nc">ByteBuf</span> <span class="n">bytebuf</span> <span class="o">=</span> <span class="n">frame</span> <span class="o">==</span> <span class="kc">null</span> <span class="o">?</span> <span class="no">EMPTY_BUFFER</span> <span class="o">:</span> <span class="o">((</span><span class="nc">NettyWritableBuffer</span><span class="o">)</span> <span class="n">frame</span><span class="o">).</span><span class="na">bytebuf</span><span class="o">().</span><span class="na">touch</span><span class="o">();</span>
+      <span class="kd">final</span> <span class="kt">int</span> <span class="n">numBytes</span> <span class="o">=</span> <span class="n">bytebuf</span><span class="o">.</span><span class="na">readableBytes</span><span class="o">();</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">numBytes</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">onSendingBytes</span><span class="o">(</span><span class="n">numBytes</span><span class="o">);</span>
+        <span class="n">writeQueue</span><span class="o">.</span><span class="na">enqueue</span><span class="o">(</span><span class="k">new</span> <span class="nc">SendGrpcFrameCommand</span><span class="o">(</span><span class="n">transportState</span><span class="o">(),</span> <span class="n">bytebuf</span><span class="o">,</span> <span class="n">endOfStream</span><span class="o">),</span> <span class="n">flush</span><span class="o">)</span>
+            <span class="o">.</span><span class="na">addListener</span><span class="o">(...);</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="n">writeQueue</span><span class="o">.</span><span class="na">enqueue</span><span class="o">(</span>
+            <span class="k">new</span> <span class="nf">SendGrpcFrameCommand</span><span class="o">(</span><span class="n">transportState</span><span class="o">(),</span> <span class="n">bytebuf</span><span class="o">,</span> <span class="n">endOfStream</span><span class="o">),</span> <span class="n">flush</span><span class="o">);</span>
+      <span class="o">}</span>
+    <span class="o">}</span>
+</code></pre></div></div>
+
+<p>然后由 WriteQueue 异步执行 flush 将 SendGrpcFrameCommand 写入到 Netty 的 Channel 中，调用 Channel 的 write 方法，别 NettyClientHandler 拦截到，由 NettyClientHandler 负责具体的发送操作。SendGrpcFrameCommand 的顶层实现了 WriteQueue.QueuedCommand 接口所以可以由 WriteQueue 统一调度。</p>
+
+<p>这里可能会有疑问就是 SendGrpcFrameCommand 写出数据是如何被 NettyClientHandler 拦截到然后再执行真实发送接口的。上面提到是将 SendGrpcFrameCommand 写入到 Netty 的 Channel 是在哪写入的，后来又在什么地方调用的 write 方法的。看看 WriteQueue 构造方法就是在新建一个 WriteQueue 的时候就已经创建好了一个 Channel ，还记得之前说的 startCall 么，在调用 startCall 的时候如果没有连接会创建一个新的连接，这个时候创建的就是 Netty 连接自然就包含了 Channel 实例，所以这里创建 Channel 先终止，后面分析。然后继续查看 WriteQueue 异步执行之后就调用 write 方法这里才是正式调用写出接口。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="nd">@Override</span>
+    <span class="kd">public</span> <span class="kd">final</span> <span class="kt">void</span> <span class="nf">run</span><span class="o">(</span><span class="nc">Channel</span> <span class="n">channel</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">channel</span><span class="o">.</span><span class="na">write</span><span class="o">(</span><span class="k">this</span><span class="o">,</span> <span class="n">promise</span><span class="o">);</span>
+    <span class="o">}</span>
+
+</code></pre></div></div>
+
+<p>调用 write 接口之后会被 NettyClientHandler 拦截到，也就是 Netty pipeline 的处理过程，在这里会调用 sendGrpcFrame 方法。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  <span class="kd">private</span> <span class="kt">void</span> <span class="nf">sendGrpcFrame</span><span class="o">(</span><span class="nc">ChannelHandlerContext</span> <span class="n">ctx</span><span class="o">,</span> <span class="nc">SendGrpcFrameCommand</span> <span class="n">cmd</span><span class="o">,</span> <span class="nc">ChannelPromise</span> <span class="n">promise</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">encoder</span><span class="o">().</span><span class="na">writeData</span><span class="o">(</span><span class="n">ctx</span><span class="o">,</span> <span class="n">cmd</span><span class="o">.</span><span class="na">stream</span><span class="o">().</span><span class="na">id</span><span class="o">(),</span> <span class="n">cmd</span><span class="o">.</span><span class="na">content</span><span class="o">(),</span> <span class="mi">0</span><span class="o">,</span> <span class="n">cmd</span><span class="o">.</span><span class="na">endStream</span><span class="o">(),</span> <span class="n">promise</span><span class="o">);</span>
+  <span class="o">}</span>
+</code></pre></div></div>
+
+<p>调用 Http2ConnectionEncoder writeData 方法之后就进入了最终的写出数据的流程。</p>
+
+<h3 id="服务发现">服务发现</h3>
+
+<p>基本上服务注册与调用服务流程就这么多，但是中间有个环节没有分析那就是服务发现就是刚才没有分析的 startCall 流程。整个服务发现与创建连接的流程都在这里。接下来分析下 startCall 。</p>
+
+<p>startCall 是在 newCall 之后被调用的但是并没有发起真正的调用，也就是说 startCall 可能在创建一个新的连接并做了很多初始化的操作。跟踪代码下来会发现主要有两个方法被调用：<code class="language-plaintext highlighter-rouge">(DelayedClientCall)call.start</code> 和 <code class="language-plaintext highlighter-rouge">responseListener.onStart</code> 。<code class="language-plaintext highlighter-rouge">(DelayedClientCall)call.start</code> 方法的注释：<strong>启动一个调用，使用responseListener处理响应消息。它必须在这个类的任何其他方法之前被调用，除了可以在任何时候被调用的cancel。</strong> 直接说明了这个方法是用来处理响应结果的。</p>
+
+<div class="language-java highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">@Override</span>
+  <span class="kd">public</span> <span class="kd">final</span> <span class="kt">void</span> <span class="nf">start</span><span class="o">(</span><span class="nc">Listener</span><span class="o">&lt;</span><span class="nc">RespT</span><span class="o">&gt;</span> <span class="n">listener</span><span class="o">,</span> <span class="kd">final</span> <span class="nc">Metadata</span> <span class="n">headers</span><span class="o">)</span> <span class="o">{</span>
+    <span class="o">...</span>
+      <span class="k">if</span> <span class="o">(!</span><span class="n">savedPassThrough</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">listener</span> <span class="o">=</span> <span class="n">delayedListener</span> <span class="o">=</span> <span class="k">new</span> <span class="nc">DelayedListener</span><span class="o">&lt;&gt;(</span><span class="n">listener</span><span class="o">);</span>
+      <span class="o">}</span>
+      <span class="o">...</span>
+          <span class="n">realCall</span><span class="o">.</span><span class="na">start</span><span class="o">(</span><span class="n">finalListener</span><span class="o">,</span> <span class="n">headers</span><span class="o">);</span>
+      <span class="o">...</span>
+    
+  <span class="o">}</span>
+</code></pre></div></div>
+<p>两个参数：listen 就是用来监听返回结果的回调，Metadata 则是gRPC 自定义的一个 Header。继续 debug 查看 <code class="language-plaintext highlighter-rouge">(ClientStreamProvider)realCall.start</code> 方法。</p>
+
+<p><code class="language-plaintext highlighter-rouge">(UnaryStreamToFuture)responseListener.onStart</code> 方法最后会调用 <code class="language-plaintext highlighter-rouge">(ClientStreamProvider)realCall.request -&gt;(DelayedStream)stream.request</code> 方法。</p>
+
+<p>NettyClientHandler 调用 Http2ConnectionEncoder 的 writeData 方法，将 Frame 写入到 HTTP2 Stream 中完成请求的发送。</p>
+
+<h1 id="参考文档">参考文档</h1>
+
+<p><a href="https://ilily.site/grpc-01/">gRPC 源码阅读系列</a></p>
+
+:ET

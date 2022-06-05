@@ -1,0 +1,105 @@
+I"�<h1 id="调研结果">调研结果</h1>
+
+<p>高性能网络平台，根据最近几天的调研结果，共了解到一下几种解决方案。将抽离几种了解的相对于比较</p>
+
+<ol>
+  <li>ebpf</li>
+  <li>netmap</li>
+  <li>RDMA</li>
+  <li>DPDK</li>
+  <li>TOE</li>
+</ol>
+
+<p>以上几种应该囊括了大部分的高性能应用网络场景。</p>
+
+<p>ebpf ：ebpf 是最近几年新出现的技术，在没有脱离原有的 TCP/IP 协议栈的情况下
+跳过了不必要的步骤，减少了 CPU 的使用，同时也节省了处理时间提高了吞吐量。比较典型的有：
+Cilium 网络。虽然 ebpf 使用方便很广，但是初始目的是为了 SDN 产生。</p>
+
+<p>netmap：一个高效的收发报文的 I/O 框架，netmap 内存直接映射到网卡的 packet buffer 到用户态
+实现自己发送、接收报文的处理。</p>
+
+<p>RDMA：（Remote Direct Memory Access） 直接拷贝远程计算机的内存，绕过了内核的处理，比较典型
+的有 <code class="language-plaintext highlighter-rouge">IB</code> 直接重新定义了协议栈</p>
+
+<p>DPDK：也是一种绕过内核的技术，将 TCP/IP 报文上升到了用户空间，由用户空间直接对报文进行处理，同时
+DPDK 独占 CPU 100% 使用率，吞吐量根据 CPU 数量定义</p>
+
+<p>TOE：与 DPDK 类似又有点相反，TOE 在网卡上将报文处理，承担了本由 CPU 的一部分工作，比如 checkcsum、
+分包等。</p>
+
+<p>DPDK 和 TOE 两者并不相同，所以要谨慎理解。netmap 需要中断通知机制，没有完全解决瓶颈。
+ebpf 只能作为简单的性能提升工具并不能作为高性能网络解决方案。
+目前高性能网络解决方案听到比较多的应该就是 <code class="language-plaintext highlighter-rouge">DPDK</code> 因其开放性以及生态的完善让 DPDK 可以
+大范围的使用。
+RDMA：比较典型的就是 <code class="language-plaintext highlighter-rouge">IB</code> ，直接重新定义了协议栈，绕过内核处理直接与网卡对接。</p>
+
+<p>测试环境 VM 虚拟机 ：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>机器1
+客户机操作系统		CentOS 7 <span class="o">(</span>64 位<span class="o">)</span>
+兼容性			ESXi 6.5 虚拟机
+VMware Tools	是
+CPU				4
+内存				8 GB
+
+机器2
+客户机操作系统		CentOS 4/5 或更高版本 <span class="o">(</span>64 位<span class="o">)</span>
+兼容性			ESXi 6.0 虚拟机
+VMware Tools	否
+CPU				4
+内存				8 GB
+
+网卡信息
+链路速度:			1000 Mbps
+驱动程序:			ntg3
+MAC 地址:		<span class="k">******</span>
+</code></pre></div></div>
+
+<p>普通以太网带宽测试</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Server: iperf3 <span class="nt">-s</span> <span class="nt">-i</span> 1 <span class="nt">-f</span> m <span class="nt">-p</span> 10008
+Client: iperf3 <span class="nt">-c</span> <span class="o">[</span>Server IP] <span class="nt">-i</span> 1 <span class="nt">-t</span> 10 <span class="nt">-f</span> m <span class="nt">-p</span> 10008
+
+<span class="o">[</span> ID] Interval           Transfer     Bandwidth       Retr
+<span class="o">[</span>  4]   0.00-10.00  sec  6.80 GBytes  5842 Mbits/sec    0             sender
+<span class="o">[</span>  4]   0.00-10.00  sec  6.80 GBytes  5840 Mbits/sec                  receiver
+</code></pre></div></div>
+<p>ROCE 带宽测试</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Server: ib_send_bw <span class="nt">-n</span> 10000 <span class="nt">-d</span> rxe0 <span class="nt">-i</span> 1 <span class="nt">-F</span> <span class="nt">--report_gbits</span>
+Client: ib_send_bw <span class="nt">-n</span> 10000 <span class="nt">-d</span> rxe0 <span class="nt">-i</span> 1 <span class="nt">-F</span> <span class="nt">--report_gbits</span> <span class="o">[</span>Server IP]
+<span class="nt">---------------------------------------------------------------------------------------</span>
+                    Send BW Test
+ Dual-port       : OFF		Device         : rxe0
+ Number of qps   : 1		Transport <span class="nb">type</span> : IB
+ Connection <span class="nb">type</span> : RC		Using SRQ      : OFF
+ TX depth        : 128
+ CQ Moderation   : 100
+ Mtu             : 1024[B]
+ Link <span class="nb">type</span>       : Ethernet
+ GID index       : 1
+ Max inline data : 0[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+<span class="nt">---------------------------------------------------------------------------------------</span>
+ <span class="nb">local </span>address: LID 0000 QPN 0x0014 PSN 0x91befb
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:00:07
+ remote address: LID 0000 QPN 0x0011 PSN 0xdd1775
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:03:221
+<span class="nt">---------------------------------------------------------------------------------------</span>
+ <span class="c">#bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]</span>
+ 65536      10000            1.54               1.01   		   0.001923
+</code></pre></div></div>
+
+<ol>
+  <li>扎实的计算机体系结构和操作系统方面的基础，有丰富的代码开发经验；</li>
+  <li>精通高性能、高并发的编程技术，有丰富的性能调优经验；</li>
+  <li>具备良好的团队、跨团队沟通及合作能力，可主导技术语言及攻坚；</li>
+  <li>有独立产品设计、开发经验，可以独立或带队开辟技术方向，落地到上下游业务中；</li>
+  <li>有用户态协议栈、RDMA、TOE、smartnic，及相关的软硬件结合的经验优先；</li>
+  <li>有开发和调优4层及以上的网络协议（TCP/MPTCP/QUIC/HTTP2.0等）的经验优先；</li>
+  <li>有开发和维护通用RPC框架的经验，及熟悉常见的gpc、brpc、dubbo优先；</li>
+  <li>有开发和优化linux内核网络协议栈或网络设备驱动的经验优先；</li>
+  <li>熟悉高性能框架如DPDK、netmap、bpf等，有相关开发经验优先；</li>
+</ol>
+:ET

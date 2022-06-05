@@ -1,0 +1,201 @@
+I"�M<h1 id="梅开二度">梅开二度</h1>
+
+<p><strong><em>主要搞清上下文边界</em></strong></p>
+
+<p>Pilot 的代码主要分为两部分:</p>
+<ul>
+  <li>pilot-agent 负责数据面 Sidecar 实例的生命周期管理</li>
+  <li>pilot-discovery 负责控制面流量管理配置及路由规则的生成和下发</li>
+</ul>
+
+<p>pilot-discovery 的主服务，包含了三个比较重要的组件：</p>
+<ul>
+  <li>Config Controller： 管理配置信息，比如路由规则、流量权重控制、故障注入。主在下发各种动作</li>
+  <li>Service Controller：管理各种服务及其服务下具体实例，比如：k8s 的 Service 和 Pod，来
+自其他注册中心的服务和实例信息</li>
+  <li>XdsServer：将上述信息下发至各个实例，被动发送和主动发送。因为开源热衷于各种标准化，所以有了 xDS</li>
+</ul>
+
+<p>基础概念：</p>
+
+<p><code class="language-plaintext highlighter-rouge">C端</code>：调用方
+<code class="language-plaintext highlighter-rouge">S端</code>：服务方
+<code class="language-plaintext highlighter-rouge">G端</code>：中间件，可以理解为 <code class="language-plaintext highlighter-rouge">Nginx</code></p>
+
+<p><code class="language-plaintext highlighter-rouge">VirtualService</code>: 定义了对特定目标服务的一组规则，一种抽象出来的虚拟服务，可以理解为 <code class="language-plaintext highlighter-rouge">G</code> 端
+<code class="language-plaintext highlighter-rouge">DestinationRule</code>: 定义了对特定目标服务的细分规则，负载均衡策略、连接池大小、异常实例驱逐规则划分不同的子集</p>
+
+<p><code class="language-plaintext highlighter-rouge">VirtualService</code> 定义了服务请求满足什么条件应该转发到哪里，而<code class="language-plaintext highlighter-rouge">DestinationRule</code>则定义了这些请求
+具体的路由规则,比如请求目标服务的什么版本, 负载均衡策略，连接限制等.
+<code class="language-plaintext highlighter-rouge">VirtualService</code> 像是代替做了服务发现的操作，只做服务发现和发起调用， <code class="language-plaintext highlighter-rouge">DestinationRule</code> 来控制调用流量
+的具体指向，调和断路器、限流器、分流器等中间件。</p>
+
+<p><strong>Example:</strong></p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">VirtualService</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-b</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">hosts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">service-b</span>  <span class="c1">#客户端访问服务的地址，扩展为 service-b.default.svc.cluster.local</span>
+  <span class="na">http</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">route</span><span class="pi">:</span>
+    <span class="pi">-</span> <span class="na">destination</span><span class="pi">:</span>         <span class="c1"># 目标服务，这里不一定是service-b服务，也就是说, 虽然客户端访问service-b，但不一定就需要转到service-b，转发到其它服务也是支持的.</span>
+        <span class="na">host</span><span class="pi">:</span> <span class="s">service-b</span>      <span class="c1">#扩展为 service-b.default.svc.cluster.local</span>
+        <span class="na">subset</span><span class="pi">:</span> <span class="s">v1</span>           <span class="c1">#subset 会在destinationRule中使用</span>
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">DestinationRule</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">service-b</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">host</span><span class="pi">:</span> <span class="s">service-b</span>  <span class="c1">#这里的名字需要跟virtualservice中定义的一致</span>
+  <span class="na">trafficPolicy</span><span class="pi">:</span>
+    <span class="na">loadBalancer</span><span class="pi">:</span>
+      <span class="na">simple</span><span class="pi">:</span> <span class="s">RANDOM</span>
+  <span class="na">subsets</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">v1</span> <span class="c1">#这里的名字需要跟virtualservice中定义的一致</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">v1</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">v2</span>
+    <span class="na">labels</span><span class="pi">:</span>
+      <span class="na">version</span><span class="pi">:</span> <span class="s">v2</span>        
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">ServiceEntry</code>: 可以看作是一个网格外部的 <code class="language-plaintext highlighter-rouge">VirtualService</code>。
+描述服务的属性: DNS 名称、VIP、端口、协议以及端点</p>
+
+<p><strong>EXAMPLE</strong></p>
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceEntry</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">svc-entry</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">hosts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">ext-svc.example.com</span>   <span class="c1">#外部服务，与匹配的VirtualServices和DestinationRules中的hosts字段相同。将https://ext-svc.example.com:443认为是外部服务</span>
+  <span class="na">ports</span><span class="pi">:</span>                  <span class="c1">#外部服务对应的端口</span>
+  <span class="pi">-</span> <span class="na">number</span><span class="pi">:</span> <span class="m">443</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">https</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">HTTPS</span>
+  <span class="na">location</span><span class="pi">:</span> <span class="s">MESH_EXTERNAL</span> <span class="c1">#flag，表示该服务是网格外的服务</span>
+  <span class="na">resolution</span><span class="pi">:</span> <span class="s">DNS</span>         <span class="c1">#主机服务的发现模型</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">WorkloadEntry</code>: 可以看做是一个网格外部的 <code class="language-plaintext highlighter-rouge">Pod</code> 实例。网格外部服务使用 <code class="language-plaintext highlighter-rouge">ServiceEntry</code> 已经可以提供服务
+了，为什么还需要 <code class="language-plaintext highlighter-rouge">WorkloadEntry</code>。因为 <code class="language-plaintext highlighter-rouge">ServiceEntry</code> 只能是作为 <code class="language-plaintext highlighter-rouge">Service</code> 的存在，无法对后端服务的抽象
+就像 <code class="language-plaintext highlighter-rouge">Pod</code> 的属性集：名称、标签、安全属性、生命周期状态事件等，这些可以通过 <code class="language-plaintext highlighter-rouge">WorkloadEntry</code> 来描述。</p>
+
+<p>官方解释：服务迁移</p>
+
+<p><strong>EXAMPLE</strong></p>
+
+<p>设想 <code class="language-plaintext highlighter-rouge">ServiceEntry</code> 下有几十个实例在提供服务：</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceEntry</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">svc1</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">hosts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">svc1.internal.com</span>
+  <span class="na">ports</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">number</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">HTTP</span>
+  <span class="na">resolution</span><span class="pi">:</span> <span class="s">STATIC</span>
+  <span class="na">endpoints</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">address</span><span class="pi">:</span> <span class="s">1.1.1.1</span>
+  <span class="pi">-</span> <span class="na">address</span><span class="pi">:</span> <span class="s">2.2.2.2</span>
+  <span class="s">...</span>
+</code></pre></div></div>
+
+<p>这种方式的问题:</p>
+
+<ul>
+  <li>当工作负载非常多的情况下，<code class="language-plaintext highlighter-rouge">ServiceEntry</code>变得很大，更新极易出错，同时很大的资源对象更新必将带来额外的开销。</li>
+  <li>同时，不支持一个服务的容器和虚拟机混合部署。比如说有个服务同时部署在<code class="language-plaintext highlighter-rouge">Kubernetes</code>集群以及虚拟机上，集群内的
+服务由<code class="language-plaintext highlighter-rouge">K8s Service</code>、<code class="language-plaintext highlighter-rouge">Pod</code>表示，虚拟机上的只能通过<code class="language-plaintext highlighter-rouge">ServiceEntry</code>表示，这种部署模型在老版本中很难无缝集成。</li>
+</ul>
+
+<p>如果您想以主动的方式将此服务迁移到<code class="language-plaintext highlighter-rouge">Kubernetes</code>，即启动一组<code class="language-plaintext highlighter-rouge">POD</code>，通过 <code class="language-plaintext highlighter-rouge">Istio mTLS</code> 将一部分流量
+发送到POD，并将其余流量发送到没有 <code class="language-plaintext highlighter-rouge">Sidecar</code> 的<code class="language-plaintext highlighter-rouge">VMs</code>，您将如何做？
+您可能需要使用<code class="language-plaintext highlighter-rouge">Kubernetes Service</code>、<code class="language-plaintext highlighter-rouge">VirtualService</code> 和 <code class="language-plaintext highlighter-rouge">DestinationRule</code> 的组合来实现该行为。
+现在，假设您决定将 <code class="language-plaintext highlighter-rouge">Sidecar</code> 一个接一个地添加到这些 <code class="language-plaintext highlighter-rouge">VM</code> 中，这样您只希望带 <code class="language-plaintext highlighter-rouge">Sidecar</code> 的 <code class="language-plaintext highlighter-rouge">VM</code> 的流
+量使用<code class="language-plaintext highlighter-rouge">Istio mTLS</code>。如果任何其他<code class="language-plaintext highlighter-rouge">ServiceEntry</code>恰好在其 <code class="language-plaintext highlighter-rouge">endpoints</code> 中包含<strong>相同的 <code class="language-plaintext highlighter-rouge">VM</code> 地址</strong> ，事
+情就会变得非常复杂和容易出错。</p>
+
+<p>上面说的仍然是第一个点，维护比较困难。在多个 <code class="language-plaintext highlighter-rouge">ServiceEntry</code> 包含相同的 <code class="language-plaintext highlighter-rouge">IP</code> 那么当 <code class="language-plaintext highlighter-rouge">IP</code> 发生更新是就需要
+更新所有的 <code class="language-plaintext highlighter-rouge">ServiceEntry</code> ，而且不能漏掉，否则会发生故障。</p>
+
+<p>这些复杂性的主要来源是<code class="language-plaintext highlighter-rouge">Istio</code>缺乏非容器化一级工作负载的定义，这些定义可以独立于其所属的服务进行描述的属性。</p>
+
+<p>这种部署模型在老版本中很难无缝集成，<strong><code class="language-plaintext highlighter-rouge">问题点</code>来自于网格内使用 <code class="language-plaintext highlighter-rouge">Sidecar</code> 相互调用,网格外没有 <code class="language-plaintext highlighter-rouge">Sidecar</code> 。
+<code class="language-plaintext highlighter-rouge">VirtualService</code> 如果包含相同的 <code class="language-plaintext highlighter-rouge">VM</code> 那么可能会导致调用方误认为服务方也存在 <code class="language-plaintext highlighter-rouge">Sidecar</code> 而发起 <code class="language-plaintext highlighter-rouge">Istio mTLS</code> 
+调用，导致不可预知的错误。</strong></p>
+
+<p><code class="language-plaintext highlighter-rouge">WorkloadEntry</code>的出现，完全解决了上述问题，虚拟机、裸机工作负载由<code class="language-plaintext highlighter-rouge">WorkloadEntry</code>独立表示，类似<code class="language-plaintext highlighter-rouge">K8s</code>中的<code class="language-plaintext highlighter-rouge">Pod</code>。</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">type</span> <span class="n">WorkloadEntry</span> <span class="k">struct</span> <span class="p">{</span>
+    <span class="c">// 工作负载地址，类似Pod IP.</span>
+    <span class="n">Address</span> <span class="kt">string</span>
+    <span class="c">// 端口，类似K8s Endpoint端口.</span>
+    <span class="n">Ports</span> <span class="k">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">uint32</span>
+    <span class="c">// 标签，类似Pod Label.</span>
+    <span class="n">Labels</span> <span class="k">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">string</span>
+    <span class="c">// 网络 ID，主要用于多网络，多集群场景.</span>
+    <span class="n">Network</span> <span class="kt">string</span>
+    <span class="c">// 工作负载位置拓扑信息，例如us/us-east-1/az-1，可用于基于位置感知的流量分发.</span>
+    <span class="n">Locality</span> <span class="kt">string</span>
+    <span class="c">// 负载均衡权重信息，值越大，接收到的请求越多.</span>
+    <span class="n">Weight</span> <span class="kt">uint32</span>
+    <span class="c">// 工作负载身份信息，类似Pod Sa身份</span>
+    <span class="n">ServiceAccount</span>       <span class="kt">string</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p><code class="language-plaintext highlighter-rouge">ServiceEntry</code>（类似K8s Service）可以通过标签选择对应的 <code class="language-plaintext highlighter-rouge">WorkloadEntry</code>，避免了用户维护一个超大耦
+合的<code class="language-plaintext highlighter-rouge">ServiceEntry</code>，这种解耦的模型用户体验更好。</p>
+
+<p>目前<code class="language-plaintext highlighter-rouge">ServiceEntry</code>可以同时选择<code class="language-plaintext highlighter-rouge">WorkloadEntry</code>和<code class="language-plaintext highlighter-rouge">Pod</code>作为<code class="language-plaintext highlighter-rouge">Endpoint</code>，因此很好地解决了跨虚拟机以及K8s集群部署
+服务的管理难题。<strong>Example</strong></p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">WorkloadEntry</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">details-svc</span> <span class="c1"># 名称</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">address</span><span class="pi">:</span> <span class="s">2.2.2.2</span> <span class="c1"># 裸机或者虚拟机地址</span>
+  <span class="na">labels</span><span class="pi">:</span> <span class="c1"># 当前的 Lable，可以供 ServiceEntry selector</span>
+    <span class="na">app</span><span class="pi">:</span> <span class="s">details-legacy</span> 
+    <span class="na">instance-id</span><span class="pi">:</span> <span class="s">vm1</span> 
+<span class="nn">---</span>
+<span class="na">apiVersion</span><span class="pi">:</span> <span class="s">networking.istio.io/v1alpha3</span>
+<span class="na">kind</span><span class="pi">:</span> <span class="s">ServiceEntry</span>
+<span class="na">metadata</span><span class="pi">:</span>
+  <span class="na">name</span><span class="pi">:</span> <span class="s">details-svc</span> <span class="c1"># 名称</span>
+<span class="na">spec</span><span class="pi">:</span>
+  <span class="na">hosts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="s">details.bookinfo.com</span> <span class="c1"># 目标 hosts</span>
+  <span class="na">location</span><span class="pi">:</span> <span class="s">MESH_INTERNAL</span>
+  <span class="na">ports</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">number</span><span class="pi">:</span> <span class="m">80</span>
+    <span class="na">name</span><span class="pi">:</span> <span class="s">http</span>
+    <span class="na">protocol</span><span class="pi">:</span> <span class="s">HTTP</span>
+    <span class="na">targetPort</span><span class="pi">:</span> <span class="m">8080</span>
+  <span class="na">resolution</span><span class="pi">:</span> <span class="s">STATIC</span>
+  <span class="na">workloadSelector</span><span class="pi">:</span>  <span class="c1"># workload 选择器</span>
+    <span class="na">labels</span><span class="pi">:</span>  <span class="c1"># 选择包含这些条件的 Pod 和 WorkloadEntry</span>
+      <span class="na">app</span><span class="pi">:</span> <span class="s">details-legacy</span>    
+</code></pre></div></div>
+
+<p>了解了 <code class="language-plaintext highlighter-rouge">VirtualService</code>、<code class="language-plaintext highlighter-rouge">DestinationRule</code>、<code class="language-plaintext highlighter-rouge">ServiceEntry</code>、<code class="language-plaintext highlighter-rouge">WorkloadEntry</code> 的职责边界之后
+对 <code class="language-plaintext highlighter-rouge">Controller</code> 上下文理解应该更加清晰。</p>
+
+<p><code class="language-plaintext highlighter-rouge">pilot-discovery</code> 三个比较重要的组件：</p>
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">Config Controller</code>：从不同来源接收流量控制和路由规则等 <code class="language-plaintext highlighter-rouge">Istio</code> 的配置，并响应各类事件</li>
+  <li><code class="language-plaintext highlighter-rouge">Service Controller</code>：从不同注册中心同步服务及实例，并响应各类事件</li>
+  <li><code class="language-plaintext highlighter-rouge">XdsServer</code>：核心的 xDS 协议推送服务，根据上面组件的数据生成 xDS 协议并下发</li>
+</ul>
+
+:ET

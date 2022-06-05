@@ -1,8 +1,7 @@
 ---
 title: 2. eBPF 翻译文档合集
 date: 2021-02-22 10:01:25
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
 author: Jony

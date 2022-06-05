@@ -1,0 +1,498 @@
+I"U�<h1 id="用-ebpf-监控-url">用 ebpf 监控 URL</h1>
+
+<p>了解 ebpf 监控 URL 之前，我们需要先知道如何将 map 读写分离，所谓的读写分离规则就是，腿在这人走了。</p>
+
+<p>之前的所有程序都是通过加载器加载之后返回一个 <code class="language-plaintext highlighter-rouge">bpf_object</code> 然后通过 <code class="language-plaintext highlighter-rouge">bpf_object</code> 去查找 <code class="language-plaintext highlighter-rouge">bpf_map_fd</code> 。在程序内部读取
+但是程序内部读取数据高度耦合，显然不符合现在的程序设计，所以需要通过解耦也就是将 <code class="language-plaintext highlighter-rouge">map</code> 提取出来之后，任何程序都可以读取。
+这里就需要知道一个概念 <code class="language-plaintext highlighter-rouge">pin</code>。 <code class="language-plaintext highlighter-rouge">pin</code> 的意思就是固定。</p>
+
+<p>回头看看最初的理论设计 <a href="http://arthurchiao.art/blog/cilium-bpf-xdp-reference-guide-zh/#bpf_arch">[译] Cilium：BPF 和 XDP 参考指南（2019）</a></p>
+
+<h1 id="复习理论">复习理论</h1>
+
+<h2 id="bpf-寄存器和调用规定">BPF 寄存器和调用规定</h2>
+
+<p>BPF 有几个部分组成：</p>
+<ol>
+  <li>11 个 64 位寄存器（包含 32 位的）</li>
+  <li>一个程序计数器 PC</li>
+  <li>一个 512 字节的 BPF 栈空间</li>
+</ol>
+
+<p>寄存器名字 <code class="language-plaintext highlighter-rouge">r0-r10</code> 。默认运行模式 64位，32 位访问模式通过 ALU 访问。
+各寄存器作用：</p>
+<ul>
+  <li>r10: 唯一的只读寄存器，用于存放 BPF <code class="language-plaintext highlighter-rouge">栈空间</code>的<code class="language-plaintext highlighter-rouge">栈帧指针</code>地址</li>
+  <li>r0: 存放<code class="language-plaintext highlighter-rouge">辅助函数</code>的<code class="language-plaintext highlighter-rouge">返回值</code></li>
+  <li>r1-r5: 存放调用辅助函数时传递的<code class="language-plaintext highlighter-rouge">参数</code></li>
+  <li>r6-r9:  由被调用方（callee）保存，在函数返回之后调用方（caller）可以读取 <strong><code class="language-plaintext highlighter-rouge">（没说明白，没用到）</code></strong></li>
+</ul>
+
+<h2 id="bpf-指令格式">BPF 指令格式</h2>
+
+<p>每个指定由 64 位 比特编码：
+<code class="language-plaintext highlighter-rouge">op:8, dst_reg:4, src_reg:4, off:16, imm:32</code></p>
+
+<ul>
+  <li>dst_reg、src_reg ：提供了寄存器操作数</li>
+  <li>off：用于表示一个相对偏移量（offset）</li>
+  <li>imm：存储一个常量/立即值</li>
+  <li>op:将要执行的操作 可以继续拆分 <strong>从 MSB(Min) 到 LSB(Large)</strong> :<code class="language-plaintext highlighter-rouge">code:4, source:1 和 class:3</code>
+    <ul>
+      <li>class 是指令类型，类别由如下：
+        <ul>
+          <li>BPF_LD, BPF_LDX：加载操作</li>
+          <li>BPF_ST, BPF_STX：存储操作</li>
+          <li>BPF_ALU, BPF_ALU64：逻辑运算操作</li>
+          <li>BPF_JMP：跳转操作</li>
+        </ul>
+      </li>
+      <li>code 指特定类型的指令中的某种特定操作码</li>
+      <li>source 可以告诉我们源操作数是一个寄存器还是一个立即数</li>
+    </ul>
+  </li>
+</ul>
+
+<h2 id="辅助函数">辅助函数</h2>
+
+<p>辅助函数（Helper functions）使得 BPF 能够通过一组内核定义的函数调用来从内核中查询数据，或者将数据推送到内核。
+所有的辅助函数都共享同一个通用的、和系统调用类似的函数签名。签名定义如下：
+  u64 fn(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5)</p>
+
+<p>内核将辅助函数抽象成 BPF_CALL_0() 到 BPF_CALL_5() 几个宏，形式和相应类型的系 统调用类似。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">BPF_CALL_4</span><span class="p">(</span><span class="n">bpf_map_update_elem</span><span class="p">,</span> <span class="k">struct</span> <span class="n">bpf_map</span> <span class="o">*</span><span class="p">,</span> <span class="n">map</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span>
+           <span class="kt">void</span> <span class="o">*</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">u64</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">WARN_ON_ONCE</span><span class="p">(</span><span class="o">!</span><span class="n">rcu_read_lock_held</span><span class="p">());</span>
+    <span class="k">return</span> <span class="n">map</span><span class="o">-&gt;</span><span class="n">ops</span><span class="o">-&gt;</span><span class="n">map_update_elem</span><span class="p">(</span><span class="n">map</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">flags</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="k">const</span> <span class="k">struct</span> <span class="n">bpf_func_proto</span> <span class="n">bpf_map_update_elem_proto</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">.</span><span class="n">func</span>           <span class="o">=</span> <span class="n">bpf_map_update_elem</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">gpl_only</span>       <span class="o">=</span> <span class="nb">false</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">ret_type</span>       <span class="o">=</span> <span class="n">RET_INTEGER</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">arg1_type</span>      <span class="o">=</span> <span class="n">ARG_CONST_MAP_PTR</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">arg2_type</span>      <span class="o">=</span> <span class="n">ARG_PTR_TO_MAP_KEY</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">arg3_type</span>      <span class="o">=</span> <span class="n">ARG_PTR_TO_MAP_VALUE</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">arg4_type</span>      <span class="o">=</span> <span class="n">ARG_ANYTHING</span><span class="p">,</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>所有的 BPF 辅助函数都是核心内核的一 部分，无法通过内核模块（kernel module）来扩展或添加。</p>
+
+<h2 id="maps">Maps</h2>
+
+<p>map 是驻留在内核空间中的高效键值仓库。map 还可以从用户空间通过文件描述符访问，可以在任意 BPF 程序以及用 户空间应用之间共享。</p>
+
+<p><strong>所以看见没有这里就是我们想要的一个概念</strong></p>
+
+<p><code class="language-plaintext highlighter-rouge">单个 BPF 程序目前最多可直接访问 64 个不同 map。</code></p>
+
+<h2 id="object-pinning-pin-住对象">Object Pinning (Pin 住对象)</h2>
+
+<p>BPF map 和程序作为内核资源只能通过文件描述符访问，其背后是内核中的匿名 inode。 使用过文件描述符的访问的优缺点如下：</p>
+
+<p>优点：</p>
+<ul>
+  <li>用户空间应用能够使用大部分文件描述符相关的 API，传递给 Unix socket 的文 件描述符是透明工作的等等</li>
+</ul>
+
+<p>缺点：</p>
+<ul>
+  <li>文件描述符受限于进程的生命周期，使得 map 共享之类的操作非常笨重。</li>
+</ul>
+
+<p>问题场景： iproute2，其中的 tc 或 XDP 在准备 环境、加载程序到内核之后因为某些原因导致程序退出。在这种情况下，从用户空间也无法访问这些 map 了。</p>
+
+<p>解决方法：内核实现了一个最小内核空间 BPF 文件系统，BPF map 和 BPF 程序 都可以钉到（pin）这个文件系统内，这个过程称为 object pinning
+具体实施：BPF 系统调用进行了扩展添加了两个新命令，分别用于钉住<code class="language-plaintext highlighter-rouge">（BPF_OBJ_PIN）</code>一个 对象和获取<code class="language-plaintext highlighter-rouge">（BPF_OBJ_GET）</code>一个 pinned objects
+使用技巧：例如，tc 之类的工具可以利用这个基础设施在 ingress 和 egress 之间共享 map。
+其他信息：BPF 相关的文件系统不是单例模式（singleton），它支持多挂载实例、硬链接、软连接等 等。
+默认路径：被 pin 的对象的文件路径：<code class="language-plaintext highlighter-rouge">/sys/fs/bpf/tc/globals/ 、/sys/fs/bpf/xdp/globals/ 、/sys/fs/bpf/ip/globals/</code></p>
+
+<h1 id="限制">限制</h1>
+
+<p><strong>限制</strong>：不支持共享库（Shared libraries）。
+解决方案：可以将常规的库代码（library code）放 到头文件中，然后在主程序中 include 这些头文件</p>
+
+<p><strong>限制</strong>：多个程序可以放在同一 C 文件中的不同 section</p>
+
+<p><strong>限制</strong>：不允许全局变量
+解决方案：可以使用 BPF_MAP_TYPE_PERCPU_ARRAY 类型的 BPF map</p>
+
+<p><strong>限制</strong>：不支持常量字符串或数组,BPF C 程序中不允许定义 const 字符串或其他数组，重定位项会被加载器拒绝
+解决方案：将来 LLVM 可能会检测这种情况，提前将错误抛给用户。用户自行解决</p>
+
+<p><strong>限制</strong>：BPF 程序除了调用 BPF 辅助函数之外无法执行任何函数调用
+解决方案：常规的库代码必须 实现为内联函数
+其他方案：LLVM 提供了一些可以用于特定大小的内置函数 ，这些函数永远都会被内联，如下</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#ifndef memset
+# define memset(dest, chr, n)   __builtin_memset((dest), (chr), (n))
+#endif
+</span>
+<span class="cp">#ifndef memcpy
+# define memcpy(dest, src, n)   __builtin_memcpy((dest), (src), (n))
+#endif
+</span>
+<span class="cp">#ifndef memmove
+# define memmove(dest, src, n)  __builtin_memmove((dest), (src), (n))
+#endif
+</span></code></pre></div></div>
+
+<p><strong>限制</strong> ： BPF 最大栈空间 512 字节
+解决方案：以通过一个只有一条记录的 BPF_MAP_TYPE_PERCPU_ARRAY map 来绕过这限制，增大 scratch buffer 空间。</p>
+
+<p><strong>限制</strong>：未验证的引用访问包数据，某些网络相关的 BPF 辅助函数，可能会修改包。校验器无法跟踪这类改动，因此它会将所有之前对包数据的引用都视为过期
+解决方案：为避免程序被校验器拒绝，在访问数据之外需要先<strong>更新</strong>相应的引用</p>
+
+<h1 id="技巧">技巧</h1>
+<p>技巧：LLVM 将 __sync_fetch_and_add() 作为一个内置函数映射到 BPF 原子加指令，即 BPF_STX | BPF_XADD | BPF_W（for word sizes）</p>
+
+<p>调试程序： <code class="language-plaintext highlighter-rouge">trace_printk</code> 输出会写到 trace pipe，用 tc exec bpf dbg 命令可以获取这些打印的消息。</p>
+
+<p>调试程序：还推荐使用 <code class="language-plaintext highlighter-rouge">skb_event_output()</code> 或 <code class="language-plaintext highlighter-rouge">xdp_event_output()</code> 辅助函数。
+为什么？
+因为这两个函数接受从 BPF 程序 传递自定义的结构体类型参数，然后将参数以及可选的包数据（packet sample）放到 perf event ring buffer。</p>
+
+<h1 id="尾调用">尾调用</h1>
+
+<p>尾调用能够从一个程序调到另一个程序，提供了在运行时（runtime）原子地改变程序行 为的灵活性。为了选择要跳转到哪个程序，
+尾调用使用了 程序数组 <code class="language-plaintext highlighter-rouge">map（ BPF_MAP_TYPE_PROG_ARRAY）</code>，将 map 及其索引（index）传递给将要跳转到的程序。
+<strong>跳转动作一旦完成，就没有办法返回到原来的程序</strong>
+<strong>如果给定的 map 索引中没有程序（无 法跳转），执行会继续在原来的程序中执行</strong></p>
+
+<p>看了那么多就操作 Map Pin 操作，Map pin 操作相当于持久化 BPF Map。</p>
+
+<p>接着上面一篇的文章：</p>
+
+<p><code class="language-plaintext highlighter-rouge">pin_map_read.c</code> 将读取 Map 的代码功能单独领出来，本以为 open_bpf_map_file 是 libbpf 封装的库函数，运行之后发现不对，就直接 copy 了一份过来</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="cm">/* SPDX-License-Identifier: GPL-2.0 */</span>
+
+<span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;errno.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;getopt.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;locale.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;unistd.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;time.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;bpf/bpf.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;net/if.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_link.h&gt;</span><span class="c1"> </span><span class="cp">
+</span>
+
+<span class="cp">#include</span> <span class="cpf">"tc_http_common.h"</span><span class="cp">
+</span>
+
+<span class="kt">void</span> <span class="nf">find_map_value</span><span class="p">(</span><span class="kt">int</span> <span class="n">map_fd</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">key</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="c1">// 查下值</span>
+    <span class="k">struct</span> <span class="n">datarec</span> <span class="n">rec</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">rec</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">GET</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"GET %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">PUT</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"PUT %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">POST</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"POST %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">DELETE</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"DELETE %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"bpf_map_lookup_elem error %d </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">err</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+
+<span class="kt">int</span> <span class="nf">open_bpf_map_file</span><span class="p">(</span><span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pin_dir</span><span class="p">,</span>
+          <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">mapname</span><span class="p">,</span>
+          <span class="k">struct</span> <span class="n">bpf_map_info</span> <span class="o">*</span><span class="n">info</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="kt">char</span> <span class="n">filename</span><span class="p">[</span><span class="mi">4096</span><span class="p">];</span>
+  <span class="kt">int</span> <span class="n">err</span><span class="p">,</span> <span class="n">len</span><span class="p">,</span> <span class="n">fd</span><span class="p">;</span>
+  <span class="n">__u32</span> <span class="n">info_len</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">info</span><span class="p">);</span>
+
+  <span class="n">len</span> <span class="o">=</span> <span class="n">snprintf</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="s">"%s/%s"</span><span class="p">,</span> <span class="n">pin_dir</span><span class="p">,</span> <span class="n">mapname</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">len</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: constructing full mapname path</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="n">fd</span> <span class="o">=</span> <span class="n">bpf_obj_get</span><span class="p">(</span><span class="n">filename</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span>
+      <span class="s">"WARN: Failed to open bpf map file:%s err(%d):%s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+      <span class="n">filename</span><span class="p">,</span> <span class="n">errno</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="n">errno</span><span class="p">));</span>
+    <span class="k">return</span> <span class="n">fd</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="k">if</span> <span class="p">(</span><span class="n">info</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_obj_get_info_by_fd</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">info</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">info_len</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span> <span class="p">{</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: %s() can't get info - %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+        <span class="n">__func__</span><span class="p">,</span>  <span class="n">strerror</span><span class="p">(</span><span class="n">errno</span><span class="p">));</span>
+      <span class="k">return</span> <span class="n">err</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+
+  <span class="k">return</span> <span class="n">fd</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(){</span>
+
+    <span class="k">struct</span> <span class="n">bpf_map_info</span> <span class="n">info</span> <span class="o">=</span> <span class="p">{</span> <span class="mi">0</span> <span class="p">};</span>
+    <span class="kt">int</span> <span class="n">map_fd</span><span class="p">;</span>
+
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">map_path</span> <span class="o">=</span> <span class="s">"/sys/fs/bpf/eth0"</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">map_name</span> <span class="o">=</span> <span class="s">"request_map"</span><span class="p">;</span>
+
+
+    <span class="n">map_fd</span> <span class="o">=</span> <span class="n">open_bpf_map_file</span><span class="p">(</span><span class="n">map_path</span><span class="p">,</span> <span class="n">map_name</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">info</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">map_fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"open map fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+  <span class="p">}</span>
+
+    <span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">GET</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">PUT</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">POST</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">DELETE</span><span class="p">);</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"</span><span class="se">\n\n\n\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="nl">out:</span>
+    <span class="k">return</span>  <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>大概流程就是：</p>
+<ol>
+  <li>给出 map 文件的绝对路径</li>
+  <li>根据文件名称获取文件标识符，也就是打开了文件</li>
+  <li>获取文件的基本信息</li>
+  <li>读取文件信息</li>
+</ol>
+
+<p>将加载 BPF 程序单独令出来，如下:</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;errno.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;getopt.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;sys/resource.h&gt;</span><span class="cp">
+</span>
+ <span class="cp">#include</span> <span class="cpf">&lt;unistd.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;bpf/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/libbpf.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;net/if.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_link.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">"tc_http_common.h"</span><span class="cp">
+</span>
+<span class="kt">int</span> <span class="nf">load_bpf_file</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">filename</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">void</span> <span class="nf">find_map_value</span><span class="p">(</span><span class="kt">int</span> <span class="n">map_fd</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">key</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="c1">// 查下值</span>
+    <span class="k">struct</span> <span class="n">datarec</span> <span class="n">rec</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">rec</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">GET</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"GET %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">PUT</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"PUT %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">POST</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"POST %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">DELETE</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"DELETE %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"bpf_map_lookup_elem error %d </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">err</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_hook</span><span class="p">,</span> <span class="n">hook</span><span class="p">,</span> <span class="p">.</span><span class="n">attach_point</span> <span class="o">=</span> <span class="n">BPF_TC_INGRESS</span><span class="p">);</span>
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_opts</span><span class="p">,</span> <span class="n">attach_pre</span><span class="p">);</span>
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_opts</span><span class="p">,</span> <span class="n">attach_post</span><span class="p">);</span>
+
+    <span class="c1">// BPF 程序名称</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">filename</span> <span class="o">=</span> <span class="s">"pin_map.bpf.o"</span><span class="p">;</span>
+
+    <span class="c1">// 网卡名称</span>
+    <span class="kt">int</span> <span class="n">eth_index</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span>
+
+    <span class="c1">// 错误码</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+
+    <span class="c1">// bpf map</span>
+
+    <span class="kt">char</span> <span class="o">*</span><span class="n">map_name</span> <span class="o">=</span> <span class="s">"request_map"</span><span class="p">;</span>
+    <span class="c1">// struct bpf_map *map;</span>
+    <span class="c1">// int map_fd = -1;</span>
+
+    <span class="c1">// open bpf file</span>
+    <span class="k">struct</span> <span class="n">bpf_object</span> <span class="o">*</span><span class="n">bpf_fd</span> <span class="o">=</span> <span class="n">bpf_object__open</span><span class="p">(</span><span class="n">filename</span><span class="p">);</span>
+
+    <span class="n">err</span> <span class="o">=</span> <span class="n">libbpf_get_error</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Couldn't open file: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">filename</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// load bpf</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_object__load</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"BPF Load Faile</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// read tc_ingress section</span>
+    <span class="n">attach_pre</span><span class="p">.</span><span class="n">prog_fd</span> <span class="o">=</span> <span class="n">bpf_program__fd</span><span class="p">(</span><span class="n">bpf_object__find_program_by_name</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">,</span> <span class="s">"tc_ingress"</span><span class="p">));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">attach_pre</span><span class="p">.</span><span class="n">prog_fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Find BPF Section tc_ingress Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">hook</span><span class="p">.</span><span class="n">ifindex</span> <span class="o">=</span> <span class="n">eth_index</span><span class="p">;</span>
+    <span class="c1">// 创建 hook 点  设置触发点</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_tc_hook_create</span><span class="p">(</span><span class="o">&amp;</span><span class="n">hook</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Create Hook Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// attach hook</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_tc_attach</span><span class="p">(</span><span class="o">&amp;</span><span class="n">hook</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">attach_pre</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Attach Hook Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "</span>
+           <span class="s">"to see output of the BPF programs.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+
+    <span class="c1">// 定住 map</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"pin map</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="kt">char</span> <span class="n">pin_dir</span><span class="p">[</span><span class="mi">4096</span><span class="p">];</span>
+    <span class="kt">char</span> <span class="n">map_filename</span><span class="p">[</span><span class="mi">4096</span><span class="p">];</span>
+    <span class="kt">int</span> <span class="n">len</span><span class="p">;</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">pin_basedir</span> <span class="o">=</span> <span class="s">"/sys/fs/bpf"</span><span class="p">;</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">subdir</span> <span class="o">=</span> <span class="s">"eth0"</span><span class="p">;</span>
+    <span class="c1">// 创建文件夹</span>
+    <span class="n">len</span> <span class="o">=</span> <span class="n">snprintf</span><span class="p">(</span><span class="n">pin_dir</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="s">"%s/%s"</span><span class="p">,</span> <span class="n">pin_basedir</span><span class="p">,</span> <span class="n">subdir</span><span class="p">);</span>
+    <span class="c1">// 创建文件</span>
+    <span class="n">len</span> <span class="o">=</span> <span class="n">snprintf</span><span class="p">(</span><span class="n">map_filename</span><span class="p">,</span> <span class="mi">4096</span><span class="p">,</span> <span class="s">"%s/%s/%s"</span><span class="p">,</span><span class="n">pin_basedir</span><span class="p">,</span> <span class="n">subdir</span><span class="p">,</span> <span class="n">map_name</span><span class="p">);</span>
+    <span class="c1">// 检查 map 是否存在过</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">access</span><span class="p">(</span><span class="n">map_filename</span><span class="p">,</span> <span class="n">F_OK</span> <span class="p">)</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_object__unpin_maps</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">,</span><span class="n">pin_dir</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span> <span class="p">{</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: UNpinning maps in %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pin_dir</span><span class="p">);</span>
+      <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="c1">// pin bpf 程序中的所有 map</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_object__pin_maps</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">,</span><span class="n">pin_dir</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span> <span class="p">{</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: Pin maps in %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">pin_dir</span><span class="p">);</span>
+      <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+  <span class="p">}</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"BPF OK</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="nl">out:</span>
+    <span class="n">bpf_object__close</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>这个代码和之前的代码差不多。多加了两行代码，通过 <code class="language-plaintext highlighter-rouge">snprintf</code> 创建文件，通过 <code class="language-plaintext highlighter-rouge">bpf_object__pin_maps</code> 将所有 map 固定住，成为一个虚拟文件。这个时候就算 BPF 程序退出了
+也不会影响到其他应用对 Map 的读取。</p>
+
+<p>BPF 程序和之前的一样，复制过来就好了。
+然后先运行加载程序，在运行读取程序就可以看见输出：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>GET 24
+PUT 0
+POST 11
+DELETE 2
+</code></pre></div></div>
+
+<p>实现了，对 map 文件的解耦，也就是说通过 loader 加载程序之后，可以通过任何语言调用 BPF 辅助函数对数据的查看。</p>
+
+<h1 id="实现url-识别">实现URL 识别</h1>
+
+<p>上面的代码对  URL 识别有什么帮助，很明显就是解耦，将内核数据复制到用户空间处理，用户空间的程序肯定不止 C 所以相当于对外面开放了 API　。只要对上面的程序稍微修改就可以完成对　URL 的识别。</p>
+
+<h1 id="-思路错误开发得地方不应是在-ingress-或者-egress--在这个地方做侵入式得监控严重影响性能应该做擅长得决断操作--">~~ 思路错误，开发得地方不应是在 ingress 或者 egress  ，在这个地方做侵入式得监控，严重影响性能，应该做擅长得决断操作  ~~</h1>
+
+<h1 id="下一篇分析-监控-sk_buff-流量">下一篇分析 监控 sk_buff 流量</h1>
+
+<p>编写代码和测试时常用命令：</p>
+
+<p>clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ <br />
+-idirafter /usr/local/include <br />
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include <br />
+-idirafter /usr/include/x86_64-linux-gnu <br />
+-idirafter /usr/include <br />
+-c sec_xdp.bpf.c <br />
+-o sec_xdp.bpf.o</p>
+
+<p>cc -Wall -I../libbpf/src/build/usr/include/ -g -I../headers/ -L../libbpf/src/ -o xdp_loader ../common/common_params.o ../common/common_user_bpf_xdp.o  xdp_loader.c -l:libbpf.a -lelf</p>
+
+<p>cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c sec_xdp.c -o .output/sec_xdp.o &amp;&amp; cc -g -Wall .output/sec_xdp.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o sec_xdp</p>
+
+<p>cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c pin_map_read.c -o .output/pin_map_read.o &amp;&amp; cc -g -Wall .output/pin_map_read.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o pin_map_read</p>
+
+<p>tc filter add dev eth0 ingress bpf da obj sec_xdp.bpf.o sec ingress</p>
+
+<p>tc filter add dev eth0 ingress bpf da obj sec_xdp.bpf.o</p>
+
+<p>sudo tc filter del dev eth0 ingress
+sudo ip link set dev eth0 xdp off
+sudo tc qdisc del dev eth0 clsact</p>
+
+<p>sudo cat /sys/kernel/debug/tracing/trace_pipe</p>
+
+:ET

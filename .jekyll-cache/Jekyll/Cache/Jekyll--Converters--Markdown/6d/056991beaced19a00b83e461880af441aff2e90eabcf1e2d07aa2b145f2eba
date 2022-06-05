@@ -1,0 +1,277 @@
+I""p<h1 id="cilium-源码阅读如何制定和执行-l3-策略">Cilium 源码阅读：如何制定和执行 L3 策略</h1>
+
+<p>#NOTE： 在 docker 部署下 debug</p>
+
+<p><strong>我认为理解 eBPF 代码还比较简单，多看看内核代码就行了，但配置和编写 eBPF 就要难多了。</strong></p>
+
+<p>Cilium 提供了 CNI 和 kube-proxy replacement 功能，相比 iptable 性能要好很多当前代码复杂度也上升了。</p>
+
+<p>本文做了一个官方 Demo  顺便解析一下代码以把整个过程透明化：</p>
+
+<p>Demo 参考：<a href="https://docs.cilium.io/en/v1.8/gettingstarted/docker/">https://docs.cilium.io/en/v1.8/gettingstarted/docker/</a></p>
+
+<p>看下 <code class="language-plaintext highlighter-rouge">cilium policy import l3_l4_policy.json</code> 得处理流程：</p>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">[{</span><span class="w">
+	</span><span class="nl">"labels"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+		</span><span class="nl">"key"</span><span class="p">:</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"l3-rule"</span><span class="w">
+	</span><span class="p">}],</span><span class="w">
+	</span><span class="nl">"endpointSelector"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+		</span><span class="nl">"matchLabels"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+			</span><span class="nl">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"app1"</span><span class="w">
+		</span><span class="p">}</span><span class="w">
+	</span><span class="p">},</span><span class="w">
+	</span><span class="nl">"ingress"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+		</span><span class="nl">"fromEndpoints"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+			</span><span class="nl">"matchLabels"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+				</span><span class="nl">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"app2"</span><span class="w">
+			</span><span class="p">}</span><span class="w">
+		</span><span class="p">}],</span><span class="w">
+		</span><span class="nl">"toPorts"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+			</span><span class="nl">"ports"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w">
+				</span><span class="nl">"port"</span><span class="p">:</span><span class="w"> </span><span class="s2">"80"</span><span class="p">,</span><span class="w">
+				</span><span class="nl">"protocol"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TCP"</span><span class="w">
+			</span><span class="p">}]</span><span class="w">
+		</span><span class="p">}]</span><span class="w">
+	</span><span class="p">}]</span><span class="w">
+</span><span class="p">}]</span><span class="w">
+</span></code></pre></div></div>
+
+<p>命令会触发 CMD 得 import 方法最终会生成新的请求发送到 cilium_agent，调用链如下：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cmd.loadPolicy   <span class="c"># cilium/cmd/policy_import.go</span>
+client.PolicyPut 
+    c.Policy.PutPolicy
+        a.transport.Submit
+</code></pre></div></div>
+
+<p>经过上面的调用链就会将请求通过 unix 协议发送出去。</p>
+
+<p>cilium-agent 接收到请求后，开始处理策略。之前大概浏览过 v0.10 的代码，重新生成了 BPF 程序。所有猜测了一下处理策略的过程应该和之前的一致：</p>
+
+<ul>
+  <li>解析策略内容</li>
+  <li>根据策略内容查询 docker 的IP</li>
+  <li>重新生成 BPF 程序</li>
+  <li>重新加载 BPF 程序</li>
+  <li>后面应该就是扫尾的动作，比如保存策略、保存 BPF 程序，添加新的监控</li>
+</ul>
+
+<p><code class="language-plaintext highlighter-rouge">但是总觉得不太合理。应该设计出 BPF 与 cilium 共享 map ，然后往 map 里面塞东西</code></p>
+
+<p>上面的流程只是猜测，具体的流量可能有很多处理，但是觉得大致思路是这样，所以按照这个思路去读代码。</p>
+
+<p>cilium-agent 接收到添加策略请求后会调用如下路径方法：daemon/cmd/policy.go#policyAdd</p>
+
+<p>看下具体代码：</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">// 注释：腾讯翻译-&gt;Policy Add将一段规则添加到守护进程拥有的策略存储库中。策略规则的最终更改将传播到所有本地管理的端点。</span>
+<span class="c">// 将规则添加到存储库后，返回存储库的策略修订号，如果无法导入更新的策略，则返回错误。</span>
+<span class="k">func</span> <span class="p">(</span><span class="n">d</span> <span class="o">*</span><span class="n">Daemon</span><span class="p">)</span> <span class="n">policyAdd</span><span class="p">(</span><span class="n">sourceRules</span> <span class="n">policyAPI</span><span class="o">.</span><span class="n">Rules</span><span class="p">,</span> <span class="n">opts</span> <span class="o">*</span><span class="n">policy</span><span class="o">.</span><span class="n">AddOptions</span><span class="p">,</span> <span class="n">resChan</span> <span class="k">chan</span> <span class="k">interface</span><span class="p">{})</span> <span class="p">{</span>
+	
+
+	
+
+	<span class="n">allEndpoints</span> <span class="o">:=</span> <span class="n">d</span><span class="o">.</span><span class="n">endpointManager</span><span class="o">.</span><span class="n">GetPolicyEndpoints</span><span class="p">()</span>
+	<span class="n">addedRules</span><span class="p">,</span> <span class="n">newRev</span> <span class="o">:=</span> <span class="n">d</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">AddListLocked</span><span class="p">(</span><span class="n">sourceRules</span><span class="p">)</span>
+
+	<span class="n">addedRules</span><span class="o">.</span><span class="n">UpdateRulesEndpointsCaches</span><span class="p">(</span><span class="n">endpointsToBumpRevision</span><span class="p">,</span> <span class="n">endpointsToRegen</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">policySelectionWG</span><span class="p">)</span>
+
+	<span class="n">repr</span><span class="p">,</span> <span class="n">err</span> <span class="o">:=</span> <span class="n">monitorAPI</span><span class="o">.</span><span class="n">PolicyUpdateRepr</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">sourceRules</span><span class="p">),</span> <span class="n">labels</span><span class="p">,</span> <span class="n">newRev</span><span class="p">)</span>
+	<span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="no">nil</span> <span class="p">{</span>
+		<span class="n">d</span><span class="o">.</span><span class="n">SendNotification</span><span class="p">(</span><span class="n">monitorAPI</span><span class="o">.</span><span class="n">AgentNotifyPolicyUpdated</span><span class="p">,</span> <span class="n">repr</span><span class="p">)</span>
+	<span class="p">}</span>
+
+	<span class="k">if</span> <span class="n">option</span><span class="o">.</span><span class="n">Config</span><span class="o">.</span><span class="n">SelectiveRegeneration</span> <span class="p">{</span>
+		<span class="n">r</span> <span class="o">:=</span> <span class="o">&amp;</span><span class="n">PolicyReactionEvent</span><span class="p">{</span>
+			<span class="n">wg</span><span class="o">:</span>                <span class="o">&amp;</span><span class="n">policySelectionWG</span><span class="p">,</span>
+			<span class="n">epsToBumpRevision</span><span class="o">:</span> <span class="n">endpointsToBumpRevision</span><span class="p">,</span>
+			<span class="n">endpointsToRegen</span><span class="o">:</span>  <span class="n">endpointsToRegen</span><span class="p">,</span>
+			<span class="n">newRev</span><span class="o">:</span>            <span class="n">newRev</span><span class="p">,</span>
+			<span class="n">upsertIdentities</span><span class="o">:</span>  <span class="n">newlyAllocatedIdentities</span><span class="p">,</span>
+		<span class="p">}</span>
+		<span class="n">_</span><span class="p">,</span> <span class="n">err</span> <span class="o">:=</span> <span class="n">d</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">RuleReactionQueue</span><span class="o">.</span><span class="n">Enqueue</span><span class="p">(</span><span class="n">ev</span><span class="p">)</span>	
+	<span class="p">}</span><span class="k">else</span> <span class="p">{</span>
+		<span class="n">d</span><span class="o">.</span><span class="n">TriggerPolicyUpdates</span><span class="p">(</span><span class="no">false</span><span class="p">,</span> <span class="s">"policy rules added"</span><span class="p">)</span>
+		<span class="n">ipcache</span><span class="o">.</span><span class="n">UpsertGeneratedIdentities</span><span class="p">(</span><span class="n">newlyAllocatedIdentities</span><span class="p">)</span>
+	<span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>步骤有点多，关键还有异步处理，切换上下文处理，但是不需要关注其返回结果倒是好点。先来点线索和基本条件。</p>
+
+<p><code class="language-plaintext highlighter-rouge">app1.ip :10.11.152.158</code>
+<code class="language-plaintext highlighter-rouge">consul.ip:172.17.0.3</code>
+<code class="language-plaintext highlighter-rouge">registry.ip:172.17.0.2</code></p>
+
+<p>看注释貌似没有支持 BPF 的部分，这个意思就是这边就负责解析保存到库里，然后下发到各个节点处理的意思。所以还要找到处理的地方。</p>
+
+<p>首先看下 <code class="language-plaintext highlighter-rouge">GetPolicyEndpoints</code>  cilium 内置了一个 EndpointManager 管理器，用来管理每个 docker 实例，docker 的基本信息都有。这里将他们全部获取出来当然包括策略。这里获取出来的目的就是新旧策略对比进行切换。</p>
+
+<p>AddListLocked 也有注释：AddListLocked在存储库已锁定的情况下将规则插入到策略存储库中，预计整个规则列表已被清理。
+看了下代码应该就是将规则全部保存到一个地方。至于什么地方用可能会同步到 etcd 等第三方存储。顺便把 版本号生成了，也就是说与前端完成了交互。剩下的就进入自动化过程了。</p>
+
+<p>UpdateRulesEndpointsCache更新r中指定规则是否选择EPS中的端点的每个规则中的缓存。
+如果有任何规则与端点匹配，则将其添加到提供的IDSet，并从提供的EndpointSet中删除。当给定端点完成处理时，将向该端点发送所提供的WaitGroup信号。
+大致的意思就是更新缓存中的规则，感觉也不是重点，主要作用就是将 规则与本地匹配进行一个不匹配清理的动作。什么情况下会清理：1. 当前值为空 2. 当前值指向的 docker 已经不在 alive 的状态。</p>
+
+<p>PolicyUpdateRepr 将策略简化成一个字符串的形式。然后通过 SendNotification 将其发送给 hubble 。监控用的好像也不是什么核心流程。</p>
+
+<p>接下来分别触发的是 RuleReactionQueue 和 TriggerPolicyUpdates
+RuleReactionQueue 是一个异步处理的过程，会有一个上下文切换。最终触发的是 reactToRuleUpdates</p>
+
+<p>reactToRuleUpdates 的作用注释：
+ReactToRuleUpdate执行以下操作：
+<em>重新生成epsToRegen中的所有端点。
+*将所有端点(不在epsToRegen中，但在所有Eps中)的策略修订提升为修订版本。
+*等待重新生成完成</em>根据需要将CIDR标识更新或删除到ipcache。</p>
+
+<p>也还是与 ipcache 有关系，但是  epsToRegen 是什么操作呢。</p>
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span> <span class="n">reactToRuleUpdates</span><span class="p">(</span><span class="n">epsToBumpRevision</span><span class="p">,</span> <span class="n">epsToRegen</span> <span class="o">*</span><span class="n">policy</span><span class="o">.</span><span class="n">EndpointSet</span><span class="p">,</span> <span class="n">rev</span> <span class="kt">uint64</span><span class="p">,</span> <span class="n">upsertIdentities</span> <span class="k">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="o">*</span><span class="n">identity</span><span class="o">.</span><span class="n">Identity</span><span class="p">,</span> <span class="n">releasePrefixes</span> <span class="p">[]</span><span class="o">*</span><span class="n">net</span><span class="o">.</span><span class="n">IPNet</span><span class="p">)</span> <span class="p">{</span>
+	<span class="n">epsToBumpRevision</span><span class="o">.</span><span class="n">ForEachGo</span><span class="p">(</span><span class="o">&amp;</span><span class="n">enqueueWaitGroup</span><span class="p">,</span> <span class="k">func</span><span class="p">(</span><span class="n">epp</span> <span class="n">policy</span><span class="o">.</span><span class="n">Endpoint</span><span class="p">)</span> <span class="p">{</span>
+		<span class="k">if</span> <span class="n">epp</span> <span class="o">==</span> <span class="no">nil</span> <span class="p">{</span>
+			<span class="k">return</span>
+		<span class="p">}</span>
+		<span class="n">epp</span><span class="o">.</span><span class="n">PolicyRevisionBumpEvent</span><span class="p">(</span><span class="n">rev</span><span class="p">)</span>
+	<span class="p">})</span>
+	<span class="n">epsToRegen</span><span class="o">.</span><span class="n">ForEachGo</span><span class="p">(</span><span class="o">&amp;</span><span class="n">enqueueWaitGroup</span><span class="p">,</span> <span class="k">func</span><span class="p">(</span><span class="n">ep</span> <span class="n">policy</span><span class="o">.</span><span class="n">Endpoint</span><span class="p">)</span> <span class="p">{</span>
+		<span class="n">ep</span><span class="o">.</span><span class="n">RegenerateIfAlive</span><span class="p">(</span><span class="n">regenMetadata</span><span class="p">)</span>
+	<span class="p">}</span>
+	<span class="k">if</span> <span class="n">upsertIdentities</span> <span class="o">!=</span> <span class="no">nil</span> <span class="p">{</span>
+		<span class="n">ipcache</span><span class="o">.</span><span class="n">UpsertGeneratedIdentities</span><span class="p">(</span><span class="n">upsertIdentities</span><span class="p">)</span>
+	<span class="p">}</span>
+</code></pre></div></div>
+
+<p>epsToRegen 就是 Endpoint 的一个 Set 集合。RegenerateIfAlive 在导入上诉策略并没有触发，UpsertGeneratedIdentities 是用来更新 k8s 缓存，目前并没有用到，所以没有具体执行。</p>
+
+<p>思考：如果这里只是把 Policy 保存到本地内存，那么执行策略从如何触发的？是共享 Map 了么？那么为什么没有看见直接操作 map，是不是异步触发了？</p>
+
+<p>一直到执行创建一个实例命令执行，有了新的线索：
+<code class="language-plaintext highlighter-rouge">docker run -d --name app1 --net cilium-net -l "id=app1" cilium/demo-httpd</code></p>
+
+<p>触发了 regenerateBPF 方法的执行，而上游也是触发了策略的更新，异步来完成 regenerateBPF 。</p>
+
+<p>然后技术回到上面的方法：</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">func</span> <span class="p">(</span><span class="n">e</span> <span class="o">*</span><span class="n">Endpoint</span><span class="p">)</span> <span class="n">RegenerateIfAlive</span><span class="p">(</span><span class="n">regenMetadata</span> <span class="o">*</span><span class="n">regeneration</span><span class="o">.</span><span class="n">ExternalRegenerationMetadata</span><span class="p">)</span> <span class="o">&lt;-</span><span class="k">chan</span> <span class="kt">bool</span> <span class="p">{</span>
+	<span class="k">return</span> <span class="n">e</span><span class="o">.</span><span class="n">Regenerate</span><span class="p">(</span><span class="n">regenMetadata</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>对于首次创建的实例，会触发 CreateMap 这里创建的 Map 就是 BPFMap，然后调用 ObjPin 将 Map pin 住。创建成功将 Map 清空。中间流程太多，那么我就查找和查看最核心的点写入 Map 的是什么内容？结构是什么样子？后续如何操作运行的？</p>
+
+<p>/sys/fs/bpf/tc/globals/cilium_policy_01945
+CT_MAP_TCP4:/sys/fs/bpf/tc/globals/cilium_ct4_global
+CT_MAP_ANY4:/sys/fs/bpf/tc/globals/cilium_ct_any4_global
+CT_MAP_TCP6:/sys/fs/bpf/tc/globals/cilium_ct6_global
+CT_MAP_ANY6:/sys/fs/bpf/tc/globals/cilium_ct_any6_global</p>
+
+<p>具体就需要观察有多少种 map，可以通过 <code class="language-plaintext highlighter-rouge">pkg/bpf/map_linux.go</code> 来向上推导有哪些 Map，也可以搜索关键字。因为存入 Map 中的都是指针所以找到指针指向就可以了。</p>
+
+<p>代码一直 debug 反推到 daemon 的初始化函数 init()  在初始化中对 PolicyMap 进行了初始化创建：</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="k">func</span> <span class="p">(</span><span class="n">d</span> <span class="o">*</span><span class="n">Daemon</span><span class="p">)</span> <span class="n">init</span><span class="p">()</span> <span class="kt">error</span> <span class="p">{</span>
+	<span class="n">globalsDir</span> <span class="o">:=</span> <span class="n">option</span><span class="o">.</span><span class="n">Config</span><span class="o">.</span><span class="n">GetGlobalsDir</span><span class="p">()</span> <span class="c">// /sys/fs/bpf/tc/globals/</span>
+
+	<span class="n">d</span><span class="o">.</span><span class="n">createNodeConfigHeaderfile</span><span class="p">()</span>
+	<span class="n">eppolicymap</span><span class="o">.</span><span class="n">CreateEPPolicyMap</span><span class="p">()</span>
+	<span class="n">d</span><span class="o">.</span><span class="n">Datapath</span><span class="p">()</span><span class="o">.</span><span class="n">Loader</span><span class="p">()</span><span class="o">.</span><span class="n">Reinitialize</span><span class="p">(</span><span class="n">d</span><span class="o">.</span><span class="n">ctx</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">d</span><span class="o">.</span><span class="n">mtuConfig</span><span class="o">.</span><span class="n">GetDeviceMTU</span><span class="p">(),</span> <span class="n">d</span><span class="o">.</span><span class="n">Datapath</span><span class="p">(),</span> <span class="n">d</span><span class="o">.</span><span class="n">l7Proxy</span><span class="p">,</span> <span class="n">d</span><span class="o">.</span><span class="n">ipam</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="k">func</span> <span class="n">CreateEPPolicyMap</span><span class="p">()</span> <span class="p">{</span>
+	<span class="n">CreateWithName</span><span class="p">(</span><span class="n">MapName</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="k">func</span> <span class="n">CreateWithName</span><span class="p">(</span><span class="n">mapName</span> <span class="kt">string</span><span class="p">)</span> <span class="kt">error</span> <span class="p">{</span>
+	<span class="n">buildMap</span><span class="o">.</span><span class="n">Do</span><span class="p">(</span><span class="k">func</span><span class="p">()</span> <span class="p">{</span>
+		<span class="n">mapType</span> <span class="o">:=</span> <span class="n">bpf</span><span class="o">.</span><span class="n">MapTypeHash</span>
+		<span class="n">fd</span><span class="p">,</span> <span class="n">err</span> <span class="o">:=</span> <span class="n">bpf</span><span class="o">.</span><span class="n">CreateMap</span><span class="p">(</span><span class="n">mapType</span><span class="p">,</span>
+			<span class="kt">uint32</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Sizeof</span><span class="p">(</span><span class="n">policymap</span><span class="o">.</span><span class="n">PolicyKey</span><span class="p">{})),</span>
+			<span class="kt">uint32</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Sizeof</span><span class="p">(</span><span class="n">policymap</span><span class="o">.</span><span class="n">PolicyEntry</span><span class="p">{})),</span>
+			<span class="kt">uint32</span><span class="p">(</span><span class="n">policymap</span><span class="o">.</span><span class="n">MaxEntries</span><span class="p">),</span>
+			<span class="n">bpf</span><span class="o">.</span><span class="n">GetPreAllocateMapFlags</span><span class="p">(</span><span class="n">mapType</span><span class="p">),</span>
+			<span class="m">0</span><span class="p">,</span> <span class="n">innerMapName</span><span class="p">)</span>
+
+		<span class="k">if</span> <span class="n">err</span> <span class="o">!=</span> <span class="no">nil</span> <span class="p">{</span>
+			<span class="n">log</span><span class="o">.</span><span class="n">WithError</span><span class="p">(</span><span class="n">err</span><span class="p">)</span><span class="o">.</span><span class="n">Fatal</span><span class="p">(</span><span class="s">"unable to create EP to policy map"</span><span class="p">)</span>
+			<span class="k">return</span>
+		<span class="p">}</span>
+
+		<span class="n">EpPolicyMap</span> <span class="o">=</span> <span class="n">bpf</span><span class="o">.</span><span class="n">NewMap</span><span class="p">(</span><span class="n">mapName</span><span class="p">,</span>
+			<span class="n">bpf</span><span class="o">.</span><span class="n">MapTypeHashOfMaps</span><span class="p">,</span>
+			<span class="o">&amp;</span><span class="n">EndpointKey</span><span class="p">{},</span>
+			<span class="kt">int</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Sizeof</span><span class="p">(</span><span class="n">EndpointKey</span><span class="p">{})),</span>
+			<span class="o">&amp;</span><span class="n">EPPolicyValue</span><span class="p">{},</span>
+			<span class="kt">int</span><span class="p">(</span><span class="n">unsafe</span><span class="o">.</span><span class="n">Sizeof</span><span class="p">(</span><span class="n">EPPolicyValue</span><span class="p">{})),</span>
+			<span class="n">MaxEntries</span><span class="p">,</span>
+			<span class="m">0</span><span class="p">,</span>
+			<span class="m">0</span><span class="p">,</span>
+			<span class="n">bpf</span><span class="o">.</span><span class="n">ConvertKeyValue</span><span class="p">,</span>
+		<span class="p">)</span><span class="o">.</span><span class="n">WithCache</span><span class="p">()</span>
+		<span class="n">EpPolicyMap</span><span class="o">.</span><span class="n">InnerID</span> <span class="o">=</span> <span class="kt">uint32</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+	<span class="p">})</span>
+
+	<span class="n">_</span><span class="p">,</span> <span class="n">err</span> <span class="o">:=</span> <span class="n">EpPolicyMap</span><span class="o">.</span><span class="n">OpenOrCreate</span><span class="p">()</span>
+	<span class="k">return</span> <span class="n">err</span>
+<span class="p">}</span>
+<span class="k">type</span> <span class="n">PolicyEntry</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">ProxyPort</span> <span class="kt">uint16</span> <span class="s">`align:"proxy_port"`</span> <span class="c">// In network byte-order</span>
+	<span class="n">Pad0</span>      <span class="kt">uint16</span> <span class="s">`align:"pad0"`</span>
+	<span class="n">Pad1</span>      <span class="kt">uint16</span> <span class="s">`align:"pad1"`</span>
+	<span class="n">Pad2</span>      <span class="kt">uint16</span> <span class="s">`align:"pad2"`</span>
+	<span class="n">Packets</span>   <span class="kt">uint64</span> <span class="s">`align:"packets"`</span>
+	<span class="n">Bytes</span>     <span class="kt">uint64</span> <span class="s">`align:"bytes"`</span>
+<span class="p">}</span>
+<span class="k">type</span> <span class="n">PolicyKey</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">Identity</span>         <span class="kt">uint32</span> <span class="s">`align:"sec_label"`</span>
+	<span class="n">DestPort</span>         <span class="kt">uint16</span> <span class="s">`align:"dport"`</span> <span class="c">// In network byte-order</span>
+	<span class="n">Nexthdr</span>          <span class="kt">uint8</span>  <span class="s">`align:"protocol"`</span>
+	<span class="n">TrafficDirection</span> <span class="kt">uint8</span>  <span class="s">`align:"egress"`</span>
+<span class="p">}</span>
+<span class="k">type</span> <span class="n">EndpointKey</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="c">// represents both IPv6 and IPv4 (in the lowest four bytes)</span>
+	<span class="n">IP</span>     <span class="n">types</span><span class="o">.</span><span class="n">IPv6</span> <span class="s">`align:"$union0"`</span>
+	<span class="n">Family</span> <span class="kt">uint8</span>      <span class="s">`align:"family"`</span>
+	<span class="n">Key</span>    <span class="kt">uint8</span>      <span class="s">`align:"key"`</span>
+	<span class="n">Pad2</span>   <span class="kt">uint16</span>     <span class="s">`align:"pad5"`</span>
+<span class="p">}</span>
+<span class="k">type</span> <span class="n">EPPolicyValue</span> <span class="k">struct</span><span class="p">{</span> <span class="n">Fd</span> <span class="kt">uint32</span> <span class="p">}</span>
+</code></pre></div></div>
+
+<p>测试：当导入 policy 文件的时候并没有引发更新 PolicyMap ，测试了三次都没有触发。不由得猜想是否需要创建 Docker 实例的时候才进行更新，直接将创建的 IP 更新到 Map。
+执行命令：
+docker run –rm -ti –net cilium-net -l “id=app2” cilium/demo-client curl -m 2000 http://app1</p>
+
+<p>0 = /sys/fs/bpf/tc/globals/cilium_lxc -&gt; 
+1 = /sys/fs/bpf/tc/globals/cilium_ipcache -&gt; 
+2 = /sys/fs/bpf/tc/globals/cilium_lb6_backends -&gt; 
+3 = /sys/fs/bpf/tc/globals/cilium_metrics -&gt; 
+4 = /sys/fs/bpf/tc/globals/cilium_tunnel_map -&gt; 
+5 = /sys/fs/bpf/tc/globals/cilium_lb6_services_v2 -&gt; 
+6 = /sys/fs/bpf/tc/globals/cilium_lb6_reverse_nat -&gt; 
+7 = /sys/fs/bpf/tc/globals/cilium_lb4_services_v2 -&gt; 
+8 = /sys/fs/bpf/tc/globals/cilium_lb4_reverse_nat -&gt; 
+9 = /sys/fs/bpf/tc/globals/cilium_policy_03221 -&gt; 
+10 = /sys/fs/bpf/tc/globals/cilium_lb6_source_range -&gt; 
+11 = /sys/fs/bpf/tc/globals/cilium_policy_00501 -&gt; 
+12 = /sys/fs/bpf/tc/globals/cilium_policy_03812 -&gt; 
+13 = /sys/fs/bpf/tc/globals/cilium_lb4_backends -&gt; 
+14 = /sys/fs/bpf/tc/globals/cilium_lb4_source_range -&gt;</p>
+
+<p>0 = /sys/fs/bpf/tc/globals/cilium_lxc -&gt; 
+1 = /sys/fs/bpf/tc/globals/cilium_tunnel_map -&gt; 
+2 = /sys/fs/bpf/tc/globals/cilium_lb6_services_v2 -&gt; 
+3 = /sys/fs/bpf/tc/globals/cilium_lb6_backends -&gt; 
+4 = /sys/fs/bpf/tc/globals/cilium_lb6_reverse_nat -&gt; 
+5 = /sys/fs/bpf/tc/globals/cilium_lb4_backends -&gt; 
+6 = /sys/fs/bpf/tc/globals/cilium_lb4_reverse_nat -&gt; 
+7 = /sys/fs/bpf/tc/globals/cilium_policy_01312 -&gt; 
+10 = /sys/fs/bpf/tc/globals/cilium_metrics -&gt; 
+11 = /sys/fs/bpf/tc/globals/cilium_lb6_source_range -&gt; 
+12 = /sys/fs/bpf/tc/globals/cilium_ct4_global -&gt; 
+13 = /sys/fs/bpf/tc/globals/cilium_ct6_global -&gt; 
+14 = /sys/fs/bpf/tc/globals/cilium_lb4_services_v2 -&gt; 
+15 = /sys/fs/bpf/tc/globals/cilium_lb4_source_range -&gt; 
+16 = /sys/fs/bpf/tc/globals/cilium_ipcache -&gt; 
+18 = /sys/fs/bpf/tc/globals/cilium_ct_any4_global -&gt;</p>
+
+:ET

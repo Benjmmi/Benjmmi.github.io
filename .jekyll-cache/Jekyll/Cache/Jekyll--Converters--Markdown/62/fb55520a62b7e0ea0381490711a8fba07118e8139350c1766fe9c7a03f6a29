@@ -1,0 +1,232 @@
+I"	�<p>翻译：<a href="https://ssup2.github.io/theory_analysis/Kubernetes_Service_Proxy/">Kubernetes Service Proxy</a></p>
+
+<h1 id="背景">背景</h1>
+
+<p><code class="language-plaintext highlighter-rouge">kube-proxy</code> 是负责 k8s 集群内通信规则创建的组建，k8s 官方文档解释</p>
+
+<blockquote>
+  <p>Kubernetes 网络代理在每个节点上运行。网络代理反映了每个节点上 Kubernetes API 中定义的服务，
+并且可以执行简单的 TCP、UDP 和 SCTP 流转发，或者在一组后端进行 循环 TCP、UDP 和 SCTP 转发。</p>
+</blockquote>
+
+<p>但是 kube-proxy 本身并不负责流量转发等工作。
+Kubernetes 支持三种 Service Proxy 模式：iptables、IPVS 和 Userspace。根据服务代理方式分析服务请求报文路径。</p>
+
+<h1 id="service-和-pod-信息">Service 和 Pod 信息</h1>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>kubectl get pod <span class="nt">-o</span> wide
+NAME                              READY   STATUS    RESTARTS   AGE   IP              NODE     NOMINATED NODE
+my-nginx-756f645cd7-gh7sq         1/1     Running   14         15d   192.167.2.231   kube03   &lt;none&gt;
+my-nginx-756f645cd7-hm7rg         1/1     Running   17         20d   192.167.2.206   kube03   &lt;none&gt;
+my-nginx-756f645cd7-qfqbp         1/1     Running   16         20d   192.167.1.123   kube02   &lt;none&gt;
+
+<span class="nv">$ </span>kubectl get pod <span class="nt">-o</span> wide
+NAME                    TYPE           CLUSTER-IP       EXTERNAL-IP    PORT<span class="o">(</span>S<span class="o">)</span>                           AGE     SELECTOR
+my-nginx-cluster        ClusterIP      10.103.1.234     &lt;none&gt;         80/TCP                            15d     <span class="nv">run</span><span class="o">=</span>my-nginx
+my-nginx-loadbalancer   LoadBalancer   10.96.98.173     172.35.0.200   80:30781/TCP                      15d    <span class="nv">run</span><span class="o">=</span>my-nginx
+my-nginx-nodeport       NodePort       10.97.229.148    &lt;none&gt;         80:30915/TCP 
+</code></pre></div></div>
+<p>这里展示了 <code class="language-plaintext highlighter-rouge">Kubernetes Service Proxy</code> 的 <code class="language-plaintext highlighter-rouge">Service</code> 和 <code class="language-plaintext highlighter-rouge">Pod</code> 信息。可以从上面的信息看出部署了三个 <code class="language-plaintext highlighter-rouge">nginx</code> Pod。并添加了
+<code class="language-plaintext highlighter-rouge">ClusterIP</code> 类型的 <code class="language-plaintext highlighter-rouge">my-nginx-cluster</code> 、<code class="language-plaintext highlighter-rouge">NodePort</code> 类型的 <code class="language-plaintext highlighter-rouge">nginx-nodeport</code> 和 <code class="language-plaintext highlighter-rouge">LoadBalancer</code> 的 <code class="language-plaintext highlighter-rouge">my-nginx-loadbalancer</code>。</p>
+
+<h1 id="iptables-模式">Iptables 模式</h1>
+
+<p><img src="/images/k8s/iptables_Mode_Service_Packet_Path.png" alt="iptables模式下的服务请求包路径" /></p>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-SERVICES <span class="o">(</span>2 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>      <span class="o">!</span>192.167.0.0/16       10.96.98.173         /<span class="k">*</span> default/my-nginx-loadbalancer: cluster IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.96.98.173         /<span class="k">*</span> default/my-nginx-loadbalancer: cluster IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-FW-TNQCJ2KHUMKABQTD  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            172.35.0.200         /<span class="k">*</span> default/my-nginx-loadbalancer: loadbalancer IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>      <span class="o">!</span>192.167.0.0/16       10.103.1.234         /<span class="k">*</span> default/my-nginx-cluster: cluster IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-SVC-52FY5WPFTOHXARFK  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.103.1.234         /<span class="k">*</span> default/my-nginx-cluster: cluster IP <span class="k">*</span>/ tcp dpt:80 
+    0     0 KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>      <span class="o">!</span>192.167.0.0/16       10.97.229.148        /<span class="k">*</span> default/my-nginx-nodeport: cluster IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-SVC-6JXEEPSEELXY3JZG  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.97.229.148        /<span class="k">*</span> default/my-nginx-nodeport: cluster IP <span class="k">*</span>/ tcp dpt:80
+    0     0 KUBE-NODEPORTS  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> kubernetes service nodeports<span class="p">;</span> NOTE: this must be the last rule <span class="k">in </span>this chain <span class="k">*</span>/ ADDRTYPE match dst-type LOCAL
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORTS</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-NODEPORTS <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:30781
+    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:30781
+    0     0 KUBE-MARK-MASQ  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:30915
+    0     0 KUBE-SVC-6JXEEPSEELXY3JZG  tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:30915 
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-FW-XXX</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-FW-TNQCJ2KHUMKABQTD <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 KUBE-MARK-MASQ  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: loadbalancer IP <span class="k">*</span>/
+    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: loadbalancer IP <span class="k">*</span>/
+    0     0 KUBE-MARK-DROP  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: loadbalancer IP <span class="k">*</span>/
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-SVC-XXX</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-SVC-TNQCJ2KHUMKABQTD <span class="o">(</span>2 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 KUBE-SEP-6HM47TA5RTJFOZFJ  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.33332999982
+    0     0 KUBE-SEP-AHRDCNDYGFSFVA64  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.50000000000
+    0     0 KUBE-SEP-BK523K4AX5Y34OZL  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0      
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-SEP-XXX</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-SEP-6HM47TA5RTJFOZFJ <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 KUBE-MARK-MASQ  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       192.167.2.231        0.0.0.0/0
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            tcp to:192.167.2.231:80 
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-POSTROUTING</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-POSTROUTING <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 MASQUERADE  all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> kubernetes service traffic requiring SNAT <span class="k">*</span>/ mark match
+0x4000/0x4000 
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-MARK-MASQ <span class="o">(</span>23 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 MARK       all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            MARK or 0x4000 
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">iptables</code> 模式下的 <code class="language-plaintext highlighter-rouge">KUBE-MARK-DROP</code>：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-MARK-DROP <span class="o">(</span>10 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 MARK       all  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            MARK or 0x8000
+</code></pre></div></div>
+
+<p>这里的 <code class="language-plaintext highlighter-rouge">Service Proxy</code> 使用是 <code class="language-plaintext highlighter-rouge">iptables</code> 模式。这是 <code class="language-plaintext highlighter-rouge">Kubernetes</code> 当前使用的默认代理模式。
+在上方图中展示了 <code class="language-plaintext highlighter-rouge">iptables</code> 模式下服务请求包的路径。上方的 <code class="language-plaintext highlighter-rouge">bash</code> 是展示了主要 <code class="language-plaintext highlighter-rouge">NAT</code> 表的内容。</p>
+
+<p>由于大多数 <code class="language-plaintext highlighter-rouge">Pod</code> 传输的请求包是通过 <code class="language-plaintext highlighter-rouge">Pod</code> 的 <code class="language-plaintext highlighter-rouge">veth</code> 传递到主机的网络命名空间，因此请求包通过 <code class="language-plaintext highlighter-rouge">PREROUTING</code> 表传递到 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 表。
+<code class="language-plaintext highlighter-rouge">Pod</code> 或者 <code class="language-plaintext highlighter-rouge">Host</code>进程 使用 <code class="language-plaintext highlighter-rouge">Host</code> 的网络命名空间传输的请求数据包由 <code class="language-plaintext highlighter-rouge">OUTPUT</code> 表传递到 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 表。</p>
+
+<p>如果<code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 表中请求包的目标<code class="language-plaintext highlighter-rouge">IP</code>和目标<code class="language-plaintext highlighter-rouge">Port</code>与<code class="language-plaintext highlighter-rouge">ClusterIP Service</code>的<code class="language-plaintext highlighter-rouge">IP</code>和<code class="language-plaintext highlighter-rouge">Port</code>匹配，则请求的包
+被转发到<code class="language-plaintext highlighter-rouge">KUBE-SVC-XXX</code> 表，即<code class="language-plaintext highlighter-rouge">ClusterIP Service</code>的<code class="language-plaintext highlighter-rouge">NAT</code>表.</p>
+
+<p>如果 <code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 表中请求包的目标 <code class="language-plaintext highlighter-rouge">IP</code> 是节点自己的 <code class="language-plaintext highlighter-rouge">IP</code>，则将请求包转发到 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORTS</code> 表。
+如果 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORTS</code> 表中请求报文的目标 <code class="language-plaintext highlighter-rouge">Port</code> 与 <code class="language-plaintext highlighter-rouge">NodePort Service</code> 的 <code class="language-plaintext highlighter-rouge">Port</code>匹配，则将请求报文传送到 <code class="language-plaintext highlighter-rouge">KUBE-SVC-XXX</code> 表，
+即 <code class="language-plaintext highlighter-rouge">NodePort Service</code> 的 <code class="language-plaintext highlighter-rouge">NAT</code> 表。</p>
+
+<p>如果<code class="language-plaintext highlighter-rouge">KUBE-SERVICES</code> 表中请求包的目标 <code class="language-plaintext highlighter-rouge">IP</code>和目标 <code class="language-plaintext highlighter-rouge">Port</code>与<code class="language-plaintext highlighter-rouge">LoadBalancer Service</code> 的<code class="language-plaintext highlighter-rouge">External IP</code>和<code class="language-plaintext highlighter-rouge">Port</code>匹配，
+则将请求包转发到<code class="language-plaintext highlighter-rouge">KUBE-FW-XXX</code> 表，<code class="language-plaintext highlighter-rouge">LoadBalancer Service</code>的<code class="language-plaintext highlighter-rouge">NAT</code>表，然后再将 <code class="language-plaintext highlighter-rouge">LoadBalancer Service</code> 传送
+到 <code class="language-plaintext highlighter-rouge">KUBE-SVC-XXX</code> 表，也就是 <code class="language-plaintext highlighter-rouge">NAT</code> 表</p>
+
+<p>在<code class="language-plaintext highlighter-rouge">KUBE-SVC-XXX</code> 表中，请求包通过<code class="language-plaintext highlighter-rouge">iptables</code>的统计功能，在构成<code class="language-plaintext highlighter-rouge">Service</code>的<code class="language-plaintext highlighter-rouge">Pod</code>之间起到随机均匀负载均衡的作用。
+在 <em><code class="language-plaintext highlighter-rouge">KUBE-SVC-TNQCJ2KHUMKABQTD</code></em> 中，由于<code class="language-plaintext highlighter-rouge">Service</code>由三个<code class="language-plaintext highlighter-rouge">pod</code>组成，可以看出请求包设置为随机均衡负载均衡，使用三个<code class="language-plaintext highlighter-rouge">KUBE-SEP-XXX</code>表。
+在 <code class="language-plaintext highlighter-rouge">KUBE-SEP-XXX</code> 表中，请求包使用 <code class="language-plaintext highlighter-rouge">Pod</code> 的 <code class="language-plaintext highlighter-rouge">IP</code> 和 <code class="language-plaintext highlighter-rouge">Service</code> 中设置的 <code class="language-plaintext highlighter-rouge">Port</code> 进行 <code class="language-plaintext highlighter-rouge">DNAT</code>。
+由<code class="language-plaintext highlighter-rouge">Pod</code>的<code class="language-plaintext highlighter-rouge">IP</code>发出的<code class="language-plaintext highlighter-rouge">DNAT</code>请求包通过<code class="language-plaintext highlighter-rouge">CNI Plugin</code>构建的容器网络传递给该<code class="language-plaintext highlighter-rouge">Pod</code>。</p>
+
+<p>由于传递给<code class="language-plaintext highlighter-rouge">service</code>的请求包是通过<code class="language-plaintext highlighter-rouge">iptables</code>的<code class="language-plaintext highlighter-rouge">DNAT</code>传递给<code class="language-plaintext highlighter-rouge">Pod</code>的，所以<code class="language-plaintext highlighter-rouge">Pod</code>发出的响应包的<code class="language-plaintext highlighter-rouge">Src IP</code>应该<code class="language-plaintext highlighter-rouge">SNAT</code>到<code class="language-plaintext highlighter-rouge">Service IP</code>，
+而不是<code class="language-plaintext highlighter-rouge">Pod IP</code> 。<code class="language-plaintext highlighter-rouge">iptables</code> 中未指定 <code class="language-plaintext highlighter-rouge">Serivce</code> 的 <code class="language-plaintext highlighter-rouge">SNAT</code> 规则。但是，<code class="language-plaintext highlighter-rouge">iptables</code>根据<code class="language-plaintext highlighter-rouge">Linux Kernel</code> 的<code class="language-plaintext highlighter-rouge">Conntrack</code>（连接跟踪）的 
+<code class="language-plaintext highlighter-rouge">TCP</code> 连接信息对从 <code class="language-plaintext highlighter-rouge">Service Pod</code> 收到的响应数据包进行 <code class="language-plaintext highlighter-rouge">SNAT</code>。</p>
+
+<h1 id="source-ip">Source IP</h1>
+
+<p><code class="language-plaintext highlighter-rouge">Service</code>请求包的<code class="language-plaintext highlighter-rouge">Src IP</code>将被留存，或通过<code class="language-plaintext highlighter-rouge">Masquerade</code>作为<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">IP</code>进行<code class="language-plaintext highlighter-rouge">SNAT</code>。
+<code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code> 是一个表，将使用 <code class="language-plaintext highlighter-rouge">Masquerade</code> 对请求包进行标记。
+<code class="language-plaintext highlighter-rouge">Marking</code>的<code class="language-plaintext highlighter-rouge">Packet</code>在<code class="language-plaintext highlighter-rouge">KUBE-POSTROUTING</code> 表中成为<code class="language-plaintext highlighter-rouge">Masquerade</code>，<code class="language-plaintext highlighter-rouge">Src IP</code>作为<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">IP</code>成为<code class="language-plaintext highlighter-rouge">SNAT</code>。
+在<code class="language-plaintext highlighter-rouge">iptables</code> 表中，你会发现<code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code> 表会检测出被<code class="language-plaintext highlighter-rouge">Masquerade</code>标记过的包。</p>
+
+<p><img src="/images/k8s/NodePort_Policy.png" alt="根据NodePort、LoadBalancer Service的externalTrafficPolicy的数据包路径" />
+<strong>根据NodePort、LoadBalancer Service的externalTrafficPolicy的数据包路径图</strong></p>
+
+<p><em>图中左侧为<code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code>值为<code class="language-plaintext highlighter-rouge">Cluster</code>，执行 <code class="language-plaintext highlighter-rouge">Masquerade</code>。</em>
+<code class="language-plaintext highlighter-rouge">LoadBalancer Service</code> 的 <code class="language-plaintext highlighter-rouge">NodePort</code> 和 <code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code> 的 <code class="language-plaintext highlighter-rouge">Cluster</code>。
+如果<code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code>值设置为<code class="language-plaintext highlighter-rouge">Cluster</code>，则请求包的<code class="language-plaintext highlighter-rouge">Src IP</code>通过<code class="language-plaintext highlighter-rouge">Masquerade</code> 被 <code class="language-plaintext highlighter-rouge">SNAT</code>到<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">IP</code>。
+在 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORTS</code> 表中，可以通过 <code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code> 表检查所有以 <code class="language-plaintext highlighter-rouge">NodePort</code> 和 <code class="language-plaintext highlighter-rouge">LoadBalancer Service Port</code> 
+作为 <code class="language-plaintext highlighter-rouge">Dest Port</code> 的数据包。</p>
+
+<p><em>图右侧是通过将<code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code>设置为<code class="language-plaintext highlighter-rouge">Local</code>，不执行<code class="language-plaintext highlighter-rouge">Masquerade</code></em>
+如果将 <code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code> 值设置为 <code class="language-plaintext highlighter-rouge">Local</code>，则 <code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code> 表中相关规则将不会出现在 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORTS</code> 表中，
+所以就不会执行到 <code class="language-plaintext highlighter-rouge">Masquerade</code>。请求数据包的 <code class="language-plaintext highlighter-rouge">Src IP</code> 不会被修改。另外，请求包在宿主机中不会被负载均衡，而是将请求包发送
+到的 <code class="language-plaintext highlighter-rouge">Host</code> 中的目标<code class="language-plaintext highlighter-rouge">pod</code>。如果请求数据包被发送到主机不存在目标 <code class="language-plaintext highlighter-rouge">pod</code>，那么请求数据包将被丢弃。</p>
+
+<p><code class="language-plaintext highlighter-rouge">ExternalTrafficPolicy Local</code>主要用于<code class="language-plaintext highlighter-rouge">LoadBalancer Service</code>。因为由 <code class="language-plaintext highlighter-rouge">Cloud Provider</code> 的负载均衡器执行负载均衡，
+所以主机不需要负载均衡，所以可以保留请求包的<code class="language-plaintext highlighter-rouge">Src IP</code>。
+如果<code class="language-plaintext highlighter-rouge">externalTrafficPolicy</code>值为<code class="language-plaintext highlighter-rouge">Local</code>，云服务提供商的负载均衡器会对目标 Pod 执行健康检查，如果健康检查失败
+或者目标 Pod 不存在，那么发送到主机上的数据包将会被丢弃删除。</p>
+
+<p><img src="/images/k8s/iptables_Mode_Hairpinning.png" alt="iptables模式下发夹前/后的数据包路径" /></p>
+
+<p>在<code class="language-plaintext highlighter-rouge">Pod</code>中向自己所属的<code class="language-plaintext highlighter-rouge">Service</code>的<code class="language-plaintext highlighter-rouge">IP</code>发送请求数据包，在请求数据包返回时也需要 <code class="language-plaintext highlighter-rouge">Masquerade</code>。图中左边就标识这种情况。
+请求数据包被DNAT, 数据包的<code class="language-plaintext highlighter-rouge">Src IP</code>和<code class="language-plaintext highlighter-rouge">Dest IP</code>都是<code class="language-plaintext highlighter-rouge">Pod</code>本身的<code class="language-plaintext highlighter-rouge">IP</code>。
+因此，<code class="language-plaintext highlighter-rouge">Pod</code>返回响应数据包时，响应数据包不通过<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">NAT</code>表，因此不会执行<code class="language-plaintext highlighter-rouge">SNAT</code>，直接在 <code class="language-plaintext highlighter-rouge">Pod</code> 中处理。</p>
+
+<p>如果使用 <code class="language-plaintext highlighter-rouge">Masquerade</code>，则可以通过将返回 <code class="language-plaintext highlighter-rouge">Pod</code> 的请求包强制传递给 Host 来执行 SNAT。这种通过故意绕过数据包来接收数据包的方法称为<code class="language-plaintext highlighter-rouge">Hairpinning</code>。
+图中的右侧显示了使用<code class="language-plaintext highlighter-rouge">Masqurade</code>应用<code class="language-plaintext highlighter-rouge">Hairpinning</code>的情况。如果<code class="language-plaintext highlighter-rouge">KUBE-SEP-XXX</code>表中请求数据包的Src IP与DNAT的IP相同，
+即<code class="language-plaintext highlighter-rouge">Pod</code>发送到<code class="language-plaintext highlighter-rouge">Service</code>的数据包由自己接收时，则请求的数据包经过<code class="language-plaintext highlighter-rouge">KUBE-MARK-MASQ</code> 表是被 <code class="language-plaintext highlighter-rouge">Marking</code>，
+在<code class="language-plaintext highlighter-rouge">KUBE-POSTROUTING</code> 表中被<code class="language-plaintext highlighter-rouge">Masquerade</code>
+因为<code class="language-plaintext highlighter-rouge">Pod</code>接收到的数据包的<code class="language-plaintext highlighter-rouge">Src IP</code>被设置为<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">IP</code>，因此<code class="language-plaintext highlighter-rouge">Pod</code>的响应被发送到<code class="language-plaintext highlighter-rouge">Host</code>的<code class="language-plaintext highlighter-rouge">NAT</code> 表，然后进行<code class="language-plaintext highlighter-rouge">SNAT</code>和<code class="language-plaintext highlighter-rouge">DNAT</code>传递给<code class="language-plaintext highlighter-rouge">Pod</code>。</p>
+
+<h1 id="用户空间">用户空间</h1>
+
+<p>Userspace Mode下的服务请求报文路径图：
+<img src="/images/k8s/Userspace_Mode_Service_Packet_Path.png" alt="Userspace_Mode_Service_Packet_Path.png" /></p>
+
+<p>用户空间模式下的 KUBE-PORTALS-CONTAINER：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-PORTALS-CONTAINER <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.96.98.173         /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:80 redir ports 38023
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            172.35.0.200         /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:80 redir ports 38023
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.103.1.234         /<span class="k">*</span> default/my-nginx-cluster: <span class="k">*</span>/ tcp dpt:80 redir ports 36451
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.97.229.148        /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:80 redir ports 44257
+</code></pre></div></div>
+
+<p>用户空间模式下的 KUBE-NODEPORT-CONTAINER：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-NODEPORT-CONTAINER <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:30781 redir ports 38023
+    0     0 REDIRECT   tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:30915 redir ports 44257
+</code></pre></div></div>
+
+<p>用户空间模式下的 KUBE-PORTALS-HOST：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-PORTALS-HOST <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.96.98.173         /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:80 to:172.35.0.100:38023
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            172.35.0.200         /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:80 to:172.35.0.100:38023
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.103.1.234         /<span class="k">*</span> default/my-nginx-cluster: <span class="k">*</span>/ tcp dpt:80 to:172.35.0.100:46635
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            10.97.229.148        /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:80 to:172.35.0.100:32847
+</code></pre></div></div>
+
+<p>用户空间模式下的 KUBE-NODEPORT-HOST：</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Chain KUBE-NODEPORT-HOST <span class="o">(</span>1 references<span class="o">)</span>
+ pkts bytes target     prot opt <span class="k">in     </span>out     <span class="nb">source               </span>destination
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-loadbalancer: <span class="k">*</span>/ tcp dpt:30781 to:172.35.0.100:38023
+    0     0 DNAT       tcp  <span class="nt">--</span>  <span class="k">*</span>      <span class="k">*</span>       0.0.0.0/0            0.0.0.0/0            /<span class="k">*</span> default/my-nginx-nodeport: <span class="k">*</span>/ tcp dpt:30915 to:172.35.0.100:44257
+</code></pre></div></div>
+
+<p>Service Proxy 的 iptables 模式是一种运行在用户空间的 kube-proxy 扮演 Service Proxy 角色的模式。
+这是 Kubernetes 提供的第一个代理模式。目前使用的不是很好，因为与iptables模式相比性能较差。
+上图中展示了 Userspace 模式下Service 请求包的路径。</p>
+
+<p>由于大多数 <code class="language-plaintext highlighter-rouge">Pod</code> 传输的请求包是通过 <code class="language-plaintext highlighter-rouge">Pod</code> 的 <code class="language-plaintext highlighter-rouge">veth</code> 传递到 <code class="language-plaintext highlighter-rouge">Host</code> 的 <code class="language-plaintext highlighter-rouge">Network</code> 命名空间，因此请求包通过 PREROUTING 表传递到
+<code class="language-plaintext highlighter-rouge">KUBE-PORTALS-CONTAINER</code> 表。如果 <code class="language-plaintext highlighter-rouge">KUBE-PORTALS-CONTAINER</code> 标准中请求包的 目标 <code class="language-plaintext highlighter-rouge">IP</code> 和目标 <code class="language-plaintext highlighter-rouge">Port</code> 与 <code class="language-plaintext highlighter-rouge">ClusterIP</code> 服务
+的 <code class="language-plaintext highlighter-rouge">IP</code> 和 <code class="language-plaintext highlighter-rouge">Port</code> 匹配，则请求包被重定向到<code class="language-plaintext highlighter-rouge">kube-proxy</code> 。如果请求数据包的目标 <code class="language-plaintext highlighter-rouge">IP</code>是节点自己的<code class="language-plaintext highlighter-rouge">IP</code>，则将数据包投递到
+<code class="language-plaintext highlighter-rouge">KUBE-NODEPORT-CONTAINER</code>表。如果 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORT-CONTAINER</code> 表中请求包的 目标 <code class="language-plaintext highlighter-rouge">Port</code> 与 <code class="language-plaintext highlighter-rouge">NodePort Service</code> 的端
+口匹配，则请求包被重定向到 <code class="language-plaintext highlighter-rouge">kube-proxy</code>。如果请求包的目标 <code class="language-plaintext highlighter-rouge">IP</code>和目标 <code class="language-plaintext highlighter-rouge">Port</code>与<code class="language-plaintext highlighter-rouge">LoadBalancer Service</code>的<code class="language-plaintext highlighter-rouge">External IP</code>和<code class="language-plaintext highlighter-rouge">Port</code>匹配，
+请求包也会被重定向到kube-proxy。</p>
+
+<p><code class="language-plaintext highlighter-rouge">Pod</code> 或 <code class="language-plaintext highlighter-rouge">Host</code> 进程使用 <code class="language-plaintext highlighter-rouge">Host</code> 的 <code class="language-plaintext highlighter-rouge">Network Namespace</code> 传输的请求数据包由 <code class="language-plaintext highlighter-rouge">OUTPUT</code> 表 传递到 <code class="language-plaintext highlighter-rouge">KUBE-PORTALS-HOST</code> 表。
+<code class="language-plaintext highlighter-rouge">KUBE-PORTALS-HOST</code> 和 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORT-HOST</code> 表中的后续请求包处理类似于 <code class="language-plaintext highlighter-rouge">KUBE-PORTALS-CONTAINER</code> 和 <code class="language-plaintext highlighter-rouge">KUBE-NODEPORT-CONTAINER</code> 表
+中的请求包处理。不同之处在于，DNAT是在不重定向请求包的情况下执行的。</p>
+
+<p><strong>通过 <code class="language-plaintext highlighter-rouge">Redirect</code> 和 <code class="language-plaintext highlighter-rouge">DNAT</code> 发送到 <code class="language-plaintext highlighter-rouge">Service</code> 的所有请求数据包都被传递到 <code class="language-plaintext highlighter-rouge">kube-proxy</code></strong>。<code class="language-plaintext highlighter-rouge">kube-proxy</code> 收到的请求数据包的
+每个目标 <code class="language-plaintext highlighter-rouge">Port</code> 映射一个服务。因此，<code class="language-plaintext highlighter-rouge">kube-proxy</code> 可以通过重定向和 <code class="language-plaintext highlighter-rouge">NAT</code> 请求数据包的 目标 <code class="language-plaintext highlighter-rouge">Port</code> 确定请求数据包应该传递到哪个服务。
+<code class="language-plaintext highlighter-rouge">kube-proxy</code> 通过将接收到的请求数据包均匀地负载均衡到属于请求数据包要传输到的服务的多个 <code class="language-plaintext highlighter-rouge">Pod</code> 来重新传输接收到的请求数据包。</p>
+
+<p>由于 <code class="language-plaintext highlighter-rouge">kube-proxy</code> 运行在主机的 <code class="language-plaintext highlighter-rouge">Network Namespace</code> 中，因此 <code class="language-plaintext highlighter-rouge">kube-proxy</code> 发送的请求包也会经过 <code class="language-plaintext highlighter-rouge">Service NAT</code> 表。
+但是由于<code class="language-plaintext highlighter-rouge">kube-proxy</code>发送的请求包的目标 <code class="language-plaintext highlighter-rouge">IP</code>是<code class="language-plaintext highlighter-rouge">Pod</code>的<code class="language-plaintext highlighter-rouge">IP</code>，所以请求包不会被<code class="language-plaintext highlighter-rouge">Service NAT</code> 表改变，而是通过<code class="language-plaintext highlighter-rouge">CNI Plugin</code>搭建
+的<code class="language-plaintext highlighter-rouge">Container Network</code>传递给<code class="language-plaintext highlighter-rouge">Pod</code>。</p>
+
+:ET

@@ -1,0 +1,252 @@
+I"B^<h1 id="内存结构">内存结构</h1>
+<p><code class="language-plaintext highlighter-rouge">arena</code>: 可以理解为堆区，512G
+<code class="language-plaintext highlighter-rouge">bitmap</code>: 位图区，看做为 <code class="language-plaintext highlighter-rouge">arena</code> 做标记的地方，<code class="language-plaintext highlighter-rouge">bitmap</code> 由<code class="language-plaintext highlighter-rouge">点</code>组成，每个<strong>点</strong>占用<code class="language-plaintext highlighter-rouge">一个字节</code>
+<code class="language-plaintext highlighter-rouge">spans</code>: 页目录去，看做将 <code class="language-plaintext highlighter-rouge">arena</code> 分页后做的页目录，每个页定义为 <code class="language-plaintext highlighter-rouge">8KB</code> ，每条目录占用一个指针</p>
+
+<p><strong>每个点内存大小为：一个字节</strong>
+<strong>每个指针内存大小为：4字节(32位系统)、8字节(64位系统)</strong>
+<strong>每条目录占用一个指针</strong>
+<strong>每个页占用8KB</strong></p>
+
+<p><code class="language-plaintext highlighter-rouge">bitmap</code> 每个点一个字节，每个字节 8 bit，每两个 bit 对应一个指针大小的内存，所以每个<code class="language-plaintext highlighter-rouge">点</code> 最多指向四个指针
+两个bit 分别表示为：<strong>是否继续扫描</strong>和<strong>是否包含指针</strong></p>
+
+<p>所以 <code class="language-plaintext highlighter-rouge">bitmap</code> 在 <code class="language-plaintext highlighter-rouge">arena</code> 为 512G 的情况下: 512/8/4 = 16G 最少需要这么多才能完整描述整个 arena</p>
+
+<p>goalng 的逃逸分析技术很成熟，会自动判断哪些对象分配在栈上和堆上，需要在堆上分配对象的情况：</p>
+<ul>
+  <li>返回对象的指针</li>
+  <li>传递了对象的指针到其他函数</li>
+  <li>在闭包中使用了对象并且需要修改对象</li>
+  <li>使用new</li>
+</ul>
+
+<p><em>内容可能在生成该对象的函数结束后被访问, 那么这个对象就会分配在堆上</em>
+<strong>除此之外, GC还需要知道栈空间上哪些地方包含了指针</strong></p>
+
+<p>go中有以下的GC Bitmap:</p>
+<ul>
+  <li>bitmap区域: 涵盖了arena区域, 使用<code class="language-plaintext highlighter-rouge">2 bit</code>表示一个指针大小的内存</li>
+  <li>函数信息: 涵盖了函数的<strong>栈</strong>空间, 使用<code class="language-plaintext highlighter-rouge">1 bit</code>表示一个指针大小的内存</li>
+  <li>类型信息: 在<strong>分配对象时</strong>会<strong>复制</strong>到<code class="language-plaintext highlighter-rouge">bitmap</code>区域, 使用<code class="language-plaintext highlighter-rouge">1 bit</code>表示一个指针大小的内存</li>
+</ul>
+
+<h3 id="mspan">mspan</h3>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>startAddr																							*elemsize* nelemes
+|elem|-|elem|-|elem|-|elem|-|elem|-|elem|-|elem|-|elem| 
+  :      :    freeindex:      :      :      :      :
+  :      :      :      :      :      :      :      :
+  :      :      :    |bit0|-|bit1|-|bit2|-|bit3|-|bit3|				allocCache
+  :      :      :      :      :      :      :      :
+  :      :      :      :      :      :      :      :
+|bit |-|bit |-|bit |-|bit |-|bit |-|bit |-|bit |-|bit |  			allocBits
+  :      :      :      :      :      :      :      :
+  :      :      :      :      :      :      :      :
+|bit |-|bit |-|bit |-|bit |-|bit |-|bit |-|bit |-|bit |				gcmarkBits
+</code></pre></div></div>
+
+<p>通常一个span包含了多个大小相同的元素, 一个元素会保存一个对象, 除非:</p>
+<ul>
+  <li>span用于保存大对象, 这种情况span只有一个元素</li>
+  <li>span用于保存极小对象且不包含指针的对象, 这种情况span会用一个元素保存多个对象</li>
+</ul>
+
+<p>span中有一个<strong><em>freeindex</em></strong>标记下一次分配对象时应该<em>开始搜索</em>的地址, 分配后<strong><em>freeindex</em></strong>会增加
+<strong><em>allocBits</em></strong>用于标记哪些元素是已分配的, 哪些元素是未分配的
+<strong><em>freeindex + allocBits</em></strong>可以在分配时跳过已分配的元素, 把对象设置在未分配的元素中
+为了提高效率，<strong>allocCache</strong>用于缓存<strong>freeindex</strong>开始的<strong>bitmap</strong>, 缓存的bit值与原值<code class="language-plaintext highlighter-rouge">相反</code>
+<strong><em>gcmarkBits</em></strong>用于在gc时标记哪些对象存活, 每次gc以后<strong>gcmarkBits</strong>会变为<strong>allocBits</strong>.
+span结构本身的内存是从系统分配的, 上面提到的spans区域和bitmap区域都只是一个<strong><em>索引</em></strong></p>
+
+<h1 id="span-类型">Span 类型</h1>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>// class  bytes/obj  bytes/span  objects  tail waste  max waste
+//     1          8        8192     1024           0     87.50%
+//     2         16        8192      512           0     43.75%
+//     3         32        8192      256           0     46.88%
+			 :				  :				  :				  :				     :				:
+//    66      32768       32768        1           0     12.50%
+</code></pre></div></div>
+
+<p>以类型(class)为1的span为例
+<code class="language-plaintext highlighter-rouge">span</code>中的元素大小是8 byte, <code class="language-plaintext highlighter-rouge">span</code>本身占1页也就是8K, 一共可以保存1024个对象.
+<code class="language-plaintext highlighter-rouge">span</code> 分配对象只会向上取整，有一定的空间浪费
+最大的<code class="language-plaintext highlighter-rouge">span</code>的元素大小是32K，超过32K的对象称为”大对象”, 分配大对象时, 会直接从heap分配一个特殊的<code class="language-plaintext highlighter-rouge">span</code>
+这个特殊的<code class="language-plaintext highlighter-rouge">span</code>的类型(class)是0, 只包含了一个大对象, <code class="language-plaintext highlighter-rouge">span</code>的大小由对象的大小决定.</p>
+
+<p>特殊的<code class="language-plaintext highlighter-rouge">span</code>加上的66个标准的<code class="language-plaintext highlighter-rouge">span</code>, 一共组成了67个<code class="language-plaintext highlighter-rouge">span</code>类型.</p>
+
+<p>在分配内存中有 <code class="language-plaintext highlighter-rouge">noscan</code> 参数名，代表：</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>如果对象包含了指针, 分配对象时会使用scan的span,
+如果对象不包含指针, 分配对象时会使用noscan的span.
+</code></pre></div></div>
+<p>对于 <code class="language-plaintext highlighter-rouge">noscan</code> 的内存分配都是从缓存中获取:</p>
+<ol>
+  <li>首先从 P 的缓存中获取</li>
+  <li>P 不满足，从全局缓存中获取，如果获取成功就将缓存<code class="language-plaintext highlighter-rouge">挂载到P</code></li>
+  <li>如果全局缓存不满足，就从 <code class="language-plaintext highlighter-rouge">mheap</code> 获取，然后挂载到<code class="language-plaintext highlighter-rouge">全局缓存</code></li>
+</ol>
+
+<h1 id="内存级别">内存级别</h1>
+
+<p>mcache：线程绑定的缓存，无锁化分配内存
+mcentral：全局缓存，多线程访问，存在并发访问问题，需要加锁
+mheap：堆空间，全局内存获取第，多线程访问，存在并发访问问题，需要加锁</p>
+
+<p>mcache是分配给M运行中的goroutine，是协程级所以无需加锁。为什么不用加锁呢，
+是因为在M上运行的goroutine只有一个，不会存在抢占资源的情况，所以是无需加锁的。</p>
+
+<p>mcentral是为mcache提供切分好的span。mcentral是全局的，也就是多个M共享mcentral，
+会出现并发问题，所以此时申请都是需要加锁的。mcentral链表都在mheap进行维护</p>
+
+<p>若分配内存时没有空闲的span的列表，此时需要向mheap申请。</p>
+
+<p>mheap是go程序持有的整个堆空间，是go的全局变量，所以在使用的时候需要全局锁。
+若mheap没有足够的内存，则会向虚拟内存申请page，然后将page组装成span再供程序使用。
+mheap还存储多个heapArena ，heapArena 存储连续的span，主要是为了mheap管理span和GC垃圾回收</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">type</span> <span class="n">mcache</span> <span class="k">struct</span> <span class="p">{</span>	
+	<span class="n">nextSample</span> <span class="kt">uintptr</span> <span class="c">// 分配多少大小的堆时触发堆采样</span>
+	<span class="n">scanAlloc</span>  <span class="kt">uintptr</span> <span class="c">// 分配的可扫描堆的字节数</span>
+	<span class="n">tiny</span>       <span class="kt">uintptr</span> <span class="c">// &lt;16byte 申请小对象的起始地址</span>
+	<span class="n">tinyoffset</span> <span class="kt">uintptr</span> <span class="c">// 当前tiny 块的位置</span>
+	<span class="n">tinyAllocs</span> <span class="kt">uintptr</span> <span class="c">// tinyAllocs是拥有此缓存的P所进行的 "tiny "分配的数量。</span>
+	<span class="n">alloc</span> <span class="p">[</span><span class="n">numSpanClasses</span><span class="p">]</span><span class="o">*</span><span class="n">mspan</span> <span class="c">// 申请的134个span</span>
+	<span class="n">stackcache</span> <span class="p">[</span><span class="n">_NumStackOrders</span><span class="p">]</span><span class="n">stackfreelist</span> <span class="c">//栈缓存</span>
+	<span class="n">flushGen</span> <span class="kt">uint32</span> <span class="c">// 表示上次刷新 mcache 的 sweepgen（清扫生成）</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">mcentral</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">spanclass</span> <span class="n">spanClass</span> <span class="c">// 67*2</span>
+	<span class="n">partial</span> <span class="p">[</span><span class="m">2</span><span class="p">]</span><span class="n">spanSet</span> <span class="c">// 具有空闲对象的的 span 列表，用于 GC 扫描</span>
+	<span class="n">full</span>    <span class="p">[</span><span class="m">2</span><span class="p">]</span><span class="n">spanSet</span> <span class="c">// 没有空闲对象的 span 列表，用于 GC 扫描</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">mheap</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">lock</span>  <span class="n">mutex</span> <span class="c">// 互斥锁</span>
+	<span class="n">pages</span> <span class="n">pageAlloc</span>  <span class="c">// 页面分配的数据结构</span>
+	<span class="n">sweepgen</span> <span class="kt">uint32</span>  <span class="c">// GC相关</span>
+	<span class="n">allspans</span> <span class="p">[]</span><span class="o">*</span><span class="n">mspan</span>  <span class="c">// 所有申请的span</span>
+	<span class="n">pagesInUse</span>         <span class="n">atomic</span><span class="o">.</span><span class="n">Uint64</span> <span class="c">// 统计数据中的 span 页 mSpanInUse</span>
+	<span class="n">pagesSwept</span>         <span class="n">atomic</span><span class="o">.</span><span class="n">Uint64</span> <span class="c">// 本轮清扫的页数</span>
+	<span class="n">pagesSweptBasis</span>    <span class="n">atomic</span><span class="o">.</span><span class="n">Uint64</span> <span class="c">//  用作清扫率</span>
+	<span class="n">sweepHeapLiveBasis</span> <span class="kt">uint64</span> <span class="c">// 用作扫描率的heap_live 值</span>
+	<span class="n">sweepPagesPerByte</span>  <span class="kt">float64</span>   <span class="c">// 清扫率</span>
+	<span class="n">scavengeGoal</span> <span class="kt">uint64</span> <span class="c">// 保留的堆内存总量（预先设定的），runtime 将试图返还内存给OS</span>
+	<span class="n">reclaimIndex</span> <span class="n">atomic</span><span class="o">.</span><span class="n">Uint64</span> <span class="c">// 指回收的下一页在allAreans 中的索引</span>
+	<span class="n">reclaimCredit</span> <span class="n">atomic</span><span class="o">.</span><span class="n">Uintptr</span> <span class="c">// 多余页面的备用信用</span>
+	<span class="n">arenas</span> <span class="p">[</span><span class="m">1</span> <span class="o">&lt;&lt;</span> <span class="n">arenaL1Bits</span><span class="p">]</span><span class="o">*</span><span class="p">[</span><span class="m">1</span> <span class="o">&lt;&lt;</span> <span class="n">arenaL2Bits</span><span class="p">]</span><span class="o">*</span><span class="n">heapArena</span> <span class="c">// 堆arena 映射。它指向整个可用虚拟地址空间的每个 arena 帧的堆元数据</span>
+	<span class="n">heapArenaAlloc</span> <span class="n">linearAlloc</span> <span class="c">// 是为分配heapArena对象而预先保留的空间。仅仅用于32位系统。</span>
+	<span class="n">arenaHints</span> <span class="o">*</span><span class="n">arenaHint</span> <span class="c">// 试图添加更多堆 arenas 的地址列表。它最初由一组通用少许地址填充，并随实 heap arena 的界限而增长。</span>
+	<span class="n">arena</span> <span class="n">linearAlloc</span>
+	<span class="n">allArenas</span> <span class="p">[]</span><span class="n">arenaIdx</span> <span class="c">// 每个映射arena的arenaIndex 索引。可以用以遍历地址空间</span>
+	<span class="n">sweepArenas</span> <span class="p">[]</span><span class="n">arenaIdx</span> <span class="c">// 在清扫周期开始时保留的 allArenas 快照</span>
+	<span class="n">markArenas</span> <span class="p">[]</span><span class="n">arenaIdx</span> <span class="c">// 在标记周期开始时保留的 allArenas 快照</span>
+	<span class="n">curArena</span> <span class="k">struct</span> <span class="p">{</span> <span class="c">// heap当前增长时的 arena，它总是与physPageSize对齐</span>
+		<span class="n">base</span><span class="p">,</span> <span class="n">end</span> <span class="kt">uintptr</span>
+	<span class="p">}</span>
+	<span class="n">_</span> <span class="kt">uint32</span> 
+	<span class="n">central</span> <span class="p">[</span><span class="n">numSpanClasses</span><span class="p">]</span><span class="k">struct</span> <span class="p">{</span> <span class="c">//  mcentral ，每种规格大小的块对应一个 mcentral</span>
+		<span class="n">mcentral</span> <span class="n">mcentral</span>
+		<span class="n">pad</span>      <span class="p">[</span><span class="n">cpu</span><span class="o">.</span><span class="n">CacheLinePadSize</span> <span class="o">-</span> <span class="n">unsafe</span><span class="o">.</span><span class="n">Sizeof</span><span class="p">(</span><span class="n">mcentral</span><span class="p">{})</span><span class="o">%</span><span class="n">cpu</span><span class="o">.</span><span class="n">CacheLinePadSize</span><span class="p">]</span><span class="kt">byte</span>
+	<span class="p">}</span>
+
+	<span class="n">spanalloc</span>             <span class="n">fixalloc</span> <span class="c">// 分配的 span 链表</span>
+	<span class="n">cachealloc</span>            <span class="n">fixalloc</span> <span class="c">// mcache 链表</span>
+	<span class="n">specialfinalizeralloc</span> <span class="n">fixalloc</span> <span class="c">// specialfinalizer 链表</span>
+	<span class="n">specialprofilealloc</span>   <span class="n">fixalloc</span> <span class="c">// specialprofile 链表</span>
+	<span class="n">specialReachableAlloc</span> <span class="n">fixalloc</span> <span class="c">// specialReachable 链表</span>
+	<span class="n">speciallock</span>           <span class="n">mutex</span>    <span class="c">// 特殊记录分配器的锁</span>
+	<span class="n">arenaHintAlloc</span>        <span class="n">fixalloc</span>  <span class="c">// arenaHints 链表</span>
+
+	<span class="n">unused</span> <span class="o">*</span><span class="n">specialfinalizer</span> 
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">specialfinalizer</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">special</span> <span class="n">special</span>
+	<span class="n">fn</span>      <span class="o">*</span><span class="n">funcval</span> <span class="c">// May be a heap pointer.</span>
+	<span class="n">nret</span>    <span class="kt">uintptr</span>
+	<span class="n">fint</span>    <span class="o">*</span><span class="n">_type</span>   <span class="c">// May be a heap pointer, but always live.</span>
+	<span class="n">ot</span>      <span class="o">*</span><span class="n">ptrtype</span> <span class="c">// May be a heap pointer, but always live.</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">specialprofile</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">special</span> <span class="n">special</span>
+	<span class="n">b</span>       <span class="o">*</span><span class="n">bucket</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">specialReachable</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">special</span>   <span class="n">special</span>
+	<span class="n">done</span>      <span class="kt">bool</span>
+	<span class="n">reachable</span> <span class="kt">bool</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">arenaHint</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">addr</span> <span class="kt">uintptr</span>
+	<span class="n">down</span> <span class="kt">bool</span>
+	<span class="n">next</span> <span class="o">*</span><span class="n">arenaHint</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">fixalloc</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">size</span>   <span class="kt">uintptr</span>
+	<span class="n">first</span>  <span class="k">func</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">p</span> <span class="n">unsafe</span><span class="o">.</span><span class="n">Pointer</span><span class="p">)</span> <span class="c">// called first time p is returned</span>
+	<span class="n">arg</span>    <span class="n">unsafe</span><span class="o">.</span><span class="n">Pointer</span>
+	<span class="n">list</span>   <span class="o">*</span><span class="n">mlink</span>
+	<span class="n">chunk</span>  <span class="kt">uintptr</span> <span class="c">// use uintptr instead of unsafe.Pointer to avoid write barriers</span>
+	<span class="n">nchunk</span> <span class="kt">uint32</span>  <span class="c">// bytes remaining in current chunk</span>
+	<span class="n">nalloc</span> <span class="kt">uint32</span>  <span class="c">// size of new chunks in bytes</span>
+	<span class="n">inuse</span>  <span class="kt">uintptr</span> <span class="c">// in-use bytes now</span>
+	<span class="n">stat</span>   <span class="o">*</span><span class="n">sysMemStat</span>
+	<span class="n">zero</span>   <span class="kt">bool</span> <span class="c">// zero allocations</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">mspan</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">next</span> <span class="o">*</span><span class="n">mspan</span>      <span class="c">//链表下一个span地址</span>
+	<span class="n">prev</span> <span class="o">*</span><span class="n">mspan</span>      <span class="c">// 链表前一个span地址</span>
+	<span class="n">list</span> <span class="o">*</span><span class="n">mSpanList</span>  <span class="c">// 链表地址</span>
+
+	<span class="n">startAddr</span> <span class="kt">uintptr</span> <span class="c">// 该span在arena区域的起始地址</span>
+	<span class="n">npages</span>    <span class="kt">uintptr</span> <span class="c">// 该span占用arena区域page的数量</span>
+
+	<span class="n">manualFreeList</span> <span class="n">gclinkptr</span> <span class="c">// 空闲对象列表</span>
+
+	<span class="n">freeindex</span> <span class="kt">uintptr</span> <span class="c">//freeindex是0到nelems之间的位置索引,标记下一个空对象索引</span>
+	<span class="n">nelems</span> <span class="kt">uintptr</span> <span class="c">// 管理的对象数</span>
+	<span class="n">allocCache</span> <span class="kt">uint64</span> <span class="c">//从freeindex开始的位标记</span>
+	<span class="n">allocBits</span>  <span class="o">*</span><span class="n">gcBits</span> <span class="c">//该mspan中对象的位图</span>
+	<span class="n">gcmarkBits</span> <span class="o">*</span><span class="n">gcBits</span> <span class="c">//该mspan中标记的位图,用于垃圾回收</span>
+	<span class="n">sweepgen</span>    <span class="kt">uint32</span> <span class="c">//扫描计数值，用户与mheap的sweepgen比较，根据差值确定该span的扫描状态</span>
+	<span class="n">divMul</span>      <span class="kt">uint32</span>        
+	<span class="n">allocCount</span>  <span class="kt">uint16</span>    <span class="c">// 已分配的对象的个数     </span>
+	<span class="n">spanclass</span>   <span class="n">spanClass</span>     <span class="c">// span分类</span>
+	<span class="n">state</span>       <span class="n">mSpanStateBox</span> <span class="c">// mspaninuse etc</span>
+	<span class="n">needzero</span>    <span class="kt">uint8</span>         <span class="c">// 分配之前需要置零</span>
+	<span class="n">elemsize</span>    <span class="kt">uintptr</span>       <span class="c">// 对象的大小</span>
+	<span class="n">limit</span>       <span class="kt">uintptr</span>       <span class="c">// 申请大对象内存块会用到，mspan的数据截止位置</span>
+	<span class="n">speciallock</span> <span class="n">mutex</span>         
+	<span class="n">specials</span>    <span class="o">*</span><span class="n">special</span>      
+<span class="p">}</span>
+
+<span class="c">// 用于管理golang堆内存的地址空间</span>
+<span class="k">type</span> <span class="n">pageAlloc</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">summary</span> <span class="p">[</span><span class="n">summaryLevels</span><span class="p">][]</span><span class="n">pallocSum</span>
+	<span class="n">chunks</span> <span class="p">[</span><span class="m">1</span> <span class="o">&lt;&lt;</span> <span class="n">pallocChunksL1Bits</span><span class="p">]</span><span class="o">*</span><span class="p">[</span><span class="m">1</span> <span class="o">&lt;&lt;</span> <span class="n">pallocChunksL2Bits</span><span class="p">]</span><span class="n">pallocData</span>
+	<span class="n">searchAddr</span> <span class="n">offAddr</span>
+	<span class="n">start</span><span class="p">,</span> <span class="n">end</span> <span class="n">chunkIdx</span>
+	<span class="n">inUse</span> <span class="n">addrRanges</span>
+	<span class="n">scav</span> <span class="k">struct</span> <span class="p">{</span>
+		<span class="n">lock</span> <span class="n">mutex</span>
+		<span class="n">inUse</span> <span class="n">addrRanges</span>
+		<span class="n">gen</span> <span class="kt">uint32</span>
+		<span class="n">reservationBytes</span> <span class="kt">uintptr</span>
+		<span class="n">released</span> <span class="kt">uintptr</span>
+		<span class="n">scavLWM</span> <span class="n">offAddr</span>
+		<span class="n">freeHWM</span> <span class="n">offAddr</span>
+	<span class="p">}</span>
+	<span class="n">mheapLock</span> <span class="o">*</span><span class="n">mutex</span>
+	<span class="n">sysStat</span> <span class="o">*</span><span class="n">sysMemStat</span>
+	<span class="n">test</span> <span class="kt">bool</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+:ET

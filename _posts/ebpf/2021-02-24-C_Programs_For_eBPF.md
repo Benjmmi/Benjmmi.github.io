@@ -1,8 +1,7 @@
 ---
 title: 4. C BPF 编程规范
 date: 2021-02-24 15:04:22
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
 author: Jony

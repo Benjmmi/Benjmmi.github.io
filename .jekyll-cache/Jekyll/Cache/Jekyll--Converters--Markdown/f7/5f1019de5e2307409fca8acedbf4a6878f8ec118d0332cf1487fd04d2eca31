@@ -1,0 +1,568 @@
+I"�<h1 id="用ebpf编写xdp网络过滤器">用ebpf编写XDP网络过滤器</h1>
+<p>原文:<a href="https://sysdig.com/blog/the-art-of-writing-ebpf-programs-a-primer/">The art of writing eBPF programs: a primer.</a></p>
+
+<p>对编写eBPF程序感兴趣吗?在这个博客中，这将是我们的重点-编写eBPF程序的过程。现在，我们将深入
+研究验证过程和eBPF虚拟机——这两个都是eBPF提供的运行时安全特性的关键促成因素。我们的目标是让您了解不同的部分是如何一起工作的。</p>
+
+<p>我们下面的eBPF练习完全由示例驱动。我们将尝试增量地构建一些代码来拦截系统调用数据。当我们遇到意想不到的错误时，我们将停下来分析下面发生了什么。</p>
+
+<p>关于eBPF有很多需要了解的。我们只会触及表面。编写复杂的eBPF程序需要更多的上下文，而不是我们将在这篇博客中分享的内容。
+但是，您当然可以将其视为“入门”。
+另外，请记住，使用 <a href="https://github.com/iovisor/bcc/blob/master/docs/tutorial_bcc_python_developer.md">bcc</a> 提供的Python/Lua接口编写eBPF程序，或者使用 <a href="https://github.com/iovisor/bpftrace">bpftrace</a> 提供的高级语言编写eBPF程序，肯定会使过程更加用户友好。
+这篇文章的目标是在不抽象太多步骤的情况下找到问题的核心。</p>
+
+<h1 id="用ebpf进行系统调用解码">用eBPF进行系统调用解码</h1>
+
+<h2 id="第一个实验">第一个实验</h2>
+
+<p>在这个例子中，我们将解码一个非常简单和广泛使用的系统调用:openat。
+这个系统调用用于在Linux中通过传递文件的路径名来打开文件。系统调用要么返回正确的文件描述符，要么在出错时返回负数。这是它的原型：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">openat</span><span class="p">(</span><span class="kt">int</span> <span class="n">dirfd</span><span class="p">,</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pathname</span><span class="p">,</span> <span class="kt">int</span> <span class="n">flags</span><span class="p">,</span> <span class="n">mode_t</span> <span class="n">mode</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>我们的练习包括对系统调用的输入参数进行解码，其中最有趣的是路径名称本身。虽然这似乎是一个相当容易的任务，
+但我们将看到在eBPF中编写代码来彻底完成这项工作时隐藏着一些复杂的问题。</p>
+
+<p>我们将写的代码可以从根本上用于任何eBPF项目，只需稍作调整。你可以自由地使用bcc、
+一个自定义的eBPF加载器（内核提供了一些例子，如 <a href="https://github.com/torvalds/linux/blob/v4.18/samples/bpf/bpf_load.c">bpf_load.c</a>，或 <a href="https://github.com/draios/sysdig">sysdig</a> 本身）进行实验。</p>
+
+<p>让我们从最简单的例子开始:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">void</span> <span class="nf">bpf_openat_parser</span><span class="p">()</span>
+<span class="p">{</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>这里，空函数bpf_openat_parser是我们希望在进入openat系统调用时被执行的。那么它上面的属性呢？那是一个编译器属性，
+我们用来告诉 <strong>LLVM</strong> 将 <code class="language-plaintext highlighter-rouge">bpf_openat_parser</code> 函数的目标代码放入一个单独的 <a href="https://en.wikipedia.org/wiki/Executable_and_Linkable_Format">可执行和可链接格式</a>（ELF）部分，
+在最终的目标文件中名为 <code class="language-plaintext highlighter-rouge">raw_tracepoint/sys_enter</code>。
+我们很快就会看到，这是编写<code class="language-plaintext highlighter-rouge">bpf_openat_parser</code>函数的开发者（我们）和 <code class="language-plaintext highlighter-rouge">sysdig</code> 进程中的eBPF加载器之间的隐性协议的一部分，
+该加载器需要知道它应该把这种eBPF程序附加到哪个系统事件中。</p>
+
+<p>在我们编译程序后（在这种情况下，我使用的是sysdig，所以标准的 “make “就可以了），
+<strong>Clang</strong> 和 <strong>LLVM</strong> 将处理源代码并发出一个包含eBPF程序的单一对象文件。在 <code class="language-plaintext highlighter-rouge">sysdig</code> 的情况下，
+这将是在 <code class="language-plaintext highlighter-rouge">driver/bpf/probe.o</code> 位置。我们知道它是一个ELF文件，所以我们可以检查它的部分。</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-readelf <span class="nt">-sections</span> driver/bpf/probe.o
+There are 203 section headers, starting at offset 0x2d8890:
+
+Section Headers:
+  <span class="o">[</span>Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+...
+  <span class="o">[</span>179] raw_tracepoint/sys_enter_openat PROGBITS 0000000000000000 1074b8 000008 00  AX  0   0  8
+...
+</code></pre></div></div>
+
+<p>正如预期的那样，我们可以找到一个以我们放在源代码中的字符串命名的ELF部分。我们也可以检查其内容。</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-objdump <span class="nt">-no-show-raw-insn</span> <span class="nt">-section</span><span class="o">=</span>raw_tracepoint/sys_enter <span class="nt">-S</span> driver/bpf/probe.o
+Disassembly of section raw_tracepoint/sys_enter:
+bpf_openat_parser:
+       0:       <span class="nb">exit</span>
+</code></pre></div></div>
+
+<p>在这里，我们第一次接触到eBPF字节码。ELF部分包含 <code class="language-plaintext highlighter-rouge">bpf_openat_parser</code> 函数的eBPF字节码。由于函数为空，
+程序由一条指令出口组成，这将终止程序并指示eBPF虚拟机将控制权返回到正常的内核执行流程。</p>
+
+<h2 id="ebpf-加载器">eBPF 加载器</h2>
+<p>我们如何运行这个程序?这是 <strong>eBPF加载器</strong> 的责任，它是一个用户空间组件，在<code class="language-plaintext highlighter-rouge">sysdig</code>中嵌入到 <a href="https://github.com/draios/sysdig/blob/0.23.1/userspace/libscap/scap_bpf.c#L1195">scap库</a>中。
+包含eBPF程序的ELF文件作为输入传递给eBPF加载器，该加载器执行以下操作:</p>
+
+<ol>
+  <li>
+    <p>解析ELF部分，并选择以给定关键字开头的部分。例如，sysdig中使用的关键字是 <code class="language-plaintext highlighter-rouge">raw_tracepoint</code>。
+这向加载器表明，ELF部分包含一个需要附加到 <code class="language-plaintext highlighter-rouge">raw tracepoint</code> 内核事件的eBPF程序。
+与eBPF程序可以附加到的其他内核事件类型(kprobes、uprobes、跟踪点……)不同，
+<code class="language-plaintext highlighter-rouge">raw tracepoint</code> 在可用时允许以灵活性为代价获得最佳性能。</p>
+  </li>
+  <li>
+    <p>ELF 部分名称的另一部分将被解释为事件名称。 在我们的例子中，事件名称是 <code class="language-plaintext highlighter-rouge">sys_enter</code>。 
+这标识了每次完成新的系统调用调用时都会调用的 <a href="https://github.com/torvalds/linux/blob/v4.18/arch/x86/entry/common.c#L127">原始跟踪点（ <code class="language-plaintext highlighter-rouge">raw tracepoint</code> ）</a>。 这本质上是内核直接识别为系统事件的字符串，
+可以用来唯一标识它。 通过在主机上运行 perf list 可以轻松浏览支持的跟踪点的完整列表。</p>
+  </li>
+  <li>
+    <p>一旦内核事件通过验证，eBPF程序就会加载到内核中。这是通过 <a href="http://man7.org/linux/man-pages/man2/bpf.2.html">bpf系统调用</a>完成的。在此步骤中，
+内核将验证程序是否可以安全运行，并可选择通过JIT进程将其转换为机器码。bpf系统调用将返回一个文件描述符来识别加载的eBPF程序，
+或者返回一个错误。</p>
+  </li>
+  <li>
+    <p>最后，使用bpf系统调用，或perf_event_open系统调用，取决于 <a href="http://man7.org/linux/man-pages/man2/perf_event_open.2.html">内核的事件类型</a>，
+eBPF加载器将指示内核将刚刚加载的eBPF程序附加到上一步标识的事件。</p>
+  </li>
+</ol>
+
+<p>整个事情有点棘手，但大部分只是模板。在这之后，我们的程序将在每次事件在内核中触发时被调用。</p>
+
+<h1 id="ebpf-验证器">eBPF 验证器</h1>
+
+<p>现在我们知道发生了什么，我们可以继续运行sysdig，看看我们的eBPF程序是否被正确加载和附加:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>sysdig
+0: <span class="o">(</span>95<span class="o">)</span> <span class="nb">exit
+</span>R0 <span class="o">!</span>read_ok
+bpf_load_program<span class="o">()</span> <span class="nv">err</span><span class="o">=</span>13 <span class="nv">event</span><span class="o">=</span>sys_enter
+</code></pre></div></div>
+
+<p>这并不奏效。这是我们第一次遇到eBPF验证器。验证器告诉我们，程序不能被加载（上面的步骤3），
+原因是 <strong>R0</strong> ! 那是什么意思？R0是eBPF的11个虚拟机寄存器之一（R0-R10）。
+验证器正在告诉我们，它<code class="language-plaintext highlighter-rouge">不能读取它的值</code>。这里发生的情况是，我们违反了eBPF程序的要求。
+每个eBPF程序在执行结束时必须总是 <strong>返回一个整数值</strong> ，而这个返回值必须存储在R0中。返回值是需要的，
+因为大多数时候内核会实际使用程序的返回值，并根据其值采取行动。
+例如，如果一个eBPF程序被用来过滤网络数据包，其返回值将被解释为一个布尔值，以放弃/接受数据包。</p>
+
+<p>验证器在这里 <strong>报错</strong>，因为它检测到R0在程序执行过程中从未被写入。它包含 <code class="language-plaintext highlighter-rouge">"垃圾"</code>。
+它通过有效地模拟eBPF程序在运行时可能出现的每一个执行分支来检测。它跟踪每个分支的寄存器的值和类型，确保它们在被读取时被正确初始化。</p>
+
+<p>我们可以通过改变函数原型并返回一个整数来修复第一个错误:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">int</span> <span class="nf">bpf_openat_parser</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-objdump <span class="nt">-no-show-raw-insn</span> <span class="nt">-section</span><span class="o">=</span>raw_tracepoint/sys_enter <span class="nt">-S</span> driver/bpf/probe.o 
+Disassembly of section raw_tracepoint/sys_enter:
+bpf_openat_parser:
+       0:       r0 <span class="o">=</span> 0
+       1:       <span class="nb">exit</span>
+</code></pre></div></div>
+<p>我们可以看到这一次eBPF程序是如何变成两条指令的。第一个确实在退出前将返回值寄存器初始化为0。如果我们这次运行<code class="language-plaintext highlighter-rouge">sysdigg</code>，它不会失败。</p>
+
+<h1 id="ebpf-的内存访问">eBPF 的内存访问</h1>
+
+<p>因为eBPF程序完全是空的，所以这不是特别有用。我们需要实际访问传递给系统调用的参数。为了做到这一点，我们必须引入 “上下文 “的概念。
+每个eBPF程序，在启动时，在<code class="language-plaintext highlighter-rouge">R1寄存器</code>中得到一个指向上下文的指针。上下文基本上是一种结构，
+它根据我们<code class="language-plaintext highlighter-rouge">附加eBPF程序</code>的特定事件类型而具有不同的含义-并且由eBPF虚拟机直接处理。对于我们在本例中使用的<strong>原始跟踪点</strong>，上下文是指向此类型结构的指针：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">bpf_raw_tracepoint_args</span> <span class="p">{</span>
+    <span class="n">__u64</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+<span class="p">};</span>
+</code></pre></div></div>
+<p>该结构只有一个成员args，它是一个未声明大小的数组，包含在内核中静态调用跟踪点时传递给它的所有参数，
+并强制转换为<code class="language-plaintext highlighter-rouge">8字节</code>的无符号整数。那么系统调用跟踪点的<code class="language-plaintext highlighter-rouge">args</code>值是多少?我们可以在内核树中搜索<code class="language-plaintext highlighter-rouge">sys_enter</code> tracepoint的定义，我们会发现这个:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">TRACE_EVENT_FN</span><span class="p">(</span><span class="n">sys_enter</span><span class="p">,</span>
+    <span class="n">TP_PROTO</span><span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">regs</span><span class="p">,</span> <span class="kt">long</span> <span class="n">id</span><span class="p">),</span>
+<span class="err">…</span>
+</code></pre></div></div>
+<p>这告诉我们，每次通过<code class="language-plaintext highlighter-rouge">sys_enter</code> tracepoint 调用我们的eBPF程序时，上下文的前两个参数将包含一个指针，
+指向调用时保存的 <strong>CPU寄存器副本(Pt_Regs)</strong> 以及被调用的系统调用的ID。</p>
+<ul>
+  <li>用户级应用程序作为整数寄存器使用，用于传递序列%rdi、%rsi、%rdx、%rcx、%r8和%r9。</li>
+  <li>内核接口使用%rdi、%rsi、%rdx、%r10、%r8和%r9。</li>
+</ul>
+
+<p>这意味着对于我们的openat系统调用，我们将在rsi寄存器中找到路径名称参数（因为它是系统调用的第二个参数），
+其形式是指向字符串的指针。rsi自然是存在于传递给我们BPF程序的pt_regs结构中的一个值，我们可以从<a href="https://github.com/torvalds/linux/blob/v4.18/arch/x86/include/asm/ptrace.h#L73">内核源</a>中看到）。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">pt_regs</span> <span class="p">{</span>
+<span class="p">...</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">si</span><span class="p">;</span>
+<span class="p">...</span>
+</code></pre></div></div>
+
+<p>现在我们有了所有的材料来编写一个更实质性的BPF程序，例如：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">int</span> <span class="nf">bpf_openat_parser</span><span class="p">(</span><span class="k">struct</span> <span class="n">bpf_raw_tracepoint_args</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">syscall_id</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+    <span class="k">volatile</span> <span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">regs</span><span class="p">;</span>
+    <span class="k">volatile</span> <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pathname</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">syscall_id</span> <span class="o">!=</span> <span class="n">__NR_openat</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">regs</span> <span class="o">=</span> <span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="p">)</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+    <span class="n">pathname</span> <span class="o">=</span> <span class="p">(</span><span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="p">)</span><span class="n">regs</span><span class="o">-&gt;</span><span class="n">si</span><span class="p">;</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>注意我们如何从tracepoint参数获取调用的系统调用id，并将其与openat系统调用id进行比较，
+后者是固定的，是内核ABI的一部分。然后，我们从第一个tracepoint参数访问寄存器结构，
+并使用它的值取消引用si寄存器中保存的路径名参数的值，我们将该值转换为指向字符串的正确指针。
+Volatile关键字只是为了确保编译器在生成优化代码期间不会删除这些赋值。</p>
+
+<p>让我们从eBPF字节码的角度来看一下:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-objdump-7 <span class="nt">-no-show-raw-insn</span> <span class="nt">-section</span><span class="o">=</span>raw_tracepoint/sys_enter <span class="nt">-S</span> driver/bpf/probe.o 
+Disassembly of section raw_tracepoint/sys_enter:
+bpf_openat_parser:
+       0:       r2 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 8<span class="o">)</span>
+       1:       <span class="k">if </span>r2 <span class="o">!=</span> 257 goto +2 &lt;lbb81_2&gt;
+       2:       r1 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 0<span class="o">)</span>
+       3:       r1 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 104<span class="o">)</span>
+
+LBB81_2:
+       4:       r0 <span class="o">=</span> 0
+       5:       <span class="nb">exit</span>
+&lt;/lbb81_2&gt;
+</code></pre></div></div>
+<p>这里有很多新东西需要分析。特别是:</p>
+
+<ul>
+  <li>
+    <p><strong>指令0</strong>:对系统调用id进行解引用，它同样是跟踪点参数结构的第二个成员。
+由于参数数组地址存储在R1(上下文)中，第二个成员是通过访问上下文的偏移量8获得的。</p>
+  </li>
+  <li>
+    <p><strong>指令1</strong>:我们比较系统调用id和openat id(257)，如果它们不匹配，我们跳转并退出程序。</p>
+  </li>
+  <li>
+    <p><strong>指令2</strong>:这与指令0相同，不同之处在于这里我们将数组的第一个成员(偏移量为0)从包含pt_regs结构指针的上下文中引用。</p>
+  </li>
+  <li>
+    <p><strong>指令3</strong>:从上一条指令获得的pt_regs结构体中解引用si寄存器的值，该结构体恰好位于偏移量104处。
+所以，R1现在终于包含了指向路径名字符串的指针。</p>
+  </li>
+</ul>
+
+<p>如果我们试着运行这个程序会怎么样？这就是我们得到的：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>sysdig
+3: <span class="o">(</span>79<span class="o">)</span> r1 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 +104<span class="o">)</span>
+R1 invalid mem access <span class="s1">'inv'</span>
+bpf_load_program<span class="o">()</span> <span class="nv">err</span><span class="o">=</span>13 <span class="nv">event</span><span class="o">=</span>sys_enter
+</code></pre></div></div>
+
+<p>没有工作。验证者似乎不喜欢<strong>3号</strong>指令。</p>
+
+<p>让我们花点时间思考一下我们想要做的事情。</p>
+
+<p>NOTE： 在指令3中，我们通过取消引用pt_regs结构的指针来访问它。然而，这样做真的安全吗？
+NOTE：如果pt_regs为空或指向虚假区域(例如0x42424242)，会发生什么情况？
+NOTE： 如果是这种情况，当eBPF虚拟机运行这样的代码时，或者更糟糕的是，当转换后的JIT代码尝试使用本机机器指令进行内存访问时，
+我们在内核空间中实际上会得到<strong>无效的内存访问</strong>，这很可能<strong>导致内核崩溃</strong>。
+NOTE: 因此，eBPF验证器正在<strong>阻止</strong>我们执行这一潜在的不安全操作。</p>
+
+<p><strong><code class="language-plaintext highlighter-rouge">这里的解决方案是使用检查访问，然后正确地解除对潜在不安全内存的定义，我们很快就会看到。</code></strong></p>
+
+<p>NOTE：作为一个小问题，为什么验证器没有让指令0或指令2 报错呢？
+NOTE：与指令3一样，这些指令也取消了对内存的引用。
+NOTE：不同之处在于，这些指令取消了对上下文结构成员的引用，eBPF验证器知道上下文结构的成员总是被设置为正确的bpf_raw_tracepoint结构。
+这永远不会产生崩溃，除非访问中使用的偏移量超过了结构本身的大小，<strong>验证器也会检查结构本身的大小</strong>。
+换句话说，eBPF验证器跟踪每个寄存器针对可能执行的每个分支指向的内存，并拒绝可能不安全的访问。理解这一点是轻松编写eBPF程序的关键。</p>
+
+<h1 id="ebpf-辅助函数">eBPF 辅助函数</h1>
+
+<p>前一个问题的解决方案是通过eBPF帮助器进行检查的内存访问。在标准的虚拟执行环境之上，eBPF还提供了调用一组固定的内核函数(称为eBPF 辅助函数)的可能性。
+EBPF帮助器在本地代表eBPF程序执行一些操作。这些函数是用C语言在内核内部实现的，因此是硬编码的，是内核ABI的一部分。
+其中一个辅助函数是<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#1-bpf_probe_read"><code class="language-plaintext highlighter-rouge">bpf_probe_read</code></a>。它可以被认为是一个安全版本的<code class="language-plaintext highlighter-rouge">memcpy</code>。
+您可以向它传递一个任意的内存指针，它将尝试读取这样的内存，而不会崩溃。如果内存不能安全读取，它将简单而安全地返回错误。
+它的实现细节非常有趣，并且与Linux中页面错误处理程序的工作方式相关。</p>
+
+<p>这意味着我们可以将BPF程序更改为以下内容：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">int</span> <span class="nf">bpf_openat_parser</span><span class="p">(</span><span class="k">struct</span> <span class="n">bpf_raw_tracepoint_args</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">syscall_id</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+    <span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">regs</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pathname</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">syscall_id</span> <span class="o">!=</span> <span class="n">__NR_openat</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">regs</span> <span class="o">=</span> <span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="p">)</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+    <span class="n">bpf_probe_read</span><span class="p">(</span><span class="o">&amp;</span><span class="n">pathname</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">pathname</span><span class="p">),</span> <span class="o">&amp;</span><span class="n">regs</span><span class="o">-&gt;</span><span class="n">si</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>如您所见，bpf_probe_read的语法非常类似于传统的memcpy。这一次内存访问正常，因为我们使用帮助器取消了对不安全内存的引用。
+让我们来看看字节码:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-objdump-7 <span class="nt">-no-show-raw-insn</span> <span class="nt">-section</span><span class="o">=</span>raw_tracepoint/sys_enter <span class="nt">-S</span> driver/bpf/probe.o 
+Disassembly of section raw_tracepoint/sys_enter:
+bpf_openat_parser:
+       0:       r2 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 8<span class="o">)</span>
+       1:       <span class="k">if </span>r2 <span class="o">!=</span> 257 goto +6 &lt;lbb81_2&gt;
+       2:       r3 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 0<span class="o">)</span>
+       3:       r3 +<span class="o">=</span> 104
+       4:       r1 <span class="o">=</span> r10
+       5:       r1 +<span class="o">=</span> <span class="nt">-8</span>
+       6:       r2 <span class="o">=</span> 8
+       7:       call 4
+
+LBB81_2:
+       8:       r0 <span class="o">=</span> 0
+       9:       <span class="nb">exit</span>
+&lt;/lbb81_2&gt;
+</code></pre></div></div>
+
+<p>除了2-7范围内的指令外，这一条与前一条相似。这些指令涉及到 call 辅助器，
+而我们之前并没有这样的指令。eBPF的调用惯例规定，辅助器函数的参数必须使用寄存器R1-R5，按顺序传递。我们可以对这些指令做如下分析。</p>
+
+<ul>
+  <li>
+    <p><strong>指令2-3</strong>：R3 被填充为<code class="language-plaintext highlighter-rouge">regs-&gt;si</code>的地址，它表示数据将被复制的地址，就像memcpy（源代码中的第三个参数）。</p>
+  </li>
+  <li><strong>指令4-5</strong>：我们在这里设置r1，它被设置为局部变量<strong>“pathname”</strong>的地址，数据将被复制到这，
+ 就像memcpy(源代码中的第一个参数)一样。在这里，编译器第一次使用R10。R10是一个特殊的寄存器，
+ 它由虚拟机自动初始化为eBPF程序的“帧指针”。它指向eBPF程序可以用来存储局部变量的堆栈顶部。
+ 堆栈大小限制为512字节。这里我们将r1设置为r10-8，这意味着我们为一个8字节的本地堆栈变量保留空间，
+ 该变量将保存regs-&gt;si的内容。</li>
+  <li><strong>指令6</strong>：简单地将r2设置为8，它对应于我们要复制的数据的大小(源代码中的第二个参数)。</li>
+  <li><strong>指令7</strong>：调用辅助器。每个eBPF帮助器都由一个唯一的整数来识别，
+   这个整数在内核ABI中通过<a href="https://github.com/torvalds/linux/blob/v4.18/include/uapi/linux/bpf.h#L2081">枚举</a>来设置。) 我们可以看到<strong>bpf_probe_read</strong>辅助函数的<strong>id是4</strong>。</li>
+</ul>
+
+<h1 id="字符串和ebpf">字符串和eBPF</h1>
+
+<p>现在我们有了路径名字符串指针，让我们对它做一些事情。通常这涉及到将其值发送到用户空间。
+为了做到这一点，首先要做的是把<strong>字符串复制到某个地方</strong>，这样我们就可以把它保存在一个<strong>临时缓冲区</strong>中。
+eBPF程序栈似乎是一个承载这个缓冲区的完美地方。由于读取字符串意味着从本质上<strong>解除对内存的引用</strong>，这可能是不安全的，
+就像以前一样，我们需要使用另一个辅助工具。</p>
+
+<p>在这种情况下，我们可以使用<strong><a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#2-bpf_probe_read_str"><code class="language-plaintext highlighter-rouge">bpf_probe_read_str</code></a></strong>，它与bpf_probe_read类似，只是它是字符串感知的。
+这意味着它将在字符串末尾停止，这更有效率（并且它还将<strong>返回复制的字符串的长度</strong>）。
+这是一个eBPF辅助函数。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">int</span> <span class="nf">bpf_openat_parser</span><span class="p">(</span><span class="k">struct</span> <span class="n">bpf_raw_tracepoint_args</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">syscall_id</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+    <span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">regs</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pathname</span><span class="p">;</span>
+    <span class="kt">char</span> <span class="n">buf</span><span class="p">[</span><span class="mi">64</span><span class="p">];</span>
+    <span class="kt">int</span> <span class="n">res</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">syscall_id</span> <span class="o">!=</span> <span class="n">__NR_openat</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">regs</span> <span class="o">=</span> <span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="p">)</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+    <span class="n">bpf_probe_read</span><span class="p">(</span><span class="o">&amp;</span><span class="n">pathname</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">pathname</span><span class="p">),</span> <span class="o">&amp;</span><span class="n">regs</span><span class="o">-&gt;</span><span class="n">si</span><span class="p">);</span>
+    <span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read_str</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">buf</span><span class="p">),</span> <span class="n">pathname</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p><code class="language-plaintext highlighter-rouge">bpf_probe_&gt;read_str</code>的用法非常简单。我们保留一个64字节的局部变量，并将路径名复制到其中。让我们来看看字节码:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>llvm-objdump-7 <span class="nt">-no-show-raw-insn</span> <span class="nt">-section</span><span class="o">=</span>raw_tracepoint/sys_enter <span class="nt">-S</span> driver/bpf/probe.o 
+Disassembly of section raw_tracepoint/sys_enter:
+bpf_openat_parser:
+       0:       r2 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 8<span class="o">)</span>
+       1:       <span class="k">if </span>r2 <span class="o">!=</span> 257 goto +11 &lt;lbb81_2&gt;
+       2:       r3 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r1 + 0<span class="o">)</span>
+       3:       r3 +<span class="o">=</span> 104
+       4:       r1 <span class="o">=</span> r10
+       5:       r1 +<span class="o">=</span> <span class="nt">-8</span>
+       6:       r2 <span class="o">=</span> 8
+       7:       call 4
+       8:       r3 <span class="o">=</span> <span class="k">*</span><span class="o">(</span>u64 <span class="k">*</span><span class="o">)(</span>r10 - 8<span class="o">)</span>
+       9:       r1 <span class="o">=</span> r10
+      10:       r1 +<span class="o">=</span> <span class="nt">-80</span>
+      11:       r2 <span class="o">=</span> 64
+      12:       call 45
+
+LBB81_2:
+      13:       r0 <span class="o">=</span> 0
+      14:       <span class="nb">exit</span>
+&lt;/lbb81_2&gt;
+</code></pre></div></div>
+<p>这看起来也是很直接的。额外的eBPF指令在9-12的范围内，它们只是为bpf_probe_read_str 辅助函数设置适当的参数。
+在这种情况下，编译器决定将buf变量放在堆栈中，从地址 <strong><code class="language-plaintext highlighter-rouge">R10 - 80</code></strong> 开始，所以接下来的64个字节将被填充为字符串内容。</p>
+
+<p>如果我们尝试运行此示例，它会起作用。通过使用其他帮助器，比如 <a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#1-bpf_trace_printk">bpf_trace_printk</a> 或 <a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#3-perf_submit">bpf_perf_event_output</a>，我们可以把刚刚复制的路径名称打印到内核日志中，或者将其推送到与用户空间共享的<strong>高性能环形缓冲区</strong>。</p>
+
+<p>然而，这个程序有一个重大缺陷。64个字节可能不足以正确容纳完整的路径名称。
+在出于系统调用审计目的进行系统调用检测时(就像Falco那样)，处理截断的数据不是很理想。最好是适当地调整临时缓冲区的大小，
+以确保它可以容纳更长的路径。我们可以使用常量PATH_MAX，它被扩展到4096，并且应该保持Linux支持的最大路径长度。
+但是，如果我们尝试将buf的大小更改为PATH_MAX，则会在编译时收到以下错误：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>error: &lt;unknown&gt;:0:0: <span class="k">in function </span>bpf_openat_parser i32 <span class="o">(</span>%struct.bpf_raw_tracepoint_args<span class="k">*</span><span class="o">)</span>: Looks like the BPF stack limit of 512 bytes is exceeded. Please move large on stack variables into BPF per-cpu array map.
+&lt;/unknown&gt;
+</code></pre></div></div>
+
+<p>记住，eBPF虚拟环境给我们的堆栈只有512字节。在其上保留4096字节的变量肯定会导致堆栈冲突。。
+而且，如果程序运行，我们肯定会<strong>覆盖其他内核内存</strong>–所以这是一个不安全的操作。我们很幸运，
+编译器这么早就发现了这个问题。即使编译器没有发现它，eBPF验证器也会检测到这种情况，并会阻止程序的加载。</p>
+
+<h1 id="ebpf-maps">eBPF maps</h1>
+
+<p>我们怎么解决这个问题？我们需要将临时缓冲区存储到<strong>堆栈之外</strong>的不同位置。
+EBPF虚拟环境不能让我们像在普通C用户/内核程序中那样分配外部内存或使用全局变量。
+然而，我们确实有可能使用<strong>eBPF Map</strong>。EBPF Map 是键/值数据结构，可以通过一组额外的<strong>辅助函数</strong>从eBPF程序访问，并且在调用中是持久的。
+内核提供了不同类型的映射(这里<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#maps">描述</a>的哈希表、数组等)。我们在这里可以使用的是每<code class="language-plaintext highlighter-rouge">CPU数组映射</code>。
+这样，eBPF程序的每次调用都将获得其自己的 Map 嶆，该时隙可以在整个程序周期内持续使用。
+由于eBPF程序在<strong>执行期间</strong>从不被抢占，因此将这些程序存储在每个CPU Map中是安全的，
+并且永远不会导致争用条件或损坏的数据。调整后的程序如下所示：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"maps"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="n">tmp_storage_map</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_PERCPU_ARRAY</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">u32</span><span class="p">),</span>
+    <span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="n">PATH_MAX</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+<span class="p">};</span>
+
+<span class="n">__attribute__</span><span class="p">((</span><span class="n">section</span><span class="p">(</span><span class="s">"raw_tracepoint/sys_enter"</span><span class="p">),</span> <span class="n">used</span><span class="p">))</span>
+<span class="kt">int</span> <span class="nf">bpf_openat_parser</span><span class="p">(</span><span class="k">struct</span> <span class="n">bpf_raw_tracepoint_args</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">syscall_id</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">];</span>
+    <span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="n">regs</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">pathname</span><span class="p">;</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">map_value</span><span class="p">;</span>
+    <span class="n">u32</span> <span class="n">map_id</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">res</span><span class="p">;</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">syscall_id</span> <span class="o">!=</span> <span class="n">__NR_openat</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">regs</span> <span class="o">=</span> <span class="p">(</span><span class="k">struct</span> <span class="n">pt_regs</span> <span class="o">*</span><span class="p">)</span><span class="n">ctx</span><span class="o">-&gt;</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span>
+
+    <span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read</span><span class="p">(</span><span class="o">&amp;</span><span class="n">pathname</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">pathname</span><span class="p">),</span> <span class="o">&amp;</span><span class="n">regs</span><span class="o">-&gt;</span><span class="n">si</span><span class="p">);</span>
+
+    <span class="n">map_id</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="n">map_value</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">tmp_storage_map</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">map_id</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">map_value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read_str</span><span class="p">(</span><span class="n">map_value</span><span class="p">,</span> <span class="n">PATH_MAX</span><span class="p">,</span> <span class="n">pathname</span><span class="p">);</span>
+
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>这看起来有点复杂，所以我们来分析一下。第一部分是位于单独 ELF 部分中的 Map 定义，
+以便eBPF加载器可以正确地检测和设置它（这也发生在bpf系统调用中）。我们可以看到映射被声明为
+具有单个条目的 per-cpu 数组类型（这样每个 CPU 将获得自己的单个插槽），并且 Map 的大小是PATH_MAX，
+希望足以容纳来自系统调用的完整路径名称。我们可以通过添加其他字段来使之更加丰富，
+例如，为其他系统调用参数或进程的pid提供空间。</p>
+
+<p>在<code class="language-plaintext highlighter-rouge">bpf_openat_parser</code>函数中，我们可以使用<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#12-maplookup"><code class="language-plaintext highlighter-rouge">bpf_map_lookup_elem</code></a> 辅助函数在运行时获取分配给当时运行eBPF程序的特定CPU的 Map
+ 槽。如果它为 NULL ，我们也会返回，这样eBPF验证器就不会报错了。</p>
+
+<p>最后，我们可以简单地调用 <code class="language-plaintext highlighter-rouge">bpf_probe_read_str</code>。但是，我们没有像以前那样将堆栈缓冲区作为目的地指针传递，
+而是把 Map 存储区域的指针传给它。我们可以直接将BPF 辅助函数参数指向 Map 区域。</p>
+
+<h1 id="ebpf中的可变内存访问">eBPF中的可变内存访问</h1>
+
+<p>该程序运行良好，并得到了校验器的认可。我们只是遗漏了一个棘手的部分，在使用eBPF时知道这一点是很好的。
+文档指出，即使目标缓冲区小于原始字符串本身，<code class="language-plaintext highlighter-rouge">bpf_probe_read_str</code>可以正确地将复制的字符串以NULL结束，
+并且它将返回复制的字符串的最终长度(包括NULL)。</p>
+
+<p>为了更安全起见，让我们暂时忘掉自动 NULL 终止，让我们手动终止字符串。我们可以通过如下方式更改 <code class="language-plaintext highlighter-rouge">bpf_probe_read_str</code> 调用来实现这一点：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read_str</span><span class="p">(</span><span class="n">map_value</span><span class="p">,</span> <span class="n">PATH_MAX</span><span class="p">,</span> <span class="n">pathname</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">map_value</span><span class="p">[</span><span class="n">res</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>相当合理的C代码。我们确信helper的返回值为正值时将小于或等于PATH_MAX，因此上面的代码应该是安全的。</p>
+
+<p>然而，校验器不会通过:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo </span>sysdig
+...
+20: <span class="o">(</span>85<span class="o">)</span> call bpf_probe_read_str#45
+ <span class="nv">R1_w</span><span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,imm<span class="o">=</span>0<span class="o">)</span> <span class="nv">R2_w</span><span class="o">=</span>inv4096 <span class="nv">R3_w</span><span class="o">=</span>inv<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0<span class="o">)</span> <span class="nv">R6</span><span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,imm<span class="o">=</span>0<span class="o">)</span> <span class="nv">R10</span><span class="o">=</span>fp0,call_-1
+21: <span class="o">(</span>67<span class="o">)</span> r0 &lt;&lt;<span class="o">=</span> 32
+22: <span class="o">(</span>c7<span class="o">)</span> r0 s&gt;&gt;<span class="o">=</span> 32
+23: <span class="o">(</span>b7<span class="o">)</span> r1 <span class="o">=</span> 1
+24: <span class="o">(</span>6d<span class="o">)</span> <span class="k">if </span>r1 s&gt; r0 goto pc+3
+ <span class="nv">R0</span><span class="o">=</span>inv<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,umin_value<span class="o">=</span>1,umax_value<span class="o">=</span>9223372036854775807,var_off<span class="o">=(</span>0x0<span class="p">;</span> 0x7fffffffffffffff<span class="o">))</span> <span class="nv">R1</span><span class="o">=</span>inv1 <span class="nv">R6</span><span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,imm<span class="o">=</span>0<span class="o">)</span> <span class="nv">R10</span><span class="o">=</span>fp0,call_-1
+25: <span class="o">(</span>0f<span class="o">)</span> r6 +<span class="o">=</span> r0
+26: <span class="o">(</span>b7<span class="o">)</span> r1 <span class="o">=</span> 0
+27: <span class="o">(</span>73<span class="o">)</span> <span class="k">*</span><span class="o">(</span>u8 <span class="k">*</span><span class="o">)(</span>r6 <span class="nt">-1</span><span class="o">)</span> <span class="o">=</span> r1
+ <span class="nv">R0</span><span class="o">=</span>inv<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,umin_value<span class="o">=</span>1,umax_value<span class="o">=</span>9223372036854775807,var_off<span class="o">=(</span>0x0<span class="p">;</span> 0x7fffffffffffffff<span class="o">))</span> <span class="nv">R1_w</span><span class="o">=</span>inv0 <span class="nv">R6_w</span><span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,umin_value<span class="o">=</span>1,umax_value<span class="o">=</span>9223372036854775807,var_off<span class="o">=(</span>0x0<span class="p">;</span> 0x7fffffffffffffff<span class="o">))</span> <span class="nv">R10</span><span class="o">=</span>fp0,call_-1
+R6 unbounded memory access, make sure to bounds check any array access into a map
+bpf_load_program<span class="o">()</span> <span class="nv">err</span><span class="o">=</span>13 <span class="nv">event</span><span class="o">=</span>sys_enter
+</code></pre></div></div>
+<p>这看起来有很多输出需要消化。它实际上很容易通过它，特别是当验证器在验证过程中模拟每条指令后打印寄存器内容的摘要时:</p>
+
+<ul>
+  <li>
+    <p><strong>指令20</strong>：调用bpf_probe_read_str。调用之后，在R0中有“res”变量。校验器还告诉我们，
+ 包含该字符串的映射值存储在R1和R6中(查找关键字“R6=MAP_VALUE”和“VS=4096”，表示槽的大小为PATH_MAX)。</p>
+  </li>
+  <li>
+    <p><strong>指令24</strong>：如果“res”为零或更小，我们跳过字符串终止代码，否则就没有意义了。请注意，
+ 包含“res”变量的R0由标量值(“inv”)类型的验证器标识，由于我们通过了分支检查(“UMIN_VALUE=1”)，因此R0具有适当的下限1，
+ 但没有已知的上限(“UMAX_VALUE=9223372036854775807”)。换句话说，除非我们进行显式检查，
+ 否则验证器不会假定有关bpf_probe_read_str帮助器的返回值的任何内容。</p>
+  </li>
+  <li>
+    <p><strong>指令25</strong>：包含“res”变量的R0用作R6的偏移量，R6包含“MAP_VALUE”变量。这条指令将R6设置为相当于C语言的&amp;map_value[res]。</p>
+  </li>
+  <li>
+    <p><strong>指令27</strong>：我们现在取在指令25计算出的值，加上-1的偏移量，然后将0写入该地址所指向的内存。这是我们在POSITION&amp;MAP_VALUE[res-1]位置的明确的NULL终止。</p>
+  </li>
+</ul>
+
+<p>现在希望更清楚了，指令27失败是因为验证器不知道“res”变量的上限，因为它只根据if条件中的下限1进行了检查。
+通过使用“res”作为偏移量进行 NULL 终止，我们可能正在进行不安全的内存访问。除了这一次，我们知道一个事实，我们不是，
+因为“res”从来不会大于PATH_MAX。不幸的是，校验器并不知道这一点。</p>
+
+<p><strong>解决方案?帮助验证器理解变量的全部可能范围都在PATH_MAX内。</strong> 我们通过添加传统C代码中不需要的免费检查来做到这一点，例如:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code> <span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read_str</span><span class="p">(</span><span class="n">map_value</span><span class="p">,</span> <span class="n">PATH_MAX</span><span class="p">,</span> <span class="n">pathname</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="n">res</span> <span class="o">&lt;=</span> <span class="n">PATH_MAX</span><span class="p">)</span>
+        <span class="n">map_value</span><span class="p">[</span><span class="n">res</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>如果你试一下这段代码，你会发现它不起作用，并再次被验证器拒绝，出现类似的错误。
+这是由于编译器喜欢以一种校验器还不理解的方式重新排列该分支。在家里尝试验证这种行为，
+这就是为什么我们称之为 “编写eBPF程序的艺术”，而不是 “科学”:-) 。一个效果更好的解决方案是利用PATH_MAX是2的幂（4096）这一事实，将上界检查尽可能地移到变量被用作偏移量的地方。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">res</span> <span class="o">=</span> <span class="n">bpf_probe_read_str</span><span class="p">(</span><span class="n">map_value</span><span class="p">,</span> <span class="n">PATH_MAX</span><span class="p">,</span> <span class="n">pathname</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">res</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">map_value</span><span class="p">[(</span><span class="n">res</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">PATH_MAX</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>考虑到我们知道“res”值是正数并且不大于PATH_MAX(由辅助函数保证)，这样做是可行的，并且在语义上与前面更显式的检查相同。
+换句话说，我们只是在帮助校验器验证代码。字节码如下所示：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>25: <span class="o">(</span>07<span class="o">)</span> r0 +<span class="o">=</span> 4095
+26: <span class="o">(</span>57<span class="o">)</span> r0 &amp;<span class="o">=</span> 4095
+27: <span class="o">(</span>bf<span class="o">)</span> r1 <span class="o">=</span> r6
+28: <span class="o">(</span>0f<span class="o">)</span> r1 +<span class="o">=</span> r0
+29: <span class="o">(</span>b7<span class="o">)</span> r2 <span class="o">=</span> 0
+30: <span class="o">(</span>73<span class="o">)</span> <span class="k">*</span><span class="o">(</span>u8 <span class="k">*</span><span class="o">)(</span>r1 +0<span class="o">)</span> <span class="o">=</span> r2
+ <span class="nv">R0_w</span><span class="o">=</span>inv<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,umax_value<span class="o">=</span>4095,var_off<span class="o">=(</span>0x0<span class="p">;</span> 0xfff<span class="o">))</span> &lt;br /&gt;R1_w<span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,umax_value<span class="o">=</span>4095,var_off<span class="o">=(</span>0x0<span class="p">;</span> 0xfff<span class="o">))</span> <span class="nv">R2_w</span><span class="o">=</span>inv0 &lt;br /&gt;R6<span class="o">=</span>map_value<span class="o">(</span><span class="nb">id</span><span class="o">=</span>0,off<span class="o">=</span>0,ks<span class="o">=</span>4,vs<span class="o">=</span>4096,imm<span class="o">=</span>0<span class="o">)</span> <span class="nv">R10</span><span class="o">=</span>fp0,call_-1
+</code></pre></div></div>
+
+<p>我们可以看到，在减去1和按位AND运算4095之后，R0寄存器现在的上限是4095(“UMAX_VALUE=4095)，因此可以安全地用作 Map 值指针的偏移量。</p>
+
+<p>这是 Sysdig 对内核的<a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=06c1c049721a995dee2829ad13b24aaf5d7c5cce">另一项改进</a>，它使处理在验证时不确定大小的数据的过程变得更加容易，这对于系统调用检测至关重要。</p>
+
+<p>现在，让我们将提取的完整路径名打印到内核跟踪日志中，从而结束这段旅程:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    <span class="kt">char</span> <span class="n">fmt</span><span class="p">[]</span> <span class="o">=</span> <span class="s">"path_name:%sn"</span><span class="p">;</span>
+    <span class="n">bpf_trace_printk</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">fmt</span><span class="p">),</span> <span class="n">map_value</span><span class="p">);</span>
+</code></pre></div></div>
+<p>如果我们运行代码，然后观察内核跟踪日志(/sys/kernel/debug/tracing/trace_pipe)，我们会看到:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>htop-1960  <span class="o">[</span>001] .... 20839.191270: 0: path_name:/proc/124286/task
+htop-1960  <span class="o">[</span>001] .... 20839.191283: 0: path_name:/proc/124286/statm
+htop-1960  <span class="o">[</span>001] .... 20839.191292: 0: path_name:/proc/124286/stat
+htop-1960  <span class="o">[</span>001] .... 20839.191308: 0: path_name:/proc/124290/task
+htop-1960  <span class="o">[</span>001] .... 20839.191321: 0: path_name:/proc/124290/statm
+htop-1960  <span class="o">[</span>001] .... 20839.191331: 0: path_name:/proc/124290/stat
+htop-1960  <span class="o">[</span>001] .... 20839.191443: 0: path_name:/proc/loadavg
+htop-1960  <span class="o">[</span>001] .... 20839.191472: 0: path_name:/proc/uptime
+tmux: server-936   <span class="o">[</span>003] .... 20839.964390: 0: path_name:/proc/124286/cmdline
+</code></pre></div></div>
+<p>任务完成!</p>
+
+<h1 id="总结">总结</h1>
+
+<p>这是eBPF系列的第二部分。我们已经直接了解了核心技术如何在引擎盖下工作，以及如何编程。</p>
+
+<p>如前所述，请记住，我们还没有介绍编写eBPF程序的其他几个关键方面，例如不能执行循环，
+以及除了跟踪用例之外还可以在eBPF中编写的所有其他程序类型。此外，虽然此内容是静态的，但eBPF肯定不是。
+随着每个新内核版本的发布，验证器变得越来越智能，使eBPF程序开发人员的生活变得更轻松。
+所以，这个内容在未来的某个时候肯定会过时。如果您想要编写支持第三方用户可能运行的各种内核版本的eBPF程序，
+您仍然必须处理这些问题，以便尽可能地向后兼容。</p>
+
+<p>如果您希望看到大量的实际eBPF代码，请随时查看我们的sysdig存储库，并在将来继续关注我们提供的其他eBPF内容。</p>
+
+:ET

@@ -1,0 +1,433 @@
+I"��<p>Linux 作为一个宏内核把模块化玩的贼溜，这个得赞叹一下。</p>
+
+<p>关于模块初始化与设备注册在 <code class="language-plaintext highlighter-rouge">《Linux 设备与驱动程序》</code>
+<code class="language-plaintext highlighter-rouge">subsys_initcall</code> 子模块初始化调用的接口方法，主要了解 <code class="language-plaintext highlighter-rouge">net_dev_init</code>：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// 代码有删减</span>
+<span class="k">static</span> <span class="kt">int</span> <span class="n">__init</span> <span class="nf">net_dev_init</span><span class="p">(</span><span class="kt">void</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">int</span> <span class="n">i</span><span class="p">,</span> <span class="n">rc</span> <span class="o">=</span> <span class="o">-</span><span class="n">ENOMEM</span><span class="p">;</span>
+
+	<span class="n">BUG_ON</span><span class="p">(</span><span class="o">!</span><span class="n">dev_boot_phase</span><span class="p">);</span>
+	<span class="c1">// 初始化统计信息的 proc 文件</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">dev_proc_init</span><span class="p">())</span>
+		<span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+	<span class="c1">// 初始化 kobject</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">netdev_kobject_init</span><span class="p">())</span>
+		<span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+	<span class="c1">// 初始化协议类型链表</span>
+	<span class="n">INIT_LIST_HEAD</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptype_all</span><span class="p">);</span>
+	<span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">PTYPE_HASH_SIZE</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="c1">//初始化协议类型hash表</span>
+		<span class="n">INIT_LIST_HEAD</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ptype_base</span><span class="p">[</span><span class="n">i</span><span class="p">]);</span>
+	<span class="c1">//初始化offload列表</span>
+	<span class="n">INIT_LIST_HEAD</span><span class="p">(</span><span class="o">&amp;</span><span class="n">offload_base</span><span class="p">);</span>
+	<span class="c1">//注册网络命名空间子系统</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">register_pernet_subsys</span><span class="p">(</span><span class="o">&amp;</span><span class="n">netdev_net_ops</span><span class="p">))</span>
+		<span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+	<span class="c1">//初始化数据包接收队列</span>
+	<span class="n">for_each_possible_cpu</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="p">{</span>
+		<span class="k">struct</span> <span class="n">work_struct</span> <span class="o">*</span><span class="n">flush</span> <span class="o">=</span> <span class="n">per_cpu_ptr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">flush_works</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
+		<span class="k">struct</span> <span class="n">softnet_data</span> <span class="o">*</span><span class="n">sd</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">per_cpu</span><span class="p">(</span><span class="n">softnet_data</span><span class="p">,</span> <span class="n">i</span><span class="p">);</span>
+		<span class="c1">//初始化清理backlog队列</span>
+		<span class="n">INIT_WORK</span><span class="p">(</span><span class="n">flush</span><span class="p">,</span> <span class="n">flush_backlog</span><span class="p">);</span>
+		<span class="c1">//初始化非napi接口层的缓存队列</span>
+		<span class="n">skb_queue_head_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">input_pkt_queue</span><span class="p">);</span>
+		<span class="c1">//初始化数据包处理队列  </span>
+		<span class="n">skb_queue_head_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">process_queue</span><span class="p">);</span>
+		<span class="c1">//初始化网络设备轮询队列</span>
+		<span class="n">INIT_LIST_HEAD</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">);</span>
+		<span class="c1">//初始化输出队列尾部</span>
+		<span class="n">sd</span><span class="o">-&gt;</span><span class="n">output_queue_tailp</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">output_queue</span><span class="p">;</span>
+		<span class="c1">//若支持RPS</span>
+<span class="cp">#ifdef CONFIG_RPS
+</span>		<span class="n">INIT_CSD</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">csd</span><span class="p">,</span> <span class="n">rps_trigger_softirq</span><span class="p">,</span> <span class="n">sd</span><span class="p">);</span>
+		<span class="n">sd</span><span class="o">-&gt;</span><span class="n">cpu</span> <span class="o">=</span> <span class="n">i</span><span class="p">;</span>
+<span class="cp">#endif
+</span>		<span class="c1">//初始化 gro hash</span>
+		<span class="n">init_gro_hash</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">backlog</span><span class="p">);</span>
+		<span class="c1">//支持非napi虚拟设备的回调和配额设置</span>
+		<span class="n">sd</span><span class="o">-&gt;</span><span class="n">backlog</span><span class="p">.</span><span class="n">poll</span> <span class="o">=</span> <span class="n">process_backlog</span><span class="p">;</span>
+		<span class="n">sd</span><span class="o">-&gt;</span><span class="n">backlog</span><span class="p">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">weight_p</span><span class="p">;</span>
+	<span class="p">}</span>
+
+	<span class="n">dev_boot_phase</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="c1">// 注册回环设备</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">register_pernet_device</span><span class="p">(</span><span class="o">&amp;</span><span class="n">loopback_net_ops</span><span class="p">))</span>
+		<span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+
+	<span class="k">if</span> <span class="p">(</span><span class="n">register_pernet_device</span><span class="p">(</span><span class="o">&amp;</span><span class="n">default_device_ops</span><span class="p">))</span>
+		<span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+	<span class="c1">// 注册发送软中断</span>
+	<span class="n">open_softirq</span><span class="p">(</span><span class="n">NET_TX_SOFTIRQ</span><span class="p">,</span> <span class="n">net_tx_action</span><span class="p">);</span>
+	<span class="c1">// 注册接收软中断</span>
+	<span class="n">open_softirq</span><span class="p">(</span><span class="n">NET_RX_SOFTIRQ</span><span class="p">,</span> <span class="n">net_rx_action</span><span class="p">);</span>
+	<span class="c1">//注册响应cpu状态变化的回调</span>
+	<span class="n">rc</span> <span class="o">=</span> <span class="n">cpuhp_setup_state_nocalls</span><span class="p">(</span><span class="n">CPUHP_NET_DEV_DEAD</span><span class="p">,</span> <span class="s">"net/dev:dead"</span><span class="p">,</span>
+				       <span class="nb">NULL</span><span class="p">,</span> <span class="n">dev_cpu_dead</span><span class="p">);</span>
+	<span class="n">WARN_ON</span><span class="p">(</span><span class="n">rc</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">);</span>
+	<span class="n">rc</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="nl">out:</span>
+	<span class="k">return</span> <span class="n">rc</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="n">subsys_initcall</span><span class="p">(</span><span class="n">net_dev_init</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>关于 <code class="language-plaintext highlighter-rouge">softnet_data</code> 每个 CPU 都注册了一个自己的数据结构用于处理入口流量和出口流量。
+每个 CPU 都有自己的处理队列也就没有锁竞争的问题。</p>
+
+<h1 id="接收帧">接收帧</h1>
+
+<p>设备初始化完成之后会，网卡设备将开始工作。
+目前接收包的方式共有两种 NAPI 与 非 NAPI 方式。</p>
+
+<h2 id="napi-方式">NAPI 方式</h2>
+
+<p>第一个数据包到来是，将会产生硬中断，中断处理程序<strong>将设备</strong>的 <code class="language-plaintext highlighter-rouge">napi_struct</code> 结构挂在当前 <code class="language-plaintext highlighter-rouge">cpu</code>
+的待接收设备 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;poll_list</code> 列表中。并触发软中断，软中断会便利 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;poll_list</code>
+中的所有设备，依次调用 <code class="language-plaintext highlighter-rouge">napi_struct-&gt;poll</code> 虚拟函数处理收包。</p>
+
+<p>以 <a href="https://elixir.bootlin.com/linux/v5.14/source/drivers/net/ethernet/intel/e100.c#L2195">e100</a> 为例：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="n">irqreturn_t</span> <span class="nf">e100_intr</span><span class="p">(</span><span class="kt">int</span> <span class="n">irq</span><span class="p">,</span> <span class="kt">void</span> <span class="o">*</span><span class="n">dev_id</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">struct</span> <span class="n">net_device</span> <span class="o">*</span><span class="n">netdev</span> <span class="o">=</span> <span class="n">dev_id</span><span class="p">;</span>
+	<span class="p">...</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">likely</span><span class="p">(</span><span class="n">napi_schedule_prep</span><span class="p">(</span><span class="o">&amp;</span><span class="n">nic</span><span class="o">-&gt;</span><span class="n">napi</span><span class="p">)))</span> <span class="p">{</span>
+		<span class="c1">// 禁用中断</span>
+		<span class="n">e100_disable_irq</span><span class="p">(</span><span class="n">nic</span><span class="p">);</span>
+		<span class="c1">//将该网络设备加入到sd的poll_list中</span>
+		<span class="n">__napi_schedule</span><span class="p">(</span><span class="o">&amp;</span><span class="n">nic</span><span class="o">-&gt;</span><span class="n">napi</span><span class="p">);</span>
+	<span class="p">}</span>
+
+	<span class="k">return</span> <span class="n">IRQ_HANDLED</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="kt">void</span> <span class="nf">__napi_schedule</span><span class="p">(</span><span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">n</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">flags</span><span class="p">;</span>
+
+	<span class="n">local_irq_save</span><span class="p">(</span><span class="n">flags</span><span class="p">);</span>
+	<span class="n">____napi_schedule</span><span class="p">(</span><span class="n">this_cpu_ptr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">softnet_data</span><span class="p">),</span> <span class="n">n</span><span class="p">);</span>
+	<span class="n">local_irq_restore</span><span class="p">(</span><span class="n">flags</span><span class="p">);</span>
+<span class="p">}</span>
+<span class="c1">// 调用时 IRQ 被禁用</span>
+<span class="k">static</span> <span class="kr">inline</span> <span class="kt">void</span> <span class="nf">____napi_schedule</span><span class="p">(</span><span class="k">struct</span> <span class="n">softnet_data</span> <span class="o">*</span><span class="n">sd</span><span class="p">,</span>
+				     <span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">napi</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="p">...</span>
+	<span class="c1">// 添加设备到 poll_list</span>
+	<span class="n">list_add_tail</span><span class="p">(</span><span class="o">&amp;</span><span class="n">napi</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">);</span>
+	<span class="c1">// 激活软中断，即：net_rx_action</span>
+	<span class="n">__raise_softirq_irqoff</span><span class="p">(</span><span class="n">NET_RX_SOFTIRQ</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h2 id="net_rx_action">net_rx_action</h2>
+
+<p><code class="language-plaintext highlighter-rouge">net_rx_action</code> 负责处理收包程序，当该函数被触发调用时，说明有设备的数据包到达，此时本处理程序便利
+<code class="language-plaintext highlighter-rouge">softnet_data-&gt;poll_list</code> 中的收包设备，并执行 <code class="language-plaintext highlighter-rouge">napi</code> 中的 <code class="language-plaintext highlighter-rouge">poll</code> 调度，</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="n">__latent_entropy</span> <span class="kt">void</span> <span class="nf">net_rx_action</span><span class="p">(</span><span class="k">struct</span> <span class="n">softirq_action</span> <span class="o">*</span><span class="n">h</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="c1">// 指向当前 CPU 的数据结构</span>
+	<span class="k">struct</span> <span class="n">softnet_data</span> <span class="o">*</span><span class="n">sd</span> <span class="o">=</span> <span class="n">this_cpu_ptr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">softnet_data</span><span class="p">);</span>
+	<span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">time_limit</span> <span class="o">=</span> <span class="n">jiffies</span> <span class="o">+</span>
+		<span class="n">usecs_to_jiffies</span><span class="p">(</span><span class="n">netdev_budget_usecs</span><span class="p">);</span>
+	<span class="kt">int</span> <span class="n">budget</span> <span class="o">=</span> <span class="n">netdev_budget</span><span class="p">;</span>
+	<span class="n">LIST_HEAD</span><span class="p">(</span><span class="n">list</span><span class="p">);</span>
+	<span class="c1">// 需要重新 poll 的设备列表</span>
+	<span class="n">LIST_HEAD</span><span class="p">(</span><span class="n">repoll</span><span class="p">);</span>
+	<span class="c1">// 待处理设备列表 poll_list 统一合并到 list，处理过程不允许中断，</span>
+	<span class="c1">// 并且重新初始化 poll_ist</span>
+	<span class="c1">// 合并方式，改变了一下链表的头节点和尾节点</span>
+	<span class="n">local_irq_disable</span><span class="p">();</span>
+	<span class="n">list_splice_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">list</span><span class="p">);</span>
+	<span class="n">local_irq_enable</span><span class="p">();</span>
+	<span class="c1">// 遍历列表</span>
+	<span class="k">for</span> <span class="p">(;;)</span> <span class="p">{</span>
+		<span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">n</span><span class="p">;</span>
+		<span class="c1">// 如果待处理设备列表为空，就直接跳出</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">list_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="n">list</span><span class="p">))</span> <span class="p">{</span>
+			<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sd_has_rps_ipi_waiting</span><span class="p">(</span><span class="n">sd</span><span class="p">)</span> <span class="o">&amp;&amp;</span> <span class="n">list_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="n">repoll</span><span class="p">))</span>
+				<span class="c1">// 如果重新 poll 的设备链表也为空，就没必要继续执行了直接结束</span>
+				<span class="k">return</span><span class="p">;</span>
+			<span class="k">break</span><span class="p">;</span>
+		<span class="p">}</span>
+		<span class="c1">// 每次都取出 头节点</span>
+		<span class="n">n</span> <span class="o">=</span> <span class="n">list_first_entry</span><span class="p">(</span><span class="o">&amp;</span><span class="n">list</span><span class="p">,</span> <span class="k">struct</span> <span class="n">napi_struct</span><span class="p">,</span> <span class="n">poll_list</span><span class="p">);</span>
+		<span class="c1">// 调用该设备结构 poll 虚拟函数</span>
+		<span class="c1">// 如果没有处理结束，就挂到 repoll 上</span>
+		<span class="n">budget</span> <span class="o">-=</span> <span class="n">napi_poll</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">repoll</span><span class="p">);</span>
+
+		<span class="c1">// 如果公平的中断时间结束就结束处理</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">unlikely</span><span class="p">(</span><span class="n">budget</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="o">||</span>
+			     <span class="n">time_after_eq</span><span class="p">(</span><span class="n">jiffies</span><span class="p">,</span> <span class="n">time_limit</span><span class="p">)))</span> <span class="p">{</span>
+			<span class="n">sd</span><span class="o">-&gt;</span><span class="n">time_squeeze</span><span class="o">++</span><span class="p">;</span>
+			<span class="k">break</span><span class="p">;</span>
+		<span class="p">}</span>
+	<span class="p">}</span>
+	<span class="c1">// 下面操作不可中断</span>
+	<span class="n">local_irq_disable</span><span class="p">();</span>
+	<span class="c1">// 将未处理完的设备列表，重新拼接到 poll_list 等待下次处理</span>
+	<span class="n">list_splice_tail_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">list</span><span class="p">);</span>
+	<span class="n">list_splice_tail</span><span class="p">(</span><span class="o">&amp;</span><span class="n">repoll</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">list</span><span class="p">);</span>
+	<span class="c1">// FIFO 的顺序，当前没有完成的放到前面</span>
+	<span class="n">list_splice</span><span class="p">(</span><span class="o">&amp;</span><span class="n">list</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">);</span>
+	<span class="c1">// 如果 poll_list 不为空，触发下一次收包中断</span>
+	<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">list_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">))</span>
+		<span class="c1">// 当前过程就是为了方式 CPU 占用时间过长，重新中断</span>
+		<span class="n">__raise_softirq_irqoff</span><span class="p">(</span><span class="n">NET_RX_SOFTIRQ</span><span class="p">);</span>
+	<span class="c1">// 启用中断</span>
+	<span class="n">net_rps_action_and_irq_enable</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>为了防止处理数据包时 CPU 占用过高，设置了公平原则，当占用时间达到一定额度的时候就会跳出循环释放 CPU 
+重新触发中断流程。</p>
+
+<p><strong>napi_poll</strong> 就是调用设备对应的 <code class="language-plaintext highlighter-rouge">napi_struct-&gt;poll</code> 回调接收数据包，接收<strong>数量根据配额</strong>进行<strong><code class="language-plaintext highlighter-rouge">限制</code></strong>。
+关键代码为 <code class="language-plaintext highlighter-rouge">work = __napi_poll(n, &amp;do_repoll);</code></p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">napi_poll</span><span class="p">(</span><span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">n</span><span class="p">,</span> <span class="k">struct</span> <span class="n">list_head</span> <span class="o">*</span><span class="n">repoll</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="n">bool</span> <span class="n">do_repoll</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+	<span class="kt">void</span> <span class="o">*</span><span class="n">have</span><span class="p">;</span>
+	<span class="kt">int</span> <span class="n">work</span><span class="p">;</span>
+	<span class="c1">// 链表去除 napi 关联</span>
+	<span class="n">list_del_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">n</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">);</span>
+
+	<span class="n">have</span> <span class="o">=</span> <span class="n">netpoll_poll_lock</span><span class="p">(</span><span class="n">n</span><span class="p">);</span>
+
+	<span class="n">work</span> <span class="o">=</span> <span class="n">__napi_poll</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">do_repoll</span><span class="p">);</span>
+
+	<span class="k">if</span> <span class="p">(</span><span class="n">do_repoll</span><span class="p">)</span>
+		<span class="n">list_add_tail</span><span class="p">(</span><span class="o">&amp;</span><span class="n">n</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">,</span> <span class="n">repoll</span><span class="p">);</span>
+
+	<span class="n">netpoll_poll_unlock</span><span class="p">(</span><span class="n">have</span><span class="p">);</span>
+
+	<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>在处理数据包的过程中全程上锁的，那么这里可能会被多线程调用，说明除了驱动之外还有别的地方调用</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">__napi_poll</span><span class="p">(</span><span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">n</span><span class="p">,</span> <span class="n">bool</span> <span class="o">*</span><span class="n">repoll</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">int</span> <span class="n">work</span><span class="p">,</span> <span class="n">weight</span><span class="p">;</span>
+	<span class="c1">// 获取配额，可处理数据包的最高数量</span>
+	<span class="n">weight</span> <span class="o">=</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">weight</span><span class="p">;</span>
+
+	<span class="n">work</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+	<span class="c1">// 检查 NAPI 是否在调度状态</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">test_bit</span><span class="p">(</span><span class="n">NAPI_STATE_SCHED</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">n</span><span class="o">-&gt;</span><span class="n">state</span><span class="p">))</span> <span class="p">{</span>
+		<span class="n">work</span> <span class="o">=</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">poll</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">weight</span><span class="p">);</span>
+		<span class="n">trace_napi_poll</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">work</span><span class="p">,</span> <span class="n">weight</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="c1">// 收包数量大于配额，说明出现了异常，打印出异常信息</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">unlikely</span><span class="p">(</span><span class="n">work</span> <span class="o">&gt;</span> <span class="n">weight</span><span class="p">))</span>
+		<span class="n">pr_err_once</span><span class="p">(</span><span class="s">"NAPI poll function %pS returned %d, exceeding its budget of %d.</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+			    <span class="n">n</span><span class="o">-&gt;</span><span class="n">poll</span><span class="p">,</span> <span class="n">work</span><span class="p">,</span> <span class="n">weight</span><span class="p">);</span>
+	<span class="c1">// 收包数量小于配置，返回真正处理收包数量</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">likely</span><span class="p">(</span><span class="n">work</span> <span class="o">&lt;</span> <span class="n">weight</span><span class="p">))</span>
+		<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+
+	<span class="c1">// 如果 napi 用完了整个配额，那么久强制修改 NAPI</span>
+	<span class="c1">// 为完成状态态，并返回实际处理数据包数量</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">unlikely</span><span class="p">(</span><span class="n">napi_disable_pending</span><span class="p">(</span><span class="n">n</span><span class="p">)))</span> <span class="p">{</span>
+		<span class="n">napi_complete</span><span class="p">(</span><span class="n">n</span><span class="p">);</span>
+		<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+	<span class="p">}</span>
+
+	<span class="cm">/* 检查 napi 当前状态，如果外部强制中断那么应该尽早推出
+	 */</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">napi_prefer_busy_poll</span><span class="p">(</span><span class="n">n</span><span class="p">))</span> <span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">napi_complete_done</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">work</span><span class="p">))</span> <span class="p">{</span>
+			<span class="cm">/* 如果没有设置超时，我们需要确保NAPI被重新排定。
+			 */</span>
+			<span class="n">napi_schedule</span><span class="p">(</span><span class="n">n</span><span class="p">);</span>
+		<span class="p">}</span>
+		<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+	<span class="p">}</span>
+
+	<span class="k">if</span> <span class="p">(</span><span class="n">n</span><span class="o">-&gt;</span><span class="n">gro_bitmask</span><span class="p">)</span> <span class="p">{</span>
+		<span class="cm">/* flush too old packets
+		 * If HZ &lt; 1000, flush all packets.
+		 */</span>
+		<span class="n">napi_gro_flush</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">HZ</span> <span class="o">&gt;=</span> <span class="mi">1000</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="c1">// 通过 gro 合并到 skb</span>
+	<span class="n">gro_normal_list</span><span class="p">(</span><span class="n">n</span><span class="p">);</span>
+
+	<span class="cm">/* Some drivers may have called napi_schedule
+	 * prior to exhausting their budget.
+	 */</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">unlikely</span><span class="p">(</span><span class="o">!</span><span class="n">list_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="n">n</span><span class="o">-&gt;</span><span class="n">poll_list</span><span class="p">)))</span> <span class="p">{</span>
+		<span class="n">pr_warn_once</span><span class="p">(</span><span class="s">"%s: Budget exhausted after napi rescheduled</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+			     <span class="n">n</span><span class="o">-&gt;</span><span class="n">dev</span> <span class="o">?</span> <span class="n">n</span><span class="o">-&gt;</span><span class="n">dev</span><span class="o">-&gt;</span><span class="n">name</span> <span class="o">:</span> <span class="s">"backlog"</span><span class="p">);</span>
+		<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+	<span class="p">}</span>
+
+	<span class="o">*</span><span class="n">repoll</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+
+	<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h2 id="非-napi-方式">非 NAPI 方式</h2>
+<p>每个数据包到来都会产生硬件中断，中断处理程序将<strong>收到的包</strong>放入到当前 CPU 的收包队列中 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;input_pkg_queue</code>
+中，并且将非 <code class="language-plaintext highlighter-rouge">napi</code> 设备对应的虚拟设备 	<code class="language-plaintext highlighter-rouge">napi</code> 结构<code class="language-plaintext highlighter-rouge">softnet-&gt;backlog</code> 结构挂在当前 <code class="language-plaintext highlighter-rouge">cpu</code> 的待收包设备链表 
+<code class="language-plaintext highlighter-rouge">softnet-&gt;poll_list</code> 中，并触发软中断，软中断处理过程中，会调用 <code class="language-plaintext highlighter-rouge">backlog</code> 的回调处理函数 <code class="language-plaintext highlighter-rouge">process_backlog</code></p>
+
+<p>以 <code class="language-plaintext highlighter-rouge">3c509</code> 为例：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span>
+<span class="nf">el3_rx</span><span class="p">(</span><span class="k">struct</span> <span class="n">net_device</span> <span class="o">*</span><span class="n">dev</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">while</span> <span class="p">((</span><span class="n">rx_status</span> <span class="o">=</span> <span class="n">inw</span><span class="p">(</span><span class="n">ioaddr</span> <span class="o">+</span> <span class="n">RX_STATUS</span><span class="p">))</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">rx_status</span> <span class="o">&amp;</span> <span class="mh">0x4000</span><span class="p">)</span> <span class="p">{</span> 
+			<span class="p">...</span>
+		<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+			<span class="kt">short</span> <span class="n">pkt_len</span> <span class="o">=</span> <span class="n">rx_status</span> <span class="o">&amp;</span> <span class="mh">0x7ff</span><span class="p">;</span>
+			<span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">;</span>
+			<span class="n">skb</span> <span class="o">=</span> <span class="n">netdev_alloc_skb</span><span class="p">(</span><span class="n">dev</span><span class="p">,</span> <span class="n">pkt_len</span> <span class="o">+</span> <span class="mi">5</span><span class="p">);</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">skb</span> <span class="o">!=</span> <span class="nb">NULL</span><span class="p">)</span> <span class="p">{</span>
+				<span class="n">skb_reserve</span><span class="p">(</span><span class="n">skb</span><span class="p">,</span> <span class="mi">2</span><span class="p">);</span>     <span class="cm">/* 16 字节对齐 */</span>
+
+				<span class="n">insl</span><span class="p">(</span><span class="n">ioaddr</span> <span class="o">+</span> <span class="n">RX_FIFO</span><span class="p">,</span> <span class="n">skb_put</span><span class="p">(</span><span class="n">skb</span><span class="p">,</span><span class="n">pkt_len</span><span class="p">),</span>
+					 <span class="p">(</span><span class="n">pkt_len</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">2</span><span class="p">);</span>
+				<span class="n">skb</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">=</span> <span class="n">eth_type_trans</span><span class="p">(</span><span class="n">skb</span><span class="p">,</span><span class="n">dev</span><span class="p">);</span>
+				<span class="n">netif_rx</span><span class="p">(</span><span class="n">skb</span><span class="p">);</span>
+				<span class="n">dev</span><span class="o">-&gt;</span><span class="n">stats</span><span class="p">.</span><span class="n">rx_bytes</span> <span class="o">+=</span> <span class="n">pkt_len</span><span class="p">;</span>
+				<span class="n">dev</span><span class="o">-&gt;</span><span class="n">stats</span><span class="p">.</span><span class="n">rx_packets</span><span class="o">++</span><span class="p">;</span>
+				<span class="k">continue</span><span class="p">;</span>
+			<span class="p">}</span>
+			<span class="n">dev</span><span class="o">-&gt;</span><span class="n">stats</span><span class="p">.</span><span class="n">rx_dropped</span><span class="o">++</span><span class="p">;</span>
+		<span class="p">}</span>
+	<span class="p">}</span>
+<span class="p">}</span>	
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">netif_rx-&gt;netif_rx_internal-&gt;enqueue_to_backlog</code> 中断处理程序最终调用函数处理收到的包，<code class="language-plaintext highlighter-rouge">enqueue_to_backlog</code>
+将收到的包加入到当前的 <code class="language-plaintext highlighter-rouge">CPU</code> 的 <code class="language-plaintext highlighter-rouge">softnet-&gt;input_pkt_queue</code> 宏，并将默认设备 <code class="language-plaintext highlighter-rouge">backlog</code> 加入到 <code class="language-plaintext highlighter-rouge">softnet_data</code>
+结构的 <code class="language-plaintext highlighter-rouge">poll_list</code> 链表。</p>
+
+<p>中断处理程序会调用 <code class="language-plaintext highlighter-rouge">netif_rx</code> 来讲数据包加入到收包对重：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">netif_rx</span><span class="p">(</span><span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">return</span> <span class="n">netif_rx_internal</span><span class="p">(</span><span class="n">skb</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">netif_rx_internal</span><span class="p">(</span><span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="kt">int</span> <span class="n">ret</span><span class="p">;</span>
+
+	<span class="n">net_timestamp_check</span><span class="p">(</span><span class="n">netdev_tstamp_prequeue</span><span class="p">,</span> <span class="n">skb</span><span class="p">);</span>
+	<span class="p">{</span>
+		<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">qtail</span><span class="p">;</span>
+
+		<span class="n">ret</span> <span class="o">=</span> <span class="n">enqueue_to_backlog</span><span class="p">(</span><span class="n">skb</span><span class="p">,</span> <span class="n">get_cpu</span><span class="p">(),</span> <span class="o">&amp;</span><span class="n">qtail</span><span class="p">);</span>
+		<span class="n">put_cpu</span><span class="p">();</span>
+	<span class="p">}</span>
+	<span class="k">return</span> <span class="n">ret</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p><code class="language-plaintext highlighter-rouge">enqueue_to_backlog</code> 将 <code class="language-plaintext highlighter-rouge">skb</code> 加入到当前的 <code class="language-plaintext highlighter-rouge">cpu</code> 的 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;input_pkt_queue</code> 中，
+并将 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;backlog</code> 结构加入到 <code class="language-plaintext highlighter-rouge">softnet_data-&gt;poll_list</code> 链表中，并触发收包软中断：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">enqueue_to_backlog</span><span class="p">(</span><span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">,</span> <span class="kt">int</span> <span class="n">cpu</span><span class="p">,</span>
+			      <span class="kt">unsigned</span> <span class="kt">int</span> <span class="o">*</span><span class="n">qtail</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">struct</span> <span class="n">softnet_data</span> <span class="o">*</span><span class="n">sd</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">long</span> <span class="n">flags</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">qlen</span><span class="p">;</span>
+
+	<span class="n">sd</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">per_cpu</span><span class="p">(</span><span class="n">softnet_data</span><span class="p">,</span> <span class="n">cpu</span><span class="p">);</span>
+
+	<span class="n">local_irq_save</span><span class="p">(</span><span class="n">flags</span><span class="p">);</span>
+
+	<span class="n">rps_lock</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+	<span class="c1">// 检查设备状态</span>
+	<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">netif_running</span><span class="p">(</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">dev</span><span class="p">))</span>
+		<span class="k">goto</span> <span class="n">drop</span><span class="p">;</span>
+	<span class="c1">// 获取队列长度</span>
+	<span class="n">qlen</span> <span class="o">=</span> <span class="n">skb_queue_len</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">input_pkt_queue</span><span class="p">);</span>
+	<span class="c1">// 如果队列未满 &amp;&amp; 未达到 skb 限制</span>
+	<span class="k">if</span> <span class="p">(</span><span class="n">qlen</span> <span class="o">&lt;=</span> <span class="n">netdev_max_backlog</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="n">skb_flow_limit</span><span class="p">(</span><span class="n">skb</span><span class="p">,</span> <span class="n">qlen</span><span class="p">))</span> <span class="p">{</span>
+		<span class="c1">// 长度不为空，设备已经得到了调度</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">qlen</span><span class="p">)</span> <span class="p">{</span>
+<span class="nl">enqueue:</span>
+			<span class="c1">// skb 队列</span>
+			<span class="n">__skb_queue_tail</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">input_pkt_queue</span><span class="p">,</span> <span class="n">skb</span><span class="p">);</span>
+			<span class="n">input_queue_tail_incr_save</span><span class="p">(</span><span class="n">sd</span><span class="p">,</span> <span class="n">qtail</span><span class="p">);</span>
+			<span class="n">rps_unlock</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+			<span class="n">local_irq_restore</span><span class="p">(</span><span class="n">flags</span><span class="p">);</span>
+			<span class="k">return</span> <span class="n">NET_RX_SUCCESS</span><span class="p">;</span>
+		<span class="p">}</span>
+		<span class="c1">// 检测当前 NAPI 状态</span>
+		<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">__test_and_set_bit</span><span class="p">(</span><span class="n">NAPI_STATE_SCHED</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">backlog</span><span class="p">.</span><span class="n">state</span><span class="p">))</span> <span class="p">{</span>
+			<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">rps_ipi_queued</span><span class="p">(</span><span class="n">sd</span><span class="p">))</span>
+				<span class="c1">// 调用 NAPI 处理包</span>
+				<span class="n">____napi_schedule</span><span class="p">(</span><span class="n">sd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">backlog</span><span class="p">);</span>
+		<span class="p">}</span>
+		<span class="c1">// 设置调度之后，入队</span>
+		<span class="k">goto</span> <span class="n">enqueue</span><span class="p">;</span>
+	<span class="p">}</span>
+
+<span class="nl">drop:</span>
+	<span class="n">sd</span><span class="o">-&gt;</span><span class="n">dropped</span><span class="o">++</span><span class="p">;</span>
+	<span class="n">rps_unlock</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+
+	<span class="n">local_irq_restore</span><span class="p">(</span><span class="n">flags</span><span class="p">);</span>
+
+	<span class="n">atomic_long_inc</span><span class="p">(</span><span class="o">&amp;</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">dev</span><span class="o">-&gt;</span><span class="n">rx_dropped</span><span class="p">);</span>
+	<span class="n">kfree_skb</span><span class="p">(</span><span class="n">skb</span><span class="p">);</span>
+	<span class="k">return</span> <span class="n">NET_RX_DROP</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>net_rx_action-&gt;napi_poll 实际上执行的是 <code class="language-plaintext highlighter-rouge">process_backlog</code> 。<code class="language-plaintext highlighter-rouge">net_rx_action</code> 与 <code class="language-plaintext highlighter-rouge">napi</code> 方式
+相同，这里略过，主要看 <code class="language-plaintext highlighter-rouge">poll</code> 回调函数。</p>
+
+<p>符合一次中断多次处理的想法</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">static</span> <span class="kt">int</span> <span class="nf">process_backlog</span><span class="p">(</span><span class="k">struct</span> <span class="n">napi_struct</span> <span class="o">*</span><span class="n">napi</span><span class="p">,</span> <span class="kt">int</span> <span class="n">quota</span><span class="p">)</span>
+<span class="p">{</span>
+	<span class="k">struct</span> <span class="n">softnet_data</span> <span class="o">*</span><span class="n">sd</span> <span class="o">=</span> <span class="n">container_of</span><span class="p">(</span><span class="n">napi</span><span class="p">,</span> <span class="k">struct</span> <span class="n">softnet_data</span><span class="p">,</span> <span class="n">backlog</span><span class="p">);</span>
+	<span class="n">bool</span> <span class="n">again</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+	<span class="kt">int</span> <span class="n">work</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+	<span class="k">if</span> <span class="p">(</span><span class="n">sd_has_rps_ipi_waiting</span><span class="p">(</span><span class="n">sd</span><span class="p">))</span> <span class="p">{</span>
+		<span class="n">local_irq_disable</span><span class="p">();</span>
+		<span class="n">net_rps_action_and_irq_enable</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+	<span class="p">}</span>
+	<span class="c1">//设置设备接收配额</span>
+	<span class="n">napi</span><span class="o">-&gt;</span><span class="n">weight</span> <span class="o">=</span> <span class="n">dev_rx_weight</span><span class="p">;</span>
+	<span class="k">while</span> <span class="p">(</span><span class="n">again</span><span class="p">)</span> <span class="p">{</span>
+		<span class="k">struct</span> <span class="n">sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">;</span>
+		<span class="c1">//从队列中取skb向上层输入</span>
+		<span class="k">while</span> <span class="p">((</span><span class="n">skb</span> <span class="o">=</span> <span class="n">__skb_dequeue</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">process_queue</span><span class="p">)))</span> <span class="p">{</span>
+			<span class="n">rcu_read_lock</span><span class="p">();</span>
+			<span class="n">__netif_receive_skb</span><span class="p">(</span><span class="n">skb</span><span class="p">);</span>
+			<span class="n">rcu_read_unlock</span><span class="p">();</span>
+			<span class="n">input_queue_head_incr</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+			<span class="c1">//如果达到配额，则完成</span>
+			<span class="k">if</span> <span class="p">(</span><span class="o">++</span><span class="n">work</span> <span class="o">&gt;=</span> <span class="n">quota</span><span class="p">)</span>
+				<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+
+		<span class="p">}</span>
+
+		<span class="n">local_irq_disable</span><span class="p">();</span>
+		<span class="n">rps_lock</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+		<span class="c1">//如果输入队列为空，没有需要处理</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">skb_queue_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">input_pkt_queue</span><span class="p">))</span> <span class="p">{</span>
+			<span class="c1">//重置状态，处理完毕</span>
+			<span class="n">napi</span><span class="o">-&gt;</span><span class="n">state</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+			<span class="n">again</span> <span class="o">=</span> <span class="nb">false</span><span class="p">;</span>
+		<span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+			<span class="c1">//合并输入队列到处理队列，继续走循环处理</span>
+			<span class="n">skb_queue_splice_tail_init</span><span class="p">(</span><span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">input_pkt_queue</span><span class="p">,</span>
+						   <span class="o">&amp;</span><span class="n">sd</span><span class="o">-&gt;</span><span class="n">process_queue</span><span class="p">);</span>
+		<span class="p">}</span>
+		<span class="n">rps_unlock</span><span class="p">(</span><span class="n">sd</span><span class="p">);</span>
+		<span class="n">local_irq_enable</span><span class="p">();</span>
+	<span class="p">}</span>
+	<span class="c1">//返回实际处理的包数</span>
+	<span class="k">return</span> <span class="n">work</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+:ET

@@ -1,0 +1,124 @@
+I";<p>在<code class="language-plaintext highlighter-rouge">io_uring</code>中，完成没有按照提交的问题所在的顺序到达。这在<a href="https://unixism.net/loti/low_level.html#low-level">底层io_uring接口</a>一章中讨论过。如果您想要强制某些操作按顺序进行，该怎么办?这可以通过将请求链实现。这里的示例向您展示了如何实现这一点。</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;fcntl.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">"liburing.h"</span><span class="cp">
+</span>
+<span class="cp">#define FILE_NAME   "/tmp/io_uring_test.txt"
+#define STR         "Hello, io_uring!"
+</span><span class="kt">char</span> <span class="n">buff</span><span class="p">[</span><span class="mi">32</span><span class="p">];</span>
+
+<span class="kt">int</span> <span class="nf">link_operations</span><span class="p">(</span><span class="k">struct</span> <span class="n">io_uring</span> <span class="o">*</span><span class="n">ring</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">io_uring_sqe</span> <span class="o">*</span><span class="n">sqe</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">io_uring_cqe</span> <span class="o">*</span><span class="n">cqe</span><span class="p">;</span>
+
+    <span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="n">FILE_NAME</span><span class="p">,</span> <span class="n">O_RDWR</span><span class="o">|</span><span class="n">O_TRUNC</span><span class="o">|</span><span class="n">O_CREAT</span><span class="p">,</span> <span class="mo">0644</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">fd</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="p">)</span> <span class="p">{</span>
+        <span class="n">perror</span><span class="p">(</span><span class="s">"open"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">io_uring_prep_write</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">STR</span><span class="p">,</span> <span class="n">strlen</span><span class="p">(</span><span class="n">STR</span><span class="p">),</span> <span class="mi">0</span> <span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_IO_LINK</span><span class="p">;</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">io_uring_prep_read</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">buff</span><span class="p">,</span> <span class="n">strlen</span><span class="p">(</span><span class="n">STR</span><span class="p">),</span><span class="mi">0</span><span class="p">);</span>
+    <span class="n">sqe</span><span class="o">-&gt;</span><span class="n">flags</span> <span class="o">|=</span> <span class="n">IOSQE_IO_LINK</span><span class="p">;</span>
+
+    <span class="n">sqe</span> <span class="o">=</span> <span class="n">io_uring_get_sqe</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">sqe</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Could not get SQE.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">io_uring_prep_close</span><span class="p">(</span><span class="n">sqe</span><span class="p">,</span> <span class="n">fd</span><span class="p">);</span>
+
+    <span class="n">io_uring_submit</span><span class="p">(</span><span class="n">ring</span><span class="p">);</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+        <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_wait_cqe</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">cqe</span><span class="p">);</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">ret</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error waiting for completion: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+                                                            <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+            <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+        <span class="p">}</span>
+        <span class="cm">/* Now that we have the CQE, let's process the data */</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Error in async operation: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">));</span>
+        <span class="p">}</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"Result of the operation: %d</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">cqe</span><span class="o">-&gt;</span><span class="n">res</span><span class="p">);</span>
+        <span class="n">io_uring_cqe_seen</span><span class="p">(</span><span class="n">ring</span><span class="p">,</span> <span class="n">cqe</span><span class="p">);</span>
+    <span class="p">}</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"Buffer contents: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">buff</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{</span>
+    <span class="k">struct</span> <span class="n">io_uring</span> <span class="n">ring</span><span class="p">;</span>
+
+    <span class="kt">int</span> <span class="n">ret</span> <span class="o">=</span> <span class="n">io_uring_queue_init</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ring</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">ret</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Unable to setup io_uring: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">ret</span><span class="p">));</span>
+        <span class="k">return</span> <span class="mi">1</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">link_operations</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="n">io_uring_queue_exit</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ring</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>这是一个相当简单的程序。我们打开一个空文件，向它写入一个字符串，从文件中读取字符串，然后关闭它。由于 <code class="language-plaintext highlighter-rouge">io_uring</code> 并不能保证提交的操作会按顺序执行，这可能会给我们的程序带来问题。因为它是一个空文件，在程序的每一次运行中都会被截断，如果如果在读取之前没有完成写操作，那么将没有任何东西可以读。另外，如果关闭操作在读取或写入操作或这两个操作之前完成，这些操作也可能失败。为此，本程序用 <code class="language-plaintext highlighter-rouge">IOSQE_IO_LINK</code> 标志来链接操作。这样可以保证操作串行地执行。</p>
+
+<p>这个程序理解起来相当简单。在 <code class="language-plaintext highlighter-rouge">link_operations()</code> 函数中，我们调用 <a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write">io_uring_prep_write()</a>，但是在它上面设置 <code class="language-plaintext highlighter-rouge">IOSQE_IO_LINK</code>标志，这样下一个操作就会和这个操作链接起来。接下来，我们调用 <a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read">io_uring_prep_read()</a>，现在它已经链接到了之前的写操作。我们还在此操作上设置了 <code class="language-plaintext highlighter-rouge">IOSQE_IO_LINK</code> 标志，这样我们用 <a href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_close">io_uring_prep_close()</a>设置的后续关闭操作就会与这个操作链接起来。这样就会使 <code class="language-plaintext highlighter-rouge">io_uring</code> 接连执行写、读和关闭操作。</p>
+
+<h1 id="请求链中的故障">请求链中的故障</h1>
+
+<p>当涉及到链操作时，一个操作的失败会导致所有后续的链接操作失败，并出现错误 “Operation cancelled.”。一般情况下，如果你在内核5.6以上版本上运行这个程序，应该会有这个输出。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>→  cmake-build-debug ./link
+Result of the operation: 16
+Result of the operation: 16
+Result of the operation: 0
+Buffer contents: Hello, io_uring!
+</code></pre></div></div>
+
+<p>如果我们切换它们的open()语句</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="n">FILE_NAME</span><span class="p">,</span> <span class="n">O_RDWR</span><span class="o">|</span><span class="n">O_TRUNC</span><span class="o">|</span><span class="n">O_CREAT</span><span class="p">,</span> <span class="mo">0644</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>以只写模式打开文件:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="n">fd</span> <span class="o">=</span> <span class="n">open</span><span class="p">(</span><span class="n">FILE_NAME</span><span class="p">,</span> <span class="n">O_WRONLY</span><span class="o">|</span><span class="n">O_TRUNC</span><span class="o">|</span><span class="n">O_CREAT</span><span class="p">,</span> <span class="mo">0644</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>我们的写操作应该会通过，但是我们的读操作会失败，因为文件现在是以只写模式打开的。由于后续的close操作链接到read操作。现在这个有缺陷的程序的输出将是。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>→  cmake-build-debug ./link
+Error in async operation: Bad file descriptor
+Result of the operation: -9
+Error in async operation: Operation canceled
+Result of the operation: -125
+</code></pre></div></div>
+
+<p>你看到的第一个错误(“Bad file descriptor”)是来自于失败的读取操作。你看到的下一个错误(“Operation cancelled”)是io_uring取消了链接关闭操作。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># 注意
+请注意，你需要内核5.6或更高版本的内核才能工作，因为在早期版本中不支持读、写和关闭操作。
+</code></pre></div></div>
+
+<h1 id="源代码">源代码</h1>
+
+<p>这个和其他例子的源代码可以在 <a href="https://github.com/shuveb/loti-examples">Github</a> 上找到。</p>
+:ET

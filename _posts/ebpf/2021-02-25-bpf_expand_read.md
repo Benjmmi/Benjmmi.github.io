@@ -1,8 +1,7 @@
 ---
 title: eBPF 扩展阅读-BPF Map
 date: 2021-02-25 16:26:47
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
 author: Jony

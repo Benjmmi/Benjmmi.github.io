@@ -1,8 +1,7 @@
 ---
 title: 6. Program_Types
 date: 2021-02-24 19:38:33
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
 author: Jony

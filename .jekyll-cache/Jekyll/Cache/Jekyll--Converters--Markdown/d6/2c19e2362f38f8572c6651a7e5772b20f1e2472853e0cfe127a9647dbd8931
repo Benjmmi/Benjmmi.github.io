@@ -1,0 +1,429 @@
+I"�u<h1 id="cilium-源码阅读如何制定和执行-l3-策略">Cilium 源码阅读：如何制定和执行 L3 策略</h1>
+
+<h2 id="macvlan">macVlan</h2>
+
+<p>所有的资料显示 ipvlan 都会与 macvlan 放在一起比较研究。也就是表示 macvlan 出生早于 ipvlan ，那么 ipvlan 应该弥补了很多 macvlan 的不足和不好解决的问题。</p>
+
+<p>macvlan 就是允许在一个物理网卡上配置多个 mac 地址，这个有点反标准，一般一个网卡只有一个 mac 地址
+而且是全球唯一的。但是现在虚拟机技术越来越牛逼，所以一些原始的标准只能作为部分标准择优而选。多个 macvlan 就是多个 interface 所以前面那么多说的接口都是网卡的意思。每个 interface 都有可以自己的 IP。</p>
+
+<p>macvlan 最大的有点就是性能好，效率高，但是这里思考到一个问题就是 BGP？多网口肯定需要 BGP 的支持。</p>
+
+<p>macvlan 可以在一个 host 的网络接口上虚拟出多个网络接口也可以有自己的 MAC 和 IP 地址</p>
+
+<p>macvlan 模式</p>
+
+<ul>
+  <li>可以在一个实体网卡上设定多个 mac 地址</li>
+  <li>设定的 mac 地址称为子接口（<code class="language-plaintext highlighter-rouge">sub interface</code>）；实体网卡称为父接口（<code class="language-plaintext highlighter-rouge">parent interface</code>）</li>
+  <li><code class="language-plaintext highlighter-rouge">parent interface</code> 可以是一个物理接口 （eth0）、802.1q、eth0.10、bonding 接口</li>
+  <li>所有 interface 都可以设定 IP</li>
+  <li><code class="language-plaintext highlighter-rouge">sub interface</code> 无法直接与 <code class="language-plaintext highlighter-rouge">parent interface</code> 通信</li>
+  <li>vm 或者 container 要与 host 通信，还要额外建一个 sub interface 给 host</li>
+  <li>sub interface 通常以 mac0@eth0 的形式来命名</li>
+</ul>
+
+<p>MACVlan 工作模式</p>
+<ul>
+  <li>Bridge： 属于同一个 parent interface 的 macvlan 接口挂到同一个 bridge 上，可以互通（二层工作）</li>
+  <li>VPEA（Virtual Ethernet Port Aggregator）：所有接口的流量都需要到外部交换器走一圈才能到达其他接口（交换机）</li>
+  <li>Private：接口只接收发送给自己 MAC 地址的报文 （交换机）</li>
+  <li>Passthru：父接口和响应的 MacVlan 接口捆绑在一起，这种模式每个父接口只能和一个 MacVlan 接口捆绑。并且 MacVlan 虚拟网卡接口基础 父接口的 Mac 地址。</li>
+</ul>
+
+<h2 id="ipvlan">ipvlan</h2>
+
+<p>ipvlan 也是从一个主机接口虚拟出多个虚拟网络接口。一个重要的区别就是所有的虚拟接口都有相同的 macv 地址，而拥有不同的 ip 地址。</p>
+
+<p>ipvlan 工作模式</p>
+
+<p>L2：与 macvlan 的 bridge 模式工作原理很类似，父接口作为交换机来转发子接口的数据。同一个网路的子接口可以通过父接口来转
+发数据。（理解：桥接模式需要中转站，这个站点就是宿主机本身，有网络划分。如果流量要出去也只能走中转站）
+L3：Ipvlan 类似路由器功能，在各个虚拟网络和主机网络之间进行不同网络报文的路由转发工作。只要父接口相同，及时各个容器或者
+虚拟机不在同一个网络，也可以互相 ping 通对方。因为 ipvlan 可以在中间做转发。（理解：同上但是无网络划分）</p>
+
+<p>同理：需要了解 IProuter2 ，读懂了应该会系统的了解整个虚拟网络。</p>
+
+<p>所以 cilium_net、cilium_host、cilium_vxlan</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>lxc807633bfedea <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_lxc.o:[from-container] direct-action 
+<span class="o">========</span>
+
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>lxc_health <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_lxc.o:[from-container] direct-action 
+<span class="o">========</span>
+
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>cilium_vxlan <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_overlay.o:[from-overlay] direct-action 
+<span class="o">========</span>
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_overlay.o:[to-overlay] direct-action 
+
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>cilium_host <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_host.o:[to-host] direct-action 
+<span class="o">========</span>
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_host.o:[from-host] direct-action 
+
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>cilium_net <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+filter protocol all pref 1 bpf 
+filter protocol all pref 1 bpf handle 0x1 bpf_host_cilium_net.o:[to-host] direct-action 
+<span class="o">========</span>
+
+<span class="nv">$ </span><span class="nb">export </span><span class="nv">V</span><span class="o">=</span>docker0 <span class="o">&amp;&amp;</span>  tc filter show dev <span class="nv">$V</span> ingress <span class="o">&amp;&amp;</span> <span class="nb">echo</span> <span class="s2">"========"</span> <span class="o">&amp;&amp;</span>tc filter show dev <span class="nv">$V</span> egress 
+<span class="o">========</span>
+</code></pre></div></div>
+
+<p>所以这三者应该是中转的组件，逐个剖析每个函数的作用：几千行代码。</p>
+
+<p>Map 共有</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td>名称</td>
+      <td>作用域</td>
+      <td>作用</td>
+    </tr>
+    <tr>
+      <td>Connection Tracking</td>
+      <td>node or endpoint</td>
+      <td>连接跟踪表</td>
+    </tr>
+    <tr>
+      <td>NAT</td>
+      <td>node</td>
+      <td>NAT映射表</td>
+    </tr>
+    <tr>
+      <td>Neighbor Table</td>
+      <td>node</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>Endpoints</td>
+      <td>node</td>
+      <td>本地端点Map</td>
+    </tr>
+    <tr>
+      <td>IP cache</td>
+      <td>node</td>
+      <td>管理IP/CIDR&lt;-&gt;身份的IPCache映射</td>
+    </tr>
+    <tr>
+      <td>Load Balancer</td>
+      <td>node</td>
+      <td>负载平衡配置</td>
+    </tr>
+    <tr>
+      <td>Policy</td>
+      <td>endpoint</td>
+      <td>管理与策略相关的BPF映射</td>
+    </tr>
+    <tr>
+      <td>Proxy Map</td>
+      <td>node</td>
+      <td>代理配置</td>
+    </tr>
+    <tr>
+      <td>Tunnel</td>
+      <td>node</td>
+      <td>隧道端点Map</td>
+    </tr>
+    <tr>
+      <td>IPv4 Fragmentation</td>
+      <td>node</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>Session Affinity</td>
+      <td>node</td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>IP Masq</td>
+      <td>node</td>
+      <td>ip-masq-agent CIDRs</td>
+    </tr>
+    <tr>
+      <td>Service Source Ranges</td>
+      <td>node</td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+<p>继续了解代码：bpf 如何执行策略的</p>
+
+<p>调用 regenerateBPF 方法的入口在这，所以需要向上反推，什么情况下才会触发 <code class="language-plaintext highlighter-rouge">RegenerateIfAlive</code> 方法，看方法名的意思是如果存在存活节点才执行，
+思考：如果没有存活节点会不会触发？如果删除节点会不会触发？epsToRegen 内容是什么怎么的来的？</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  <span class="n">epsToRegen</span><span class="o">.</span><span class="n">ForEachGo</span><span class="p">(</span><span class="o">&amp;</span><span class="n">enqueueWaitGroup</span><span class="p">,</span> <span class="k">func</span><span class="p">(</span><span class="n">ep</span> <span class="n">policy</span><span class="o">.</span><span class="n">Endpoint</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">if</span> <span class="n">ep</span> <span class="o">!=</span> <span class="no">nil</span> <span class="p">{</span>
+      <span class="k">switch</span> <span class="n">e</span> <span class="o">:=</span> <span class="n">ep</span><span class="o">.</span><span class="p">(</span><span class="k">type</span><span class="p">)</span> <span class="p">{</span>
+      <span class="k">case</span> <span class="o">*</span><span class="n">endpoint</span><span class="o">.</span><span class="n">Endpoint</span><span class="o">:</span>
+        <span class="c">// Do not wait for the returned channel as we want this to be</span>
+        <span class="c">// ASync 不要等待返回的通道，因为我们希望这是异步的</span>
+        <span class="n">e</span><span class="o">.</span><span class="n">RegenerateIfAlive</span><span class="p">(</span><span class="n">regenMetadata</span><span class="p">)</span>
+      <span class="k">default</span><span class="o">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">Errorf</span><span class="p">(</span><span class="s">"BUG: endpoint not type of *endpoint.Endpoint, received '%s' instead"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+      <span class="p">}</span>
+    <span class="p">}</span>
+  <span class="p">})</span>
+</code></pre></div></div>
+
+<p>debug 从 policyAdd 跳转至 PolicyReactionEvent 发现 endpointsToRegen 在 policyAdd 的时候为空，跳转之后就不为空了，说明 RegenerateIfAlive 不是从 
+policyAdd 跳转过来的。那么就将目标转到 putPolicy 上。</p>
+
+<p>入参如下：</p>
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">[</span><span class="w">
+  </span><span class="p">{</span><span class="w">
+    </span><span class="nl">"endpointSelector"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+      </span><span class="nl">"matchLabels"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"any:id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"app1"</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">},</span><span class="w">
+    </span><span class="nl">"ingress"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"fromEndpoints"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+          </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"matchLabels"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+              </span><span class="nl">"any:id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"app2"</span><span class="w">
+            </span><span class="p">}</span><span class="w">
+          </span><span class="p">}</span><span class="w">
+        </span><span class="p">],</span><span class="w">
+        </span><span class="nl">"toPorts"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+          </span><span class="p">{</span><span class="w">
+            </span><span class="nl">"ports"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+              </span><span class="p">{</span><span class="w">
+                </span><span class="nl">"port"</span><span class="p">:</span><span class="w"> </span><span class="s2">"80"</span><span class="p">,</span><span class="w">
+                </span><span class="nl">"protocol"</span><span class="p">:</span><span class="w"> </span><span class="s2">"TCP"</span><span class="w">
+              </span><span class="p">}</span><span class="w">
+            </span><span class="p">]</span><span class="w">
+          </span><span class="p">}</span><span class="w">
+        </span><span class="p">]</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">],</span><span class="w">
+    </span><span class="nl">"labels"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w">
+      </span><span class="p">{</span><span class="w">
+        </span><span class="nl">"key"</span><span class="p">:</span><span class="w"> </span><span class="s2">"name"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"value"</span><span class="p">:</span><span class="w"> </span><span class="s2">"l3-rule"</span><span class="p">,</span><span class="w">
+        </span><span class="nl">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">""</span><span class="w">
+      </span><span class="p">}</span><span class="w">
+    </span><span class="p">]</span><span class="w">
+  </span><span class="p">}</span><span class="w">
+</span><span class="p">]</span><span class="w">
+</span></code></pre></div></div>
+
+<p><del>规则整合完整后就会触发 UpdateRulesEndpointsCaches 就需要更新 Endpoint 筛选出来，放到 Set 中，然后从原有的 Set 中删除。目的就是将需要</del>
+~~更新的 Endpoint 和 不需要更新的 Endpoint 区分开来，但是每次更新都需要修改 Revision。 ~~</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>~~匹配完成后会触发 PolicyReactionEvent#reactToRuleUpdates 方法。将需要修改的 Endpoint 重新生成。进入 RegenerateIfAlive  方法：~~
+</code></pre></div></div>
+<p><del>1. 判断当前 Endpoint 是否处于 Alive</del>
+<del>2. 切换上下文至 EndpointRegenerationEvent 执行</del>
+<del>3. 开始处理 Regeneration 事件</del>
+<del>4. 这里为了防止出现死锁，所以在 Endpoint 重新生成 BPF 时对 Endpoint 加锁。</del>
+<del>5. 获取当前 Endpoint State 文件夹路径，一般时 <code class="language-plaintext highlighter-rouge">/var/run/cilium/state/{EnpointId}</code></del>
+<del>6. 创建一个临时目录，tmpDir</del>
+<del>7. 如果对应的 Map 不存在就创建已给 Map -&gt; 子步骤需要详解</del>
+<del>8. 过滤成一组基于SelectorCache的具体 Map 条目。这些条目随后可以被引入数据路径。</del>
+<del>9. 跟新 BPF Map  IPcache  ，查看下 ipcache 用来干啥的</del></p>
+
+<p>一直 debug 到核心位置，发现注释上面已经写了：</p>
+<pre><code class="language-language">Allow pushes an entry into the PolicyMap to allow traffic in the given  `trafficDirection` for identity `id` with destination port `dport` over  protocol `proto`.
+
+ It is assumed that `dport` and `proxyPort` are in host byte-order.
+
+ Allow向PolicyMap推送一个条目，允许身份为`id`，目的端口为`dport`，协议为`proto`的流量进入给定的`trafficDirection`。
+
+ 假设`dport`和`proxyPort`是按主机字节顺序排列的。
+ ## trafficDirection 流量方向
+</code></pre>
+
+<p>只能说这个设计有点出乎意料，上层程序对数据的处理到精简化，给到底层 eBPF 基础架构。绕了很大一圈。</p>
+
+<p>原理简单描述： 将现有的实例信息转至为一个 <strong>实例 -&gt; ID</strong> 存储到 ipcache 中。策略存储更为简单。
+PoliyMap 存储 
+<strong>key: ptr(id,dport,proto,trafficDirect)</strong>
+<strong>value:proxyPort</strong>
+解释下key 的内容：<code class="language-plaintext highlighter-rouge">id -&gt; 来源实例的 ID 也就是通过 ipcache 获取的id</code>，<code class="language-plaintext highlighter-rouge">dport:目标端口</code>,<code class="language-plaintext highlighter-rouge">proto:通信协议</code></p>
+
+<p>结构如下：</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">type</span> <span class="n">PolicyKey</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">Identity</span>         <span class="kt">uint32</span> <span class="s">`align:"sec_label"`</span>  <span class="c">// =&gt; 36895</span>
+	<span class="n">DestPort</span>         <span class="kt">uint16</span> <span class="s">`align:"dport"`</span> <span class="c">// In network byte-order   =&gt; 80</span>
+	<span class="n">Nexthdr</span>          <span class="kt">uint8</span>  <span class="s">`align:"protocol"`</span>   <span class="c">// TCP </span>
+	<span class="n">TrafficDirection</span> <span class="kt">uint8</span>  <span class="s">`align:"egress"`</span>     <span class="c">// =&gt;  0</span>
+<span class="p">}</span>
+
+<span class="k">type</span> <span class="n">PolicyEntry</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">ProxyPort</span> <span class="kt">uint16</span> <span class="s">`align:"proxy_port"`</span> <span class="c">// In network byte-order</span>
+	<span class="n">Pad0</span>      <span class="kt">uint16</span> <span class="s">`align:"pad0"`</span>
+	<span class="n">Pad1</span>      <span class="kt">uint16</span> <span class="s">`align:"pad1"`</span>
+	<span class="n">Pad2</span>      <span class="kt">uint16</span> <span class="s">`align:"pad2"`</span>
+	<span class="n">Packets</span>   <span class="kt">uint64</span> <span class="s">`align:"packets"`</span>
+	<span class="n">Bytes</span>     <span class="kt">uint64</span> <span class="s">`align:"bytes"`</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>解释到这了：来源实例的 ID 一开始只是假设，但是后来确实坐实了。比如这里的 36895 通过查看 ipcache 就可以找到对应的实例：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cilium map get  cilium_ipcache
+Key                             Value             State   Error
+f00d::a0f:0:0:2fd8/128          4 0 0.0.0.0       <span class="nb">sync    
+</span>10.0.2.15/32                    1 0 0.0.0.0       <span class="nb">sync    
+</span>fe80::3cac:d1ff:fe3d:fe30/128   1 0 0.0.0.0       <span class="nb">sync    
+</span>10.11.90.17/32                  36895 0 0.0.0.0   <span class="nb">sync  
+
+</span>docker run <span class="nt">-d</span> <span class="nt">--name</span> app1 <span class="nt">--net</span> cilium-net <span class="nt">-l</span> <span class="s2">"id=app1"</span> cilium/demo-httpd   10.11.71.148
+<span class="o">{</span>10.11.255.104  32327f7b4cf9  f00d::a0f:0:0:36a    32327f7b4cf9  6e:b0:7d:4e:6b:e5   cilium0@if19<span class="o">}</span>
+docker run <span class="nt">-d</span> <span class="nt">--name</span> app2 <span class="nt">--net</span> cilium-net <span class="nt">-l</span> <span class="s2">"id=app2"</span> nginx   
+<span class="o">{</span>10.11.90.17  a94c744974c4  f00d::a0f:0:0:36a    a94c744974c4  1a:6d:c6:85:08:4d  cilium0@if49<span class="o">}</span>
+</code></pre></div></div>
+
+<p>而对应的实例就是这个 IP。
+也就是说 app2 实例来访问 app1 实例的时候，eBPF 从二层截取到数据流，获取到来源IP，目标端口号，然后从 ipCache 中获取标识信息，
+判断是否允许访问目标端口。</p>
+
+<p>既然是多重判断那么就需要找出  ipcache 的结构体。还要找出如何将信息添加到 ipcache ，底层的逻辑结构推断出来了，那么 ipcache 属于辅助填充条件
+找出的思路，就是想上反推，思考的地方有两点，就是在添加策略的时候，将条件推到 ipcahe 是同步的还是异步的，首先可以确定的一点就是推送到 ipcache 
+是先决条件，应该是在实例生成的时候推送到  ipcache 。所以应该冲添加实例的入口下手进行程序逻辑判断。
+那就回到 createEndpoint 方法，但是找了半天也没有找到更新 ipcache 的接口调用，索性就直接冲调用接口底层打了一个端点：</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">pkg</span><span class="o">/</span><span class="n">maps</span><span class="o">/</span><span class="n">ipcache</span><span class="o">/</span><span class="n">ipcache</span><span class="o">.</span><span class="k">go</span>
+<span class="k">func</span> <span class="n">NewKey</span><span class="p">(</span><span class="n">ip</span> <span class="n">net</span><span class="o">.</span><span class="n">IP</span><span class="p">,</span> <span class="n">mask</span> <span class="n">net</span><span class="o">.</span><span class="n">IPMask</span><span class="p">)</span> <span class="n">Key</span> <span class="p">{</span>  
+	<span class="n">result</span> <span class="o">:=</span> <span class="n">Key</span><span class="p">{}</span>
+
+	<span class="n">ones</span><span class="p">,</span> <span class="n">_</span> <span class="o">:=</span> <span class="n">mask</span><span class="o">.</span><span class="n">Size</span><span class="p">()</span>   <span class="c">// break</span>
+	<span class="o">...</span>
+	<span class="k">return</span> <span class="n">result</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>猜测是异步的，没想到异步的这么彻底，也就是说可以完整的用在生产环境。通过订阅 consul 的某个键来完成。也就是说在某个阶段将 IP 传送到 consul 中。</p>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+	</span><span class="nl">"key"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cilium/state/ip/v1/default/10.11.227.54"</span><span class="p">,</span><span class="w">
+	</span><span class="nl">"value"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w">
+		</span><span class="nl">"IP"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10.11.227.54"</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"Mask"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"HostIP"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10.0.2.15"</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"ID"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"Key"</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w">
+		</span><span class="nl">"Metadata"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cilium-global:default:runtime1:3459"</span><span class="w">
+	</span><span class="p">}</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p>处理上面这端数据的调用链如下：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pkg/ipcache/kvstore.go#Watch  <span class="o">=&gt;</span> IPIdentityCache.Upsert // 监听 kvstore.EventTypeCreate 创建事件
+	pkg/ipcache/ipcache.go#Upsert <span class="o">=&gt;</span>  listener.OnIPIdentityCacheChange
+	    pkg/datapath/ipcache/listener.go#OnIPIdentityCacheChange  <span class="o">=&gt;</span> l.bpfMap.Update
+</code></pre></div></div>
+
+<p>那么问题来了什么地方丢过来的，而且这份 ID 也分配了，Metadata 也分配了，global 看着很熟悉，所以就回头看下 createEndpoint 吧。</p>
+
+<p>调用链如下：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>daemon/cmd/endpoint.go#createEndpoint <span class="o">=&gt;</span> ep.UpdateLabels
+	pkg/endpoint/endpoint.go#UpdateLabels  <span class="o">=&gt;</span> e.runIdentityResolver
+	    pkg/endpoint/endpoint.go#runIdentityResolver <span class="o">=&gt;</span>  e.identityLabelsChanged
+	         pkg/endpoint/endpoint.go#identityLabelsChanged  <span class="o">=&gt;</span>   e.SetIdentity
+	               pkg/endpoint/policy.go#SetIdentity   <span class="o">=&gt;</span>    e.runIPIdentitySync
+	                      pkg/endpoint/policy.go#runIPIdentitySync   <span class="o">=&gt;</span>   ipcache.UpsertIPToKVStore
+</code></pre></div></div>
+
+<p>现在两边应该就能串起来了，在创建实例的时候，首先调用 requestAddres 接口，然后调用 createEndpoint 接口，createEndpoint 会创建 Endpoint 
+虚拟网络等信息，并且设置全局唯一 ID。形成一个实例信息发送到 consul 中。然后 watch 监听到 consul 有新的值就会启动 ipcache 的流程将基本信息
+存储到 ipcache 中。</p>
+
+<p>那 ipcache 具体存储什么呢？</p>
+
+<div class="language-golang highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">type</span> <span class="n">Key</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">Prefixlen</span> <span class="kt">uint32</span> <span class="s">`align:"lpm_key"`</span>   <span class="c">//  64</span>
+	<span class="n">Pad1</span>      <span class="kt">uint16</span> <span class="s">`align:"pad1"`</span>
+	<span class="n">Pad2</span>      <span class="kt">uint8</span>  <span class="s">`align:"pad2"`</span>
+	<span class="n">Family</span>    <span class="kt">uint8</span>  <span class="s">`align:"family"`</span>    <span class="c">// 1</span>
+	<span class="c">// represents both IPv6 and IPv4 (in the lowest four bytes)</span>
+	<span class="n">IP</span> <span class="n">types</span><span class="o">.</span><span class="n">IPv6</span> <span class="s">`align:"$union0"`</span>    <span class="c">// 10.11.41.206</span>
+<span class="p">}</span>
+<span class="k">type</span> <span class="n">RemoteEndpointInfo</span> <span class="k">struct</span> <span class="p">{</span>
+	<span class="n">SecurityIdentity</span> <span class="kt">uint32</span>     <span class="s">`align:"sec_label"`</span>    <span class="c">// 62820</span>
+	<span class="n">TunnelEndpoint</span>   <span class="n">types</span><span class="o">.</span><span class="n">IPv4</span> <span class="s">`align:"tunnel_endpoint"`</span>
+	<span class="n">Key</span>              <span class="kt">uint8</span>      <span class="s">`align:"key"`</span>   <span class="c">// </span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>这就是存储的具体内容。</p>
+
+<p>下面就需要具体分析 ipcache、lxc、filter 等代码了。</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>结构定义如下：
+
+```golang
+// 与 bpf/lib/common.h endpoint_key 结构体同步
+type EndpointKey struct {
+	IP     types.IPv6 `align:"$union0"`
+	Family uint8      `align:"family"`  // 地址类型 IPv4 和 IPv6
+	Key    uint8      `align:"key"`     // 默认=0
+	Pad2   uint16     `align:"pad5"`
+}
+// 与 &lt;bpf/lib/common.h&gt; endpoint_info 结构体同步
+type EndpointInfo struct {
+	IfIndex uint32 `align:"ifindex"`
+	Unused  uint16 `align:"unused"`
+	LxcID   uint16 `align:"lxc_id"`
+	Flags   uint32 `align:"flags"`
+	// go alignment
+	_       uint32
+	MAC     MAC        `align:"mac"`
+	NodeMAC MAC        `align:"node_mac"`
+	Pad     pad4uint32 `align:"pad"`
+}
+```
+
+
+0 = ReservedIdentityHealth (4) -&gt; 
+1 = ReservedEKSKubeDNS (103) -&gt; 
+2 = ReservedIdentityInit (5) -&gt; 
+3 = ReservedCiliumOperator (105) -&gt; 
+4 = github.com/cilium/cilium/pkg/datapath/loader.templateSecurityID (2) -&gt; 
+5 = ReservedCoreDNS (104) -&gt; 
+6 = ReservedCiliumKVStore (101) -&gt; 
+7 = ReservedIdentityUnmanaged (3) -&gt; 
+8 = ReservedIdentityRemoteNode (6) -&gt; 
+9 = ReservedKubeDNS (102) -&gt; 
+10 = ReservedEKSCoreDNS (106) -&gt; 
+11 = ReservedCiliumEtcdOperator (107) -&gt; 
+12 = ReservedIdentityHost (1) -&gt; 
+13 = ReservedETCDOperator (100) -&gt; 
+
+
+0 = {uint8} 110 6e
+1 = {uint8} 176
+2 = {uint8} 125
+3 = {uint8} 78
+4 = {uint8} 107
+5 = {uint8} 229
+
+
+
+demo Mac     6e:b0:7d:4e:6b:e5        10.11.255.104
+nginx Mac    1a:6d:c6:85:08:4d        
+enp0s3 Mac： 52:54:00:12:35:02
+docker0 Mac：02:42:ac:11:00:03
+
+docker run -d --name app1 --net cilium-net -l "id=app1" cilium/demo-httpd   10.11.71.148
+{10.11.255.104  32327f7b4cf9  f00d::a0f:0:0:36a    32327f7b4cf9  6e:b0:7d:4e:6b:e5   cilium0@if19}
+docker run -d --name app2 --net cilium-net -l "id=app2" nginx   
+{10.11.90.17  a94c744974c4  f00d::a0f:0:0:36a    a94c744974c4  1a:6d:c6:85:08:4d  cilium0@if49}
+</code></pre></div></div>
+
+:ET

@@ -1,0 +1,827 @@
+I"�e<h1 id="libbpf-co-re-原理">libbpf CO-RE 原理</h1>
+
+<p>libbpf CO-RE 原理将软件栈所有层次 – 内核、用户空间 BPF Loader库、编译器 进行了抽象将必要的功能、数据段整合到了一起，来降低编写可移植性 BPF 程序的难度。</p>
+
+<ol>
+  <li>内核层：将 BPF 程序编译成 BTF 字节码允许捕获关于内核、BPF 程序的类型、代码等关键信息</li>
+  <li>Clang为BPF程序C代码提供了express the intent和记录relocation信息的手段</li>
+  <li>BPF Loader 根据内核版本对 BTF 进行剪裁，让其适合于当前内核版本运行</li>
+  <li>整合头文件 vlinux.h ，将所需要的大多数都文件加载到期，方便程序编译</li>
+</ol>
+
+<p>实战：bcc <code class="language-plaintext highlighter-rouge">http-parse-simple</code> 转  libbpf</p>
+
+<p>调研 bcc <code class="language-plaintext highlighter-rouge">http-parse-simple</code> 功能：</p>
+
+<p>eBPF应用程序，它解析HTTP包并提取(并在屏幕上打印)GET/POST请求中包含的URL。</p>
+
+<p>使用方式：
+  $ sudo python http-parse-complete.py 
+  GET /pipermail/iovisor-dev/ HTTP/1.1
+  HTTP/1.1 200 OK
+  GET /favicon.ico HTTP/1.1
+  HTTP/1.1 404 Not Found
+  GET /pipermail/iovisor-dev/2016-January/thread.html HTTP/1.1
+  HTTP/1.1 200 OK
+  GET /pipermail/iovisor-dev/2016-January/000046.html HTTP/1.1
+  HTTP/1.1 200 OK</p>
+
+<p>实现方式
+一、利用 BPF 代码，将数据包存储到 Map
+二、用户空间执行额外的处理</p>
+
+<p>首先使用 BPF 过滤包含 HTTP、GET、POST 等字符串 IP 和 TCP 包，以及属于同一会话的后续包，具有相同元组数据的 <code class="language-plaintext highlighter-rouge">ip.src,ip.dst,port.src,port.dst</code></p>
+
+<p>程序以：<code class="language-plaintext highlighter-rouge">PROG_TYPE_SOCKET_FILTER</code> 方式加载，嵌入到 socket 上面，绑定到 eth0</p>
+
+<p>匹配的报文转发到用户空间，其他的全部删除掉</p>
+
+<p>用户空间将过滤出来的数据包属于同一会话的进行重新组装。</p>
+
+<h1 id="xdp-区别">XDP 区别</h1>
+<p>基于 libbpf 写 XDP、Socket、tc 相关接口与写普通的 tracepoints 方式还不太一样，tracepoints 被 libbpf 封装的比较好，但是
+XDP 就需要了解一下底层的方法和系统调用
+大致步骤如下：</p>
+<ol>
+  <li>编译内核 BPF 程序</li>
+  <li>加载文件</li>
+  <li>将 BPF attach 到指定设备</li>
+</ol>
+
+<p>http_xdp.bpf.c</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cm">/* SPDX-License-Identifier: GPL-2.0 */</span>
+<span class="cp">#include</span> <span class="cpf">"vmlinux.h"</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_helpers.h&gt;</span><span class="cp">
+</span>
+
+<span class="n">SEC</span><span class="p">(</span><span class="s">"xdp"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">xdp_prog_simple</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"monitor xdp entry</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="n">XDP_PASS</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">char</span> <span class="n">_license</span><span class="p">[]</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"license"</span><span class="p">)</span> <span class="o">=</span> <span class="s">"GPL"</span><span class="p">;</span>
+</code></pre></div></div>
+<p>执行编译命令:</p>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>clang <span class="nt">-g</span> <span class="nt">-O2</span> <span class="nt">-target</span> bpf <span class="nt">-D__TARGET_ARCH_x86</span> <span class="nt">-I</span>.output <span class="nt">-I</span>../../libbpf/include/uapi <span class="nt">-I</span>../../vmlinux/ <span class="se">\</span>
+<span class="nt">-idirafter</span> /usr/local/include <span class="se">\</span>
+<span class="nt">-idirafter</span> /usr/lib/llvm-11/lib/clang/11.1.0/include <span class="se">\</span>
+<span class="nt">-idirafter</span> /usr/include/x86_64-linux-gnu <span class="se">\</span>
+<span class="nt">-idirafter</span> /usr/include <span class="se">\</span>
+<span class="nt">-c</span> http_xdp.bpf.c <span class="se">\</span>
+<span class="nt">-o</span> .output/http_xdp.bpf.o
+</code></pre></div></div>
+
+<p>用户空间代码</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)</span>
+<span class="cm">/* Copyright (c) 2020 Facebook */</span>
+
+<span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;errno.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;getopt.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;bpf/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/libbpf.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;net/if.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_link.h&gt;</span><span class="cp">
+</span>
+<span class="kt">int</span> <span class="nf">load_bpf_file</span><span class="p">(</span><span class="kt">char</span><span class="o">*</span> <span class="n">filename</span><span class="p">){</span>
+  <span class="kt">int</span> <span class="n">first_prog_fd</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+
+  <span class="k">struct</span> <span class="n">bpf_object</span> <span class="o">*</span><span class="n">obj</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+
+  <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_prog_file</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span><span class="n">BPF_PROG_TYPE_XDP</span><span class="p">,</span><span class="o">&amp;</span><span class="n">obj</span><span class="p">,</span><span class="o">&amp;</span><span class="n">first_prog_fd</span><span class="p">);</span>
+
+  <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: loading BPF-OBJ file(%s) (%d): %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+      <span class="n">filename</span><span class="p">,</span> <span class="n">err</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">));</span>
+  <span class="p">}</span>
+  
+
+  <span class="k">return</span> <span class="n">first_prog_fd</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">xdp_attach</span><span class="p">(</span><span class="kt">int</span> <span class="n">ifindex</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">xdp_flags</span><span class="p">,</span> <span class="kt">int</span> <span class="n">prog_fd</span><span class="p">){</span>
+  <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+  <span class="c1">// 设置 link fd</span>
+  <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span><span class="n">prog_fd</span><span class="p">,</span><span class="n">xdp_flags</span><span class="p">);</span>
+  
+  <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="p">(</span><span class="n">xdp_flags</span> <span class="o">&amp;</span> <span class="n">XDP_FLAGS_UPDATE_IF_NOEXIST</span><span class="p">))</span> <span class="p">{</span>
+    
+    <span class="n">__u32</span> <span class="n">old_flags</span> <span class="o">=</span> <span class="n">xdp_flags</span><span class="p">;</span>
+
+    <span class="n">xdp_flags</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">XDP_FLAGS_MODES</span><span class="p">;</span>
+    <span class="n">xdp_flags</span> <span class="o">|=</span> <span class="p">(</span><span class="n">old_flags</span> <span class="o">&amp;</span> <span class="n">XDP_FLAGS_SKB_MODE</span><span class="p">)</span> <span class="o">?</span> <span class="n">XDP_FLAGS_DRV_MODE</span> <span class="o">:</span> <span class="n">XDP_FLAGS_SKB_MODE</span><span class="p">;</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">xdp_flags</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">err</span><span class="p">)</span>
+      <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span> <span class="n">prog_fd</span><span class="p">,</span> <span class="n">old_flags</span><span class="p">);</span>
+
+  <span class="p">}</span>
+
+  <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: "</span>
+      <span class="s">"ifindex(%d) link set xdp fd failed (%d): %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+      <span class="n">ifindex</span><span class="p">,</span> <span class="o">-</span><span class="n">err</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">));</span>
+
+    <span class="k">switch</span> <span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">case</span> <span class="n">EBUSY</span><span class="p">:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"EBUSY</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="k">case</span> <span class="n">EEXIST</span><span class="p">:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"EEXIST</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="k">case</span> <span class="n">EOPNOTSUPP</span><span class="p">:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"EOPNOTSUPP</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="nl">default:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"default</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+
+
+
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(){</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+
+  <span class="k">struct</span> <span class="n">bpf_prog_info</span> <span class="n">info</span> <span class="o">=</span> <span class="p">{};</span>
+  <span class="n">__u32</span> <span class="n">info_len</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">info</span><span class="p">);</span>
+  
+  <span class="c1">// 指定 BPF 编译文件 和 设备</span>
+  <span class="kt">char</span> <span class="n">filename</span><span class="p">[</span><span class="mi">256</span><span class="p">]</span> <span class="o">=</span> <span class="s">"http_xdp.bpf.o"</span><span class="p">;</span>
+  <span class="kt">int</span> <span class="n">dev_index</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span> <span class="c1">// eth0</span>
+  <span class="n">__u32</span> <span class="n">xdp_flags</span> <span class="o">=</span> <span class="n">XDP_FLAGS_UPDATE_IF_NOEXIST</span> <span class="o">|</span> <span class="n">XDP_FLAGS_DRV_MODE</span><span class="p">;</span>
+
+  <span class="c1">// 加载文件</span>
+  <span class="kt">int</span> <span class="n">prog_fd</span> <span class="o">=</span> <span class="n">load_bpf_file</span><span class="p">(</span><span class="n">filename</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">prog_fd</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"Load BPF %s Faile.</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">filename</span><span class="p">);</span>
+    <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+  
+  <span class="c1">// attach 文件</span>
+  <span class="n">err</span> <span class="o">=</span> <span class="n">xdp_attach</span><span class="p">(</span><span class="n">dev_index</span><span class="p">,</span> <span class="n">xdp_flags</span><span class="p">,</span> <span class="n">prog_fd</span><span class="p">);</span>
+  <span class="c1">// 退出 detach</span>
+
+  <span class="n">printf</span><span class="p">(</span><span class="s">"Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "</span>
+         <span class="s">"to see output of the BPF programs.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+
+    <span class="k">for</span> <span class="p">(;;)</span>
+  <span class="p">{</span>
+    <span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">);</span>
+  <span class="p">}</span>
+  
+  <span class="k">return</span> <span class="o">-</span><span class="n">err</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>执行编译命令：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">cc</span> <span class="o">-</span><span class="n">g</span> <span class="o">-</span><span class="n">Wall</span> <span class="o">-</span><span class="n">I</span><span class="p">.</span><span class="n">output</span> <span class="o">-</span><span class="n">I</span><span class="p">..</span><span class="o">/</span><span class="p">..</span><span class="o">/</span><span class="n">libbpf</span><span class="o">/</span><span class="n">include</span><span class="o">/</span><span class="n">uapi</span> <span class="o">-</span><span class="n">I</span><span class="p">..</span><span class="o">/</span><span class="p">..</span><span class="o">/</span><span class="n">vmlinux</span><span class="o">/</span> <span class="o">-</span><span class="n">c</span> <span class="n">http_xdp</span><span class="p">.</span><span class="n">c</span> <span class="o">-</span><span class="n">o</span> <span class="n">http_xdp</span><span class="p">.</span><span class="n">o</span>
+<span class="n">cc</span> <span class="o">-</span><span class="n">g</span> <span class="o">-</span><span class="n">Wall</span> <span class="p">.</span><span class="o">/</span><span class="n">http_xdp</span><span class="p">.</span><span class="n">o</span> <span class="o">/</span><span class="n">home</span><span class="o">/</span><span class="n">vagrant</span><span class="o">/</span><span class="n">libbpf</span><span class="o">-</span><span class="n">bootstrap</span><span class="o">/</span><span class="n">examples</span><span class="o">/</span><span class="n">c</span><span class="o">/</span><span class="p">.</span><span class="n">output</span><span class="o">/</span><span class="n">libbpf</span><span class="p">.</span><span class="n">a</span> <span class="o">-</span><span class="n">lelf</span> <span class="o">-</span><span class="n">lz</span> <span class="o">-</span><span class="n">o</span> <span class="n">http_xdp</span>
+</code></pre></div></div>
+
+<p>然后运行 <code class="language-plaintext highlighter-rouge">http_xdp</code> 就可以了，通过另一个命令行可以看到 xdp 被正确加载并运行。</p>
+
+<p>上面的程序运行目前只能监控到 ingress 流量，也就是说只能监控到入口流量，不能监控到出口流量，所以为了监控到出口流量，需要重新编写新的一套工具在 tc 层做流量监控。</p>
+
+<p>一开始对 tc 有点误解，认为 filter &gt; class &gt; qdisc ，但是通过文章 <a href="https://blog.csdn.net/wuruixn/article/details/8210760">《Linux 流量控制工具 TC 详解》</a> 
+了解知道，方向恰好反过来。 qdisc &gt; class &gt; filter</p>
+
+<p>主要入口流量分为分类队列和无类队列规定。所以 tc 层最早接入流量的应该是在 qdisc 层。有 qdisc 规定才会衍生出 class、filter。如果无 qdisc 就不能创建 class、filter 也就是不能
+使用 tc 加载 bpf 程序。</p>
+
+<p>编写 BPF 程序如下：</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause</span>
+<span class="cm">/* Copyright (c) 2020 Facebook */</span>
+
+<span class="cp">#include</span> <span class="cpf">&lt;linux/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_helpers.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_endian.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/ip.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/in.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/tcp.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_ether.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/pkt_cls.h&gt;</span><span class="cp">
+</span>
+<span class="k">struct</span> <span class="n">eth_hdr</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">char</span> <span class="n">h_dest</span><span class="p">[</span><span class="n">ETH_ALEN</span><span class="p">];</span>
+    <span class="kt">unsigned</span> <span class="kt">char</span> <span class="n">h_source</span><span class="p">[</span><span class="n">ETH_ALEN</span><span class="p">];</span>
+    <span class="kt">unsigned</span> <span class="kt">short</span> <span class="n">h_proto</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="n">SEC</span><span class="p">(</span><span class="s">"ingress"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">tc_ingress</span><span class="p">(</span><span class="k">struct</span> <span class="n">__sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">==</span> <span class="n">bpf_htons</span><span class="p">(</span><span class="n">ETH_P_IP</span><span class="p">))</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">len</span> <span class="o">&gt;</span> <span class="mi">120</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="c1">// 获取数据位置</span>
+            <span class="kt">void</span> <span class="o">*</span><span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)(</span><span class="kt">long</span><span class="p">)</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">;</span>
+            <span class="kt">void</span> <span class="o">*</span><span class="n">data_end</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)(</span><span class="kt">long</span><span class="p">)</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">data_end</span><span class="p">;</span>
+            
+            <span class="c1">// 获取 网卡 header</span>
+            <span class="k">struct</span> <span class="n">eth_hdr</span> <span class="o">*</span><span class="n">eth</span> <span class="o">=</span> <span class="n">data</span><span class="p">;</span>
+            <span class="c1">// 获取 ip header</span>
+            <span class="k">struct</span> <span class="n">iphdr</span> <span class="o">*</span><span class="n">iph</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">);</span>
+            <span class="c1">// 获取 tcp header</span>
+            <span class="k">struct</span> <span class="n">tcphdr</span> <span class="o">*</span><span class="n">tcp</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">);</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="c1">// 只关心 IPv4 </span>
+            <span class="k">if</span> <span class="p">(</span><span class="o">!!</span><span class="n">eth</span> <span class="o">&amp;&amp;</span> <span class="n">eth</span><span class="o">-&gt;</span><span class="n">h_proto</span> <span class="o">==</span> <span class="n">bpf_htons</span><span class="p">(</span><span class="n">ETH_P_IP</span><span class="p">))</span>
+            <span class="p">{</span>
+
+                <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+
+                <span class="c1">// 只过滤 TCP </span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">iph</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">!=</span> <span class="n">IPPROTO_TCP</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+
+                <span class="c1">// 判断数据是否充足</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">tcp</span><span class="p">)</span> <span class="o">+</span> <span class="mi">27</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// 开始读取报文信息</span>
+                <span class="kt">char</span> <span class="o">*</span><span class="n">body</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">tcp</span><span class="p">);</span>
+                <span class="c1">// HTTP</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'H'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"HTTP</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// GET </span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'G'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"GET</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// POST</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'O'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'S'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"POST</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// PUT</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'U'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"PUT</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// DELETE</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'D'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'L'</span> 
+                <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">4</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">5</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"DELETe</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="nl">out:</span>
+    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">SEC</span><span class="p">(</span><span class="s">"egress"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">tc_egress</span><span class="p">(</span><span class="k">struct</span> <span class="n">__sk_buff</span> <span class="o">*</span><span class="n">sk</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">char</span> <span class="n">_license</span><span class="p">[]</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"license"</span><span class="p">)</span> <span class="o">=</span> <span class="s">"GPL"</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>通过以下编译命令：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>clang <span class="nt">-O2</span> <span class="nt">-target</span> bpf <span class="nt">-D__TARGET_ARCH_x86</span> <span class="nt">-I</span>.output <span class="nt">-I</span>../../libbpf/include/uapi <span class="nt">-I</span>../../vmlinux/ <span class="nt">-idirafter</span> /usr/local/include <span class="nt">-idirafter</span> /usr/lib/llvm-11/lib/clang/11.1.0/include <span class="nt">-idirafter</span> /usr/include/x86_64-linux-gnu <span class="nt">-idirafter</span> /usr/include <span class="nt">-c</span> tc_http.bpf.c <span class="nt">-o</span> tc_http.bpf.o
+</code></pre></div></div>
+
+<p>通过命令加载：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>tc filter add dev eth0 ingress bpf da obj tc_http.bpf.o sec ingress
+</code></pre></div></div>
+
+<p>通过以下命令查看输出：</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo cat</span> /sys/kernel/debug/tracing/trace_pipe
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 90146.929668: 0: GET
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 90209.748481: 0: GET
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 90209.971206: 0: GET
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 90210.146610: 0: GET
+</code></pre></div></div>
+
+<p>如果不是用 libbpf 的话那么可以用命令行来加载，但是 libbpf 将整个过程简化了很多不需要记住这么多命令就可以直接加载到 tc 触发运行。所以需要编写用户空间代码。</p>
+
+<p>先了解下如何通过指定 section 来加载 ebpf 程序：</p>
+
+<p><code class="language-plaintext highlighter-rouge">sec_xdp.bpf.c</code></p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;linux/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_helpers.h&gt;</span><span class="cp">
+</span>
+
+<span class="n">SEC</span><span class="p">(</span><span class="s">"xdp_pass"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">xdp_pass_func</span><span class="p">(</span><span class="k">struct</span> <span class="n">xdp_md</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"XDP_PASS ---------&gt;</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="n">XDP_PASS</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="n">SEC</span><span class="p">(</span><span class="s">"xpd_drop"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">xdp_drop_func</span><span class="p">(</span><span class="k">struct</span> <span class="n">xdp_md</span> <span class="o">*</span><span class="n">ctx</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"XDP_DROP ---------&gt;</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">return</span> <span class="n">XDP_PASS</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">char</span> <span class="n">_license</span><span class="p">[]</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"license"</span><span class="p">)</span> <span class="o">=</span> <span class="s">"GPL"</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">sec_xdp.c</code> 加载程序</p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;errno.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;getopt.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;bpf/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/libbpf.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;net/if.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_link.h&gt;</span><span class="c1"> </span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">"common_defines.h"</span><span class="cp">
+</span>
+<span class="kt">int</span> <span class="nf">xdp_link_attach</span><span class="p">(</span><span class="kt">int</span> <span class="n">ifindex</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">xdp_flags</span><span class="p">,</span> <span class="kt">int</span> <span class="n">prog_fd</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+
+  <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span> <span class="n">prog_fd</span><span class="p">,</span> <span class="n">xdp_flags</span><span class="p">);</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">==</span> <span class="o">-</span><span class="n">EEXIST</span> <span class="o">&amp;&amp;</span> <span class="o">!</span><span class="p">(</span><span class="n">xdp_flags</span> <span class="o">&amp;</span> <span class="n">XDP_FLAGS_UPDATE_IF_NOEXIST</span><span class="p">))</span> <span class="p">{</span>
+
+    <span class="n">__u32</span> <span class="n">old_flags</span> <span class="o">=</span> <span class="n">xdp_flags</span><span class="p">;</span>
+
+    <span class="n">xdp_flags</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">XDP_FLAGS_MODES</span><span class="p">;</span>
+    <span class="n">xdp_flags</span> <span class="o">|=</span> <span class="p">(</span><span class="n">old_flags</span> <span class="o">&amp;</span> <span class="n">XDP_FLAGS_SKB_MODE</span><span class="p">)</span> <span class="o">?</span> <span class="n">XDP_FLAGS_DRV_MODE</span> <span class="o">:</span> <span class="n">XDP_FLAGS_SKB_MODE</span><span class="p">;</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">xdp_flags</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">err</span><span class="p">)</span>
+      <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_set_link_xdp_fd</span><span class="p">(</span><span class="n">ifindex</span><span class="p">,</span> <span class="n">prog_fd</span><span class="p">,</span> <span class="n">old_flags</span><span class="p">);</span>
+  <span class="p">}</span>
+  <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: "</span>
+      <span class="s">"ifindex(%d) link set xdp fd failed (%d): %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+      <span class="n">ifindex</span><span class="p">,</span> <span class="o">-</span><span class="n">err</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">));</span>
+
+    <span class="k">switch</span> <span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">case</span> <span class="n">EBUSY</span><span class="p">:</span>
+    <span class="k">case</span> <span class="n">EEXIST</span><span class="p">:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Hint: XDP already loaded on device"</span>
+        <span class="s">" use --force to swap/replace</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="k">case</span> <span class="n">EOPNOTSUPP</span><span class="p">:</span>
+      <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Hint: Native-XDP not supported"</span>
+        <span class="s">" use --skb-mode or --auto-mode</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="nl">default:</span>
+      <span class="k">break</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">filename</span> <span class="o">=</span> <span class="s">"sec_xdp.bpf.o"</span><span class="p">;</span>
+    <span class="k">const</span> <span class="kt">char</span> <span class="o">*</span><span class="n">progsec</span> <span class="o">=</span> <span class="s">"xdp_pass"</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">prog_fd</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">first_prog_fd</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">ifindex</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">bpf_object</span> <span class="o">*</span><span class="n">bpf_obj</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">bpf_program</span> <span class="o">*</span><span class="n">bpf_prog</span><span class="p">;</span>
+
+    <span class="kt">int</span> <span class="n">xdp_flags</span> <span class="o">=</span> <span class="n">XDP_FLAGS_UPDATE_IF_NOEXIST</span> <span class="o">|</span> <span class="n">XDP_FLAGS_SKB_MODE</span><span class="p">;</span>
+
+    <span class="c1">// define xdp attr</span>
+    <span class="k">struct</span> <span class="n">bpf_prog_load_attr</span> <span class="n">prog_load_attr</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="p">.</span><span class="n">prog_type</span> <span class="o">=</span> <span class="n">BPF_PROG_TYPE_XDP</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">ifindex</span>   <span class="o">=</span> <span class="n">ifindex</span><span class="p">,</span>
+  <span class="p">};</span>
+    <span class="n">prog_load_attr</span><span class="p">.</span><span class="n">file</span> <span class="o">=</span> <span class="n">filename</span><span class="p">;</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"start load file %s </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">prog_load_attr</span><span class="p">.</span><span class="n">file</span><span class="p">);</span>
+
+
+    <span class="c1">// load xdp file</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_prog_load_xattr</span><span class="p">(</span><span class="o">&amp;</span><span class="n">prog_load_attr</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">bpf_obj</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">first_prog_fd</span><span class="p">);</span>
+    <span class="k">if</span><span class="p">(</span><span class="n">err</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">){</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: loading BPF-OBJ file(%s) (%d): %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span>
+      <span class="n">filename</span><span class="p">,</span> <span class="n">err</span><span class="p">,</span> <span class="n">strerror</span><span class="p">(</span><span class="o">-</span><span class="n">err</span><span class="p">));</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="c1">// find section </span>
+    <span class="n">bpf_prog</span> <span class="o">=</span> <span class="n">bpf_object__find_program_by_title</span><span class="p">(</span><span class="n">bpf_obj</span><span class="p">,</span> <span class="n">progsec</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">bpf_prog</span><span class="p">)</span> 
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: finding progsec: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">progsec</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+  <span class="c1">// 读取指令文件</span>
+    <span class="n">prog_fd</span> <span class="o">=</span> <span class="n">bpf_program__fd</span><span class="p">(</span><span class="n">bpf_prog</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">prog_fd</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"ERR: bpf_program__fd failed</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+  <span class="p">}</span>    
+    <span class="c1">// attach xdp file</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">xdp_link_attach</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">xdp_flags</span><span class="p">,</span> <span class="n">prog_fd</span><span class="p">);</span>
+    
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+  <span class="p">{</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+<span class="nl">out:</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>通过运行 <code class="language-plaintext highlighter-rouge">sudo ./sec_xdp</code> 就可以观察到 xdp 程序已经按照 section 去加载了。</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span><span class="nb">sudo</span> ./sec_xdp                   
+start load file sec_xdp.bpf.o 
+libbpf: elf: skipping unrecognized data section<span class="o">(</span>4<span class="o">)</span> .rodata.str1.1
+<span class="nv">$ </span>ip addr|grep xdp
+2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 xdpgeneric/id:285 qdisc fq_codel state UP group default qlen 1000
+<span class="nv">$ </span><span class="nb">sudo cat</span> /sys/kernel/debug/tracing/trace_pipe
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 273632.203008: 0: XDP_PASS <span class="nt">---------</span><span class="o">&gt;</span>
+          &lt;idle&gt;-0       <span class="o">[</span>001] ..s. 273632.203025: 0: XDP_PASS <span class="nt">---------</span><span class="o">&gt;</span>
+</code></pre></div></div>
+<p><strong><code class="language-plaintext highlighter-rouge">有个 ifindex 参考值，不知道是什么意思，要查</code></strong></p>
+
+<p>接下来看下如何通过 libbpf 将程序加载到 tc 层：</p>
+
+<p>公共部分 <code class="language-plaintext highlighter-rouge">tc_http_common.h</code></p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#ifndef __TC_HTTP_COMMON
+</span><span class="k">static</span> <span class="k">const</span> <span class="n">__u32</span> <span class="n">HTTP</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="n">__u32</span> <span class="n">GET</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="n">__u32</span> <span class="n">POST</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="n">__u32</span> <span class="n">PUT</span> <span class="o">=</span> <span class="mi">3</span><span class="p">;</span>
+<span class="k">static</span> <span class="k">const</span> <span class="n">__u32</span> <span class="n">DELETE</span> <span class="o">=</span> <span class="mi">4</span><span class="p">;</span>
+
+
+<span class="k">struct</span> <span class="n">datarec</span> <span class="p">{</span>
+    <span class="n">__u64</span> <span class="n">rx_packets</span><span class="p">;</span>
+<span class="p">};</span>
+<span class="cp">#endif
+</span></code></pre></div></div>
+
+<p>内核处理部分： <code class="language-plaintext highlighter-rouge">tc_http.bpf.c</code></p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="cp">#include</span> <span class="cpf">&lt;linux/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_helpers.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/bpf_endian.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/ip.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/in.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/tcp.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_ether.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/pkt_cls.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">"tc_http_common.h"</span><span class="cp">
+</span>
+<span class="k">struct</span> <span class="n">eth_hdr</span>
+<span class="p">{</span>
+    <span class="kt">unsigned</span> <span class="kt">char</span> <span class="n">h_dest</span><span class="p">[</span><span class="n">ETH_ALEN</span><span class="p">];</span>
+    <span class="kt">unsigned</span> <span class="kt">char</span> <span class="n">h_source</span><span class="p">[</span><span class="n">ETH_ALEN</span><span class="p">];</span>
+    <span class="kt">unsigned</span> <span class="kt">short</span> <span class="n">h_proto</span><span class="p">;</span>
+<span class="p">};</span>
+
+<span class="k">struct</span> <span class="n">bpf_map_def</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"maps"</span><span class="p">)</span> <span class="n">request_map</span> <span class="o">=</span> 
+<span class="p">{</span>
+    <span class="p">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">BPF_MAP_TYPE_ARRAY</span><span class="p">,</span>
+    <span class="p">.</span><span class="n">key_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">__u32</span><span class="p">),</span>
+    <span class="p">.</span><span class="n">value_size</span> <span class="o">=</span> <span class="k">sizeof</span><span class="p">(</span><span class="k">struct</span> <span class="n">datarec</span><span class="p">),</span>
+    <span class="p">.</span><span class="n">max_entries</span> <span class="o">=</span> <span class="mi">64435</span><span class="p">,</span>
+<span class="p">};</span>
+
+<span class="cp">#ifndef lock_xadd
+#define lock_xadd(ptr, val) ((void) __sync_fetch_and_add(ptr, val))
+#endif
+</span>
+<span class="n">SEC</span><span class="p">(</span><span class="s">"classifier/read"</span><span class="p">)</span>
+<span class="kt">int</span> <span class="nf">tc_ingress</span><span class="p">(</span><span class="k">struct</span> <span class="n">__sk_buff</span> <span class="o">*</span><span class="n">skb</span><span class="p">)</span>
+<span class="p">{</span>
+
+    <span class="k">struct</span> <span class="n">datarec</span> <span class="o">*</span><span class="n">rec</span><span class="p">;</span>    
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>    
+    <span class="k">if</span> <span class="p">(</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">==</span> <span class="n">bpf_htons</span><span class="p">(</span><span class="n">ETH_P_IP</span><span class="p">))</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">len</span> <span class="o">&gt;</span> <span class="mi">120</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="c1">// 获取数据位置</span>
+            <span class="kt">void</span> <span class="o">*</span><span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)(</span><span class="kt">long</span><span class="p">)</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">;</span>
+            <span class="kt">void</span> <span class="o">*</span><span class="n">data_end</span> <span class="o">=</span> <span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="p">)(</span><span class="kt">long</span><span class="p">)</span><span class="n">skb</span><span class="o">-&gt;</span><span class="n">data_end</span><span class="p">;</span>
+            
+            <span class="c1">// 获取 网卡 header</span>
+            <span class="k">struct</span> <span class="n">eth_hdr</span> <span class="o">*</span><span class="n">eth</span> <span class="o">=</span> <span class="n">data</span><span class="p">;</span>
+            <span class="c1">// 获取 ip header</span>
+            <span class="k">struct</span> <span class="n">iphdr</span> <span class="o">*</span><span class="n">iph</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">);</span>
+            <span class="c1">// 获取 tcp header</span>
+            <span class="k">struct</span> <span class="n">tcphdr</span> <span class="o">*</span><span class="n">tcp</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">);</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+            <span class="p">{</span>
+                <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+            <span class="p">}</span>
+            <span class="c1">// 只关心 IPv4 </span>
+            <span class="k">if</span> <span class="p">(</span><span class="o">!!</span><span class="n">eth</span> <span class="o">&amp;&amp;</span> <span class="n">eth</span><span class="o">-&gt;</span><span class="n">h_proto</span> <span class="o">==</span> <span class="n">bpf_htons</span><span class="p">(</span><span class="n">ETH_P_IP</span><span class="p">))</span>
+            <span class="p">{</span>
+
+                <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+
+                <span class="c1">// 只过滤 TCP </span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">iph</span><span class="o">-&gt;</span><span class="n">protocol</span> <span class="o">!=</span> <span class="n">IPPROTO_TCP</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+
+                <span class="c1">// 判断数据是否充足</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">tcp</span><span class="p">)</span> <span class="o">+</span> <span class="mi">27</span> <span class="o">&gt;</span> <span class="n">data_end</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// 开始读取报文信息</span>
+                <span class="kt">char</span> <span class="o">*</span><span class="n">body</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">eth</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">iph</span><span class="p">)</span> <span class="o">+</span> <span class="k">sizeof</span><span class="p">(</span><span class="o">*</span><span class="n">tcp</span><span class="p">);</span>
+                <span class="c1">// HTTP</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'H'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">rec</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request_map</span><span class="p">,</span><span class="o">&amp;</span><span class="n">HTTP</span><span class="p">);</span>
+                    <span class="k">if</span><span class="p">(</span><span class="n">rec</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">){</span>
+                        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                    <span class="p">}</span>
+                    <span class="n">lock_xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"HTTP NOT NULL  %lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// GET </span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'G'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">rec</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request_map</span><span class="p">,</span><span class="o">&amp;</span><span class="n">GET</span><span class="p">);</span>
+                    <span class="k">if</span><span class="p">(</span><span class="n">rec</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">){</span>
+                        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                    <span class="p">}</span>
+                    <span class="n">lock_xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"GET NOT NULL  %lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// POST</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'O'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'S'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">rec</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request_map</span><span class="p">,</span><span class="o">&amp;</span><span class="n">POST</span><span class="p">);</span>
+                    <span class="k">if</span><span class="p">(</span><span class="n">rec</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">){</span>
+                        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                    <span class="p">}</span>
+                    <span class="n">lock_xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"POST NOT NULL  %lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// PUT</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'P'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'U'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">rec</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request_map</span><span class="p">,</span><span class="o">&amp;</span><span class="n">PUT</span><span class="p">);</span>
+                    <span class="k">if</span><span class="p">(</span><span class="n">rec</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">){</span>
+                        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                    <span class="p">}</span>
+                    <span class="n">lock_xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"PUT NOT NULL  %lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+                <span class="c1">// DELETE</span>
+                <span class="k">if</span> <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'D'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'L'</span> 
+                <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">3</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">4</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'T'</span> <span class="o">&amp;&amp;</span> <span class="o">*</span><span class="p">(</span><span class="n">body</span> <span class="o">+</span> <span class="mi">5</span><span class="p">)</span> <span class="o">==</span> <span class="sc">'E'</span><span class="p">)</span>
+                <span class="p">{</span>
+                    <span class="n">rec</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="o">&amp;</span><span class="n">request_map</span><span class="p">,</span><span class="o">&amp;</span><span class="n">DELETE</span><span class="p">);</span>
+                    <span class="k">if</span><span class="p">(</span><span class="n">rec</span> <span class="o">==</span> <span class="nb">NULL</span><span class="p">){</span>
+                        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                    <span class="p">}</span>
+                    <span class="n">lock_xadd</span><span class="p">(</span><span class="o">&amp;</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+                    <span class="n">bpf_printk</span><span class="p">(</span><span class="s">"DELETE NOT NULL  %lld</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span><span class="n">rec</span><span class="o">-&gt;</span><span class="n">rx_packets</span><span class="p">);</span>
+                    <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+                <span class="p">}</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+<span class="nl">out:</span>
+    <span class="k">return</span> <span class="n">TC_ACT_OK</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">char</span> <span class="n">_license</span><span class="p">[]</span> <span class="n">SEC</span><span class="p">(</span><span class="s">"license"</span><span class="p">)</span> <span class="o">=</span> <span class="s">"GPL"</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>用户空间处理函数：<code class="language-plaintext highlighter-rouge">tc_http.c</code></p>
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">&lt;stdio.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;stdlib.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;string.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;errno.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;getopt.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;sys/resource.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;bpf/bpf.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;bpf/libbpf.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">&lt;net/if.h&gt;</span><span class="cp">
+#include</span> <span class="cpf">&lt;linux/if_link.h&gt;</span><span class="cp">
+</span>
+<span class="cp">#include</span> <span class="cpf">"tc_http_common.h"</span><span class="cp">
+</span>
+<span class="kt">int</span> <span class="nf">load_bpf_file</span><span class="p">(</span><span class="kt">char</span> <span class="o">*</span><span class="n">filename</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="kt">void</span> <span class="nf">find_map_value</span><span class="p">(</span><span class="kt">int</span> <span class="n">map_fd</span><span class="p">,</span> <span class="n">__u32</span> <span class="n">key</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="c1">// 查下值</span>
+    <span class="k">struct</span> <span class="n">datarec</span> <span class="n">rec</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_map_lookup_elem</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">key</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">rec</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">GET</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"GET %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">PUT</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"PUT %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">POST</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"POST %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">key</span> <span class="o">==</span> <span class="n">DELETE</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">printf</span><span class="p">(</span><span class="s">"DELETE %lld </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">rec</span><span class="p">.</span><span class="n">rx_packets</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">}</span>
+    <span class="k">else</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"bpf_map_lookup_elem error %d </span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">err</span><span class="p">);</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
+<span class="p">{</span>
+
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_hook</span><span class="p">,</span> <span class="n">hook</span><span class="p">,</span> <span class="p">.</span><span class="n">attach_point</span> <span class="o">=</span> <span class="n">BPF_TC_INGRESS</span><span class="p">);</span>
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_opts</span><span class="p">,</span> <span class="n">attach_pre</span><span class="p">);</span>
+    <span class="n">DECLARE_LIBBPF_OPTS</span><span class="p">(</span><span class="n">bpf_tc_opts</span><span class="p">,</span> <span class="n">attach_post</span><span class="p">);</span>
+
+    <span class="c1">// BPF 程序名称</span>
+    <span class="kt">char</span> <span class="o">*</span><span class="n">filename</span> <span class="o">=</span> <span class="s">"tc_http.bpf.o"</span><span class="p">;</span>
+
+    <span class="c1">// 网卡名称</span>
+    <span class="kt">int</span> <span class="n">eth_index</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span>
+
+    <span class="c1">// 错误码</span>
+    <span class="kt">int</span> <span class="n">err</span><span class="p">;</span>
+
+    <span class="c1">// bpf map</span>
+
+    <span class="kt">char</span> <span class="o">*</span><span class="n">map_name</span> <span class="o">=</span> <span class="s">"request_map"</span><span class="p">;</span>
+    <span class="k">struct</span> <span class="n">bpf_map</span> <span class="o">*</span><span class="n">map</span><span class="p">;</span>
+    <span class="kt">int</span> <span class="n">map_fd</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+
+    <span class="c1">// open bpf file</span>
+    <span class="k">struct</span> <span class="n">bpf_object</span> <span class="o">*</span><span class="n">bpf_fd</span> <span class="o">=</span> <span class="n">bpf_object__open</span><span class="p">(</span><span class="n">filename</span><span class="p">);</span>
+
+    <span class="n">err</span> <span class="o">=</span> <span class="n">libbpf_get_error</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Couldn't open file: %s</span><span class="se">\n</span><span class="s">"</span><span class="p">,</span> <span class="n">filename</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// load bpf</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_object__load</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"BPF Load Faile</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// read tc_ingress section</span>
+    <span class="n">attach_pre</span><span class="p">.</span><span class="n">prog_fd</span> <span class="o">=</span> <span class="n">bpf_program__fd</span><span class="p">(</span><span class="n">bpf_object__find_program_by_name</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">,</span> <span class="s">"tc_ingress"</span><span class="p">));</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">attach_pre</span><span class="p">.</span><span class="n">prog_fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Find BPF Section tc_ingress Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">hook</span><span class="p">.</span><span class="n">ifindex</span> <span class="o">=</span> <span class="n">eth_index</span><span class="p">;</span>
+    <span class="c1">// 创建 hook 点  设置触发点</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_tc_hook_create</span><span class="p">(</span><span class="o">&amp;</span><span class="n">hook</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Create Hook Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// attach hook</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">bpf_tc_attach</span><span class="p">(</span><span class="o">&amp;</span><span class="n">hook</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">attach_pre</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">fprintf</span><span class="p">(</span><span class="n">stderr</span><span class="p">,</span> <span class="s">"Attach Hook Fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="n">printf</span><span class="p">(</span><span class="s">"Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "</span>
+           <span class="s">"to see output of the BPF programs.</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+
+    <span class="c1">// find map</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"find Map </span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="n">map</span> <span class="o">=</span> <span class="n">bpf_object__find_map_by_name</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">,</span> <span class="n">map_name</span><span class="p">);</span>
+    <span class="n">map_fd</span> <span class="o">=</span> <span class="n">bpf_map__fd</span><span class="p">(</span><span class="n">map</span><span class="p">);</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">map_fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"map read fail</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="k">goto</span> <span class="n">out</span><span class="p">;</span>
+    <span class="p">}</span>
+    <span class="n">printf</span><span class="p">(</span><span class="s">"start epoll</span><span class="se">\n</span><span class="s">"</span><span class="p">);</span>
+    <span class="k">while</span> <span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="p">{</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">GET</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">PUT</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">POST</span><span class="p">);</span>
+        <span class="n">find_map_value</span><span class="p">(</span><span class="n">map_fd</span><span class="p">,</span> <span class="n">DELETE</span><span class="p">);</span>
+        <span class="n">printf</span><span class="p">(</span><span class="s">"</span><span class="se">\n\n\n\n</span><span class="s">"</span><span class="p">);</span>
+        <span class="n">sleep</span><span class="p">(</span><span class="mi">2</span><span class="p">);</span>
+    <span class="p">}</span>
+
+<span class="nl">out:</span>
+    <span class="n">bpf_object__close</span><span class="p">(</span><span class="n">bpf_fd</span><span class="p">);</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>到这里基本上已经完成了，libbpf 统计 HTTP 请求部分。也就是说基本可以读取到 L7 的数据了。</p>
+
+<p>** 下一章看如何监控 URL **</p>
+
+<p>编写代码和测试时常用命令：</p>
+
+<p>clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ <br />
+-idirafter /usr/local/include <br />
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include <br />
+-idirafter /usr/include/x86_64-linux-gnu <br />
+-idirafter /usr/include <br />
+-c sec_xdp.bpf.c <br />
+-o sec_xdp.bpf.o</p>
+
+<p>cc -Wall -I../libbpf/src/build/usr/include/ -g -I../headers/ -L../libbpf/src/ -o xdp_loader ../common/common_params.o ../common/common_user_bpf_xdp.o  xdp_loader.c -l:libbpf.a -lelf</p>
+
+<p>cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c sec_xdp.c -o .output/sec_xdp.o &amp;&amp; cc -g -Wall .output/sec_xdp.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o sec_xdp</p>
+
+<p>tc filter add dev eth0 ingress bpf da obj sec_xdp.bpf.o sec ingress</p>
+
+<p>tc filter add dev eth0 ingress bpf da obj sec_xdp.bpf.o</p>
+
+<p>sudo tc filter del dev eth0 ingress
+sudo ip link set dev eth0 xdp off
+sudo tc qdisc del dev eth0 clsact</p>
+
+<p>sudo cat /sys/kernel/debug/tracing/trace_pipe</p>
+:ET

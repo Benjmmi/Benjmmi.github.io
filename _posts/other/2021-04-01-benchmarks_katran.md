@@ -1,8 +1,7 @@
 ---
 title: Other - katran 基准测试
 date: 2021-04-01 17:29:11
-categories: 
-	- [Other]
+categories: 'Other'
 tags:
   - http
   - glang

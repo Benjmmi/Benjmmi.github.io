@@ -1,0 +1,68 @@
+I"�<p>eBPF 的 <strong><code class="language-plaintext highlighter-rouge">e</code></strong> 就是 extended 的缩写。所以 eBPF 就是，BPF 字节码过滤器的增强版。</p>
+
+<p>学习建议方式</p>
+<ul>
+  <li>初学会用 <code class="language-plaintext highlighter-rouge">bcc</code> 工具</li>
+  <li>中级会用 <code class="language-plaintext highlighter-rouge">bpftrace</code> 开发</li>
+  <li>高级开发  <code class="language-plaintext highlighter-rouge">bcc</code> 工具，并贡献</li>
+</ul>
+
+<p>Ubuntu 安装 bcc ：</p>
+<div class="language-shell highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt-get <span class="nb">install </span>bpfcc-tools linux-headers-<span class="si">$(</span><span class="nb">uname</span> <span class="nt">-r</span><span class="si">)</span>
+</code></pre></div></div>
+<p>其他系统安装 bcc 参考：<a href="https://github.com/iovisor/bcc/blob/master/INSTALL.md#ubuntu---binary">https://github.com/iovisor/bcc/blob/master/INSTALL.md#ubuntu—binary</a></p>
+
+<p>手动抄一个 bcc 的 Hello World</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">#!/usr/bin/python
+# Copyright (c) PLUMgrid, Inc.
+# Licensed under the Apache License, Version 2.0 (the "License")
+</span>
+<span class="c1"># run in project examples directory with:
+# sudo ./hello_world.py"
+# see trace_fields.py for a longer example
+</span>
+<span class="kn">from</span> <span class="nn">bcc</span> <span class="kn">import</span> <span class="n">BPF</span>
+
+<span class="c1"># This may not work for 4.17 on x64, you need replace kprobe__sys_clone with kprobe____x64_sys_clone
+</span><span class="n">BPF</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s">'int kprobe__sys_clone(void *ctx) { bpf_trace_printk("Hello, World!</span><span class="se">\\</span><span class="s">n"); return 0; }'</span><span class="p">).</span><span class="n">trace_print</span><span class="p">()</span>
+</code></pre></div></div>
+<p>成功运行，输出结果：</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>b' IPDL Background-5703    [003] ....  5087.572783: 0: Hello, World!'
+b'     Web Content-13466   [003] ....  5087.634894: 0: Hello, World!'
+b' gnome-session-b-1181    [000] ....  5128.625994: 0: Hello, World!'
+b'           Timer-5685    [000] ....  5140.509352: 0: Hello, World!'
+b' IPDL Background-5703    [003] ....  5140.966663: 0: Hello, World!'
+b' Privileged Cont-5797    [001] ....  5140.968354: 0: Hello, World!'
+</code></pre></div></div>
+
+<p>在抄一个最关心的 network：<a href="https://github.com/iovisor/bcc/blob/master/examples/networking/http_filter/http-parse-simple.py">http-parse-simple.py</a></p>
+
+<h1 id="目录">目录</h1>
+
+<ul>
+  <li><a href="/jony.github.io/9a44115ea383/">1. eBPF 基本了解和入门</a></li>
+  <li><a href="/jony.github.io/6b9c54247f6f/">2. eBPF 翻译文档合集</a></li>
+  <li><a href="/jony.github.io/e83139ad9bf1/">3. eBPF 工具链</a></li>
+  <li><a href="/jony.github.io/3006e0a225f3/">4. C BPF 编程规范</a></li>
+  <li><a href="/jony.github.io/ada1626fa032/">5. iproute2</a></li>
+  <li><a href="/jony.github.io/4b2ecddadcc3/">6. Program_Types</a></li>
+  <li><a href="/jony.github.io/99a44d212429/">7. eBPF 应用案例</a></li>
+</ul>
+
+<p>扩展阅读</p>
+
+<ul>
+  <li><a href="/jony.github.io/6ee15c371963/">流量控制：令牌和桶算法</a></li>
+</ul>
+
+<h1 id="参考文档">参考文档</h1>
+
+<p><a href="https://www.kernel.org/doc/html/latest/bpf/bpf_devel_QA.html">官方文档如何与BPF子系统交互</a>
+<a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html">bpf-helpers</a>
+<a href="https://www.kernel.org/doc/html/latest/bpf/bpf_design_QA.html#questions-and-answers">bpf常见的设计问题</a>
+<a href="http://sniffer.site/2019/11/07/BPF%E4%B8%8EeBPF/">BPF与eBPF</a>
+<a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html#NAME">bpf-helpers(7) — Linux manual page</a>
+<a href="https://www.cnblogs.com/charlieroro/p/13403672.html">全面介绍eBPF-概念</a>
+<a href="https://facebookmicrosites.github.io/bpf/">facebook-bpf-support</a></p>
+:ET

@@ -1,8 +1,7 @@
 ---
 title: libbpf 学习使用
 date: 2021-07-13 16:25:19
-categories: 
-	- [eBPF]
+categories: 'eBPF'
 tags:
   - ebpf
   - cilium
