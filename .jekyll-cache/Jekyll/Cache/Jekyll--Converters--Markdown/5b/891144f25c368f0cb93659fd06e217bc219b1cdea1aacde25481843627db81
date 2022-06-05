@@ -1,9 +1,0 @@
-I"K<h1 id="23-iproute2">2.3 iproute2</h1>
-
-<h1 id="文档连接">文档连接</h1>
-<p><a href="https://www.dazhuanlan.com/2019/12/10/5dee76b007da0/">Linux BPF 3.2、BPF and XDP Reference Guide</a>
-<a href="http://arthurchiao.art/blog/cilium-bpf-xdp-reference-guide-zh/#bpf_instruction">[译] Cilium：BPF 和 XDP 参考指南（2019）</a>
-<a href="https://docs.cilium.io/en/stable/bpf/">BPF and XDP Reference Guide</a>
-<a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html">BPF 辅助函数</a>
-<a href="https://man7.org/linux/man-pages/man2/bpf.2.html">BPF man 文档</a></p>
-:ET
