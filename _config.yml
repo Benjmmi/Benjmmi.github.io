@@ -26,7 +26,8 @@ url: "https://benjamin-yim.github.io" # the base hostname & protocol for your si
 github_username:  Benjamin.Yim
 
 # Build settings
-theme: minima
+theme: no-style-please
+# theme: minima
 plugins:
   - jekyll-feed
 
