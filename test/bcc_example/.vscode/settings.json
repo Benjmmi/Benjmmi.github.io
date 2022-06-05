@@ -1,8 +1,0 @@
-{
-    "python.linting.pylintEnabled": true,
-    "python.linting.enabled": true,
-    "files.associations": {
-        "bpf.h": "c",
-        "inet.h": "c"
-    }
-}

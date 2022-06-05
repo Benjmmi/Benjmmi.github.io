@@ -1,1 +1,0 @@
-cmd_/root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/netdev.mod := { echo  /root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/netdev.o;  echo; } > /root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/netdev.mod

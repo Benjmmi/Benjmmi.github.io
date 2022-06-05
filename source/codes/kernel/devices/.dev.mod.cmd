@@ -1,1 +1,0 @@
-cmd_/root/Documents/jony.github.io/source/codes/kernel/devices/dev.mod := { echo  /root/Documents/jony.github.io/source/codes/kernel/devices/dev.o;  echo; } > /root/Documents/jony.github.io/source/codes/kernel/devices/dev.mod

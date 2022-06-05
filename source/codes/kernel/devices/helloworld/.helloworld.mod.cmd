@@ -1,1 +1,0 @@
-cmd_/root/Documents/Benjamin.github.io/source/codes/kernel/devices/helloworld/helloworld.mod := { echo  /root/Documents/Benjamin.github.io/source/codes/kernel/devices/helloworld/helloworld.o;  echo; } > /root/Documents/Benjamin.github.io/source/codes/kernel/devices/helloworld/helloworld.mod

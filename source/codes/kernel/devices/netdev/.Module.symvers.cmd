@@ -1,1 +1,0 @@
-cmd_/root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/Module.symvers := sed 's/\.ko$$/\.o/' /root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/modules.order | scripts/mod/modpost    -o /root/Documents/Benjamin.github.io/source/codes/kernel/devices/netdev/Module.symvers -e -i Module.symvers   -T -
