@@ -1,0 +1,77 @@
+clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ \
+-idirafter /usr/local/include \
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \
+-idirafter /usr/include/x86_64-linux-gnu \
+-idirafter /usr/include \
+-c url_map.bpf.c \
+-o url_map.bpf.o
+
+
+cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c url_map_read.c -o .output/url_map_read.o && cc -g -Wall .output/url_map_read.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o url_map_read
+
+cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c url_map.c -o .output/url_map.o && cc -g -Wall .output/url_map.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o url_map
+
+tc filter add dev eth0 ingress bpf da obj url_map.bpf.o sec ingress
+tc filter add dev eth0 ingress bpf da obj url_map.bpf.o
+
+sudo tc filter del dev eth0 ingress
+sudo ip link set dev eth0 xdp off
+sudo tc qdisc del dev eth0 clsact
+
+sudo tc qdisc add dev eth0 clsact
+sudo tc qdisc del dev eth0 ingress
+sudo ip link set dev eth0 xdp off && sudo tc qdisc del dev eth0 clsact && sudo ./url_map
+
+
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+
+
+git pull && clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -idirafter /usr/local/include -idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -c url_map.bpf.c -o url_map.bpf.o && sudo ip link set dev eth0 xdp off && sudo tc qdisc del dev eth0 clsact && sudo ./url_map
+
+
+git pull && cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c url_map_read.c -o .output/url_map_read.o && cc -g -Wall .output/url_map_read.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o url_map_read && sudo ./url_map_read
+
+git pull && clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -idirafter /usr/local/include -idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -c trace_consume_skb.bpf.c -o trace_consume_skb.bpf.o && sudo ip link set dev eth0 xdp off && sudo tc qdisc del dev eth0 clsact && sudo ./trace_consume_skb
+
+
+git pull && cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c trace_consume_skb_read.c -o .output/trace_consume_skb_read.o && cc -g -Wall .output/trace_consume_skb_read.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o trace_consume_skb_read && sudo ./trace_consume_skb_read
+
+
+
+
+git pull  && clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -idirafter /usr/local/include -idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include -c trace_consume_skb.bpf.c -o .output/trace_consume_skb.bpf.o && llvm-strip -g .output/trace_consume_skb.bpf.o && /home/vagrant/libbpf-bootstrap/tools/bpftool gen skeleton .output/trace_consume_skb.bpf.o > .output/trace_consume_skb.skel.h
+
+
+
+cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c trace_consume_skb.c -o .output/trace_consume_skb.o && cc -g -Wall .output/trace_consume_skb.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o trace_consume_skb 
+
+
+
+
+git pull  && clang -g -O2 -target bpf -D__TARGET_ARCH_x86 \
+-I.output -I../../libbpf/include/uapi -I../../vmlinux/ \
+-idirafter /usr/local/include \
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \
+-idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include \
+-c trace_netif_receive_skb.bpf.c -o .output/trace_netif_receive_skb.bpf.o \
+&& llvm-strip -g .output/trace_netif_receive_skb.bpf.o && /home/vagrant/libbpf-bootstrap/tools/bpftool \
+gen skeleton .output/trace_netif_receive_skb.bpf.o > \
+.output/trace_netif_receive_skb.skel.h && cc -g -Wall -I.output -I../../libbpf/include/uapi \
+-I../../vmlinux/ -c trace_netif_receive_skb.c -o .output/trace_netif_receive_skb.o && cc -g \
+-Wall .output/trace_netif_receive_skb.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a \
+-lelf -lz -o trace_netif_receive_skb  &&  sudo ./trace_netif_receive_skb
+
+
+git pull  && clang -g -O2 -target bpf -D__TARGET_ARCH_x86 \
+-I.output -I../../libbpf/include/uapi -I../../vmlinux/ \
+-idirafter /usr/local/include \
+-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \
+-idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include \
+-c trace_consume_skb.bpf.c -o .output/trace_consume_skb.bpf.o \
+&& llvm-strip -g .output/trace_consume_skb.bpf.o && /home/vagrant/libbpf-bootstrap/tools/bpftool \
+gen skeleton .output/trace_consume_skb.bpf.o > \
+.output/trace_consume_skb.skel.h && cc -g -Wall -I.output -I../../libbpf/include/uapi \
+-I../../vmlinux/ -c trace_consume_skb.c -o .output/trace_consume_skb.o && cc -g \
+-Wall .output/trace_consume_skb.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a \
+-lelf -lz -o trace_consume_skb  &&  sudo ./trace_consume_skb

@@ -1,0 +1,115 @@
+---
+title: 高性能网络
+date: 2021-08-16 13:31:19
+categories: 
+  - [eBPF]
+tags:
+  - ebpf
+  - HPM
+author: Zhongya Yan
+---
+
+# 调研结果
+
+高性能网络平台，根据最近几天的调研结果，共了解到一下几种解决方案。将抽离几种了解的相对于比较
+
+1. ebpf
+2. netmap
+3. RDMA
+4. DPDK
+5. TOE
+
+以上几种应该囊括了大部分的高性能应用网络场景。
+
+ebpf ：ebpf 是最近几年新出现的技术，在没有脱离原有的 TCP/IP 协议栈的情况下
+跳过了不必要的步骤，减少了 CPU 的使用，同时也节省了处理时间提高了吞吐量。比较典型的有：
+Cilium 网络。虽然 ebpf 使用方便很广，但是初始目的是为了 SDN 产生。
+
+netmap：一个高效的收发报文的 I/O 框架，netmap 内存直接映射到网卡的 packet buffer 到用户态
+实现自己发送、接收报文的处理。
+
+RDMA：（Remote Direct Memory Access） 直接拷贝远程计算机的内存，绕过了内核的处理，比较典型
+的有 `IB` 直接重新定义了协议栈
+
+DPDK：也是一种绕过内核的技术，将 TCP/IP 报文上升到了用户空间，由用户空间直接对报文进行处理，同时
+DPDK 独占 CPU 100% 使用率，吞吐量根据 CPU 数量定义
+
+TOE：与 DPDK 类似又有点相反，TOE 在网卡上将报文处理，承担了本由 CPU 的一部分工作，比如 checkcsum、
+分包等。
+
+DPDK 和 TOE 两者并不相同，所以要谨慎理解。netmap 需要中断通知机制，没有完全解决瓶颈。
+ebpf 只能作为简单的性能提升工具并不能作为高性能网络解决方案。
+目前高性能网络解决方案听到比较多的应该就是 `DPDK` 因其开放性以及生态的完善让 DPDK 可以
+大范围的使用。
+RDMA：比较典型的就是 `IB` ，直接重新定义了协议栈，绕过内核处理直接与网卡对接。
+
+测试环境 VM 虚拟机 ：
+
+```bash
+机器1
+客户机操作系统		CentOS 7 (64 位)
+兼容性			ESXi 6.5 虚拟机
+VMware Tools	是
+CPU				4
+内存				8 GB
+
+机器2
+客户机操作系统		CentOS 4/5 或更高版本 (64 位)
+兼容性			ESXi 6.0 虚拟机
+VMware Tools	否
+CPU				4
+内存				8 GB
+
+网卡信息
+链路速度:			1000 Mbps
+驱动程序:			ntg3
+MAC 地址:		******
+```
+
+普通以太网带宽测试
+
+```bash
+Server: iperf3 -s -i 1 -f m -p 10008
+Client: iperf3 -c [Server IP] -i 1 -t 10 -f m -p 10008
+
+[ ID] Interval           Transfer     Bandwidth       Retr
+[  4]   0.00-10.00  sec  6.80 GBytes  5842 Mbits/sec    0             sender
+[  4]   0.00-10.00  sec  6.80 GBytes  5840 Mbits/sec                  receiver
+```
+ROCE 带宽测试
+```bash
+Server: ib_send_bw -n 10000 -d rxe0 -i 1 -F --report_gbits
+Client: ib_send_bw -n 10000 -d rxe0 -i 1 -F --report_gbits [Server IP]
+---------------------------------------------------------------------------------------
+                    Send BW Test
+ Dual-port       : OFF		Device         : rxe0
+ Number of qps   : 1		Transport type : IB
+ Connection type : RC		Using SRQ      : OFF
+ TX depth        : 128
+ CQ Moderation   : 100
+ Mtu             : 1024[B]
+ Link type       : Ethernet
+ GID index       : 1
+ Max inline data : 0[B]
+ rdma_cm QPs	 : OFF
+ Data ex. method : Ethernet
+---------------------------------------------------------------------------------------
+ local address: LID 0000 QPN 0x0014 PSN 0x91befb
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:00:07
+ remote address: LID 0000 QPN 0x0011 PSN 0xdd1775
+ GID: 00:00:00:00:00:00:00:00:00:00:255:255:172:22:03:221
+---------------------------------------------------------------------------------------
+ #bytes     #iterations    BW peak[Gb/sec]    BW average[Gb/sec]   MsgRate[Mpps]
+ 65536      10000            1.54               1.01   		   0.001923
+```
+
+
+1. 扎实的计算机体系结构和操作系统方面的基础，有丰富的代码开发经验；
+2. 精通高性能、高并发的编程技术，有丰富的性能调优经验；
+3. 具备良好的团队、跨团队沟通及合作能力，可主导技术语言及攻坚；
+4. 有独立产品设计、开发经验，可以独立或带队开辟技术方向，落地到上下游业务中；
+5. 有用户态协议栈、RDMA、TOE、smartnic，及相关的软硬件结合的经验优先；
+6. 有开发和调优4层及以上的网络协议（TCP/MPTCP/QUIC/HTTP2.0等）的经验优先；
+7. 有开发和维护通用RPC框架的经验，及熟悉常见的gpc、brpc、dubbo优先；
+8. 有开发和优化linux内核网络协议栈或网络设备驱动的经验优先；
+9. 熟悉高性能框架如DPDK、netmap、bpf等，有相关开发经验优先；
