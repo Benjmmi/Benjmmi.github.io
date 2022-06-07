@@ -1,9 +1,2 @@
-.DS_Store
-.jekyll-cache/
-_site/
-Thumbs.db
-db.json
-*.log
-node_modules/
-.deploy*/
-public/
+_site
+Gemfile.lock
