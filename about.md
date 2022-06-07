@@ -3,4 +3,6 @@ layout: page
 title: About
 ---
 
-Introduce yourself here... so people will know who you are and what you do.. blah..blah..blah..
+This is an example page!
+
+It's very similar to a `post` layout, with the only difference that the publish date is not shown!
