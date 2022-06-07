@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "bpf.h": "c",
-        "bpf_elf.h": "c",
-        "typeinfo": "c",
-        "inet_sock.h": "c"
-    }
-}
