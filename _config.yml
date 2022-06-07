@@ -21,7 +21,7 @@
 title: Benjamin Post
 email: yan2228598876@gmail.com
 description: >- # Benjamin.Blog
-baseurl: "/Benjamin.github.io/" # the subpath of your site, e.g. /blog
+baseurl: "/Benjamin.github.io" # the subpath of your site, e.g. /blog
 url: "https://benjamin-yim.github.io" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  Benjamin-Yim
 
