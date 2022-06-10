@@ -1,0 +1,502 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="114cccf7-38d6-4802-81e7-8ceed05c28cb" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/../../../../../../_posts/microservices/istio/istio3.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/=" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.Module.symvers.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.modules.order.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.netdev.ko.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.netdev.mod.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.netdev.mod.o.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/.netdev.o.cmd" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/Makefile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/Module.symvers" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/modules.order" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.c" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.c.bak" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.h" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.ko" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.mod" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.mod.c" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.mod.o" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../../kernel/devices/netdev/netdev.o" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../nowcoder/BL13.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../nowcoder/BL20.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../nowcoder/ME1.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_01_01.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_01_04.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_01_09.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_04_02.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_04_04.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1002.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1031.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_104$TreeNode.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_107.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_112.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1170.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_118.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1237$CustomFunction.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1237.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_124.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_125.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1275.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1309.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1313.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1331.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1332.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1342.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1374.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1431.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1528.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1546.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_16_07.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_17_01.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_184.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1859$1.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1859.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_190.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_196.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_257.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_28.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_299.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_349.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_38.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_387.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_392.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_412.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_414.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_434.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_443.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_461.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_501.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_504.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_521.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_532.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_55_I.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_58.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_599.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_606.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_617.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_637.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_653.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_69.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_696.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_745.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_821.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_824.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_849.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_898.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_905.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_925.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_933.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_935.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_944.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_953.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_990.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_M_01_02.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_05.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_10_II.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_39.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_53.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/TreeNode.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/nowcoder/BL13.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/nowcoder/BL20.class" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../../../../target/classes/nowcoder/ME1.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../../_posts/microservices/raft/raft.md" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../../_posts/microservices/raft/raft.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/dev/dev.c" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/dev/dev.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.Module.symvers.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.Module.symvers.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.ko.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.ko.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.mod.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.mod.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.mod.o.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.mod.o.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.o.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.helloworld.o.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.modules.order.cmd" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/.modules.order.cmd" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.c" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.ko" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.ko" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod.c" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod.o" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.mod.o" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.o" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/helloworld.o" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/modules.order" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../../kernel/devices/helloworld/modules.order" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../.idea/jarRepositories.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../.idea/jarRepositories.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../.idea/runConfigurations.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/runConfigurations.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/B13.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/B13.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/BL1.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/BL1.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/BL12.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/BL12.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/BL2.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/BL2.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/BL2_.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/BL2_.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/ME1.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/ME1.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../leetcode/niukewang/ME2.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/niukewang/ME2.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/modules.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/runConfigurations.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/samle.iml" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/samle.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_01_01.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_01_01.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_01_04.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_01_04.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_01_09.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_01_09.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_03_01.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_03_01.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_03_02.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_03_02.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_04_02.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_04_02.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_04_04.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_04_04.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_05_01.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_05_01.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_08_01.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_08_01.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_100.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_100.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1002.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1002.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1021.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1021.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1031.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1031.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1033.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1033.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1037.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1037.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_104.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_104.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1051.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1051.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_107.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_107.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_10_05.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_10_05.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_111.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_111.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_112.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_112.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1170.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1170.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_118.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_118.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1217.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1217.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1237.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1237.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_124.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_124.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_125.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_125.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1262.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1262.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1275.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1275.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1304.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1304.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1309.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1309.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1313.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1313.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1331.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1331.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1332.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1332.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1342.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1342.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1343.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1343.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1374.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1374.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1413.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1413.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1431.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1431.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1460.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1460.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1464.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1464.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1486.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1486.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1528.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1528.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1546.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1546.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_16_07.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_16_07.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_17_01.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_17_01.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_17_12.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_17_12.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_17_16.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_17_16.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_18.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_18.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1814.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1814.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_184.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_184.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1859.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1859.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_1860.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_1860.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_190.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_190.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_196.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_196.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_210.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_210.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_225.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_225.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_238.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_238.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_242.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_242.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_257.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_257.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_258.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_258.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_28.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_28.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_29.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_29.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_299.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_299.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_344.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_344.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_349.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_349.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_38.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_38.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_387.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_387.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_392.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_392.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_40.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_40.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_404.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_404.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_412.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_412.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_414.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_414.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_434.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_434.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_443.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_443.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_461.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_461.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_463.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_463.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_501.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_501.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_504.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_504.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_521.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_521.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_532.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_532.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_538.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_538.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_55_I.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_55_I.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_58.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_58.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_594.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_594.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_599.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_599.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_606.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_606.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_617.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_617.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_637.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_637.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_64.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_64.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_653.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_653.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_657.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_657.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_69.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_69.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_696.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_696.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_705.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_705.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_724.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_724.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_745.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_745.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_746.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_746.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_788.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_788.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_821.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_821.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_824.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_824.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_832.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_832.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_849.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_849.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_898.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_898.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_905.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_905.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_908.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_908.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_914.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_914.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_923.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_923.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_925.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_925.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_933.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_933.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_935.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_935.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_938.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_938.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_944.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_944.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_949.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_949.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_953.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_953.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_974.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_974.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_977.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_977.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_990.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_990.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_M_01_02.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_M_01_02.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/L_M_16_09.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/L_M_16_09.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_03.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_03.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_05.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_05.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_10_II.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_10_II.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_39.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_39.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_53.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_53.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_53_II.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_53_II.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_59.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_59.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_61.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_61.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Offer_68.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Offer_68.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Samle.java" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/Samle.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/../leetcode/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/B13.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/BL1.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/BL12.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/BL2.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/BL2_.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/ME1.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/niukewang/ME2.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_01_01.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_01_04.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_01_09.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_03_01.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_03_01.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_03_02.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_03_02.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_04_02.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_04_04.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_05_01.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_05_01.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_08_01.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_08_01.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_100.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_100.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1002.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1021.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1021.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1031.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1033.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1033.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1037.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1037.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_104$TreeNode.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_104.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_104.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1051.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1051.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_107.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_10_05.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_10_05.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_111.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_111.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_112.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1170.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_118.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1217.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1217.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1237$CustomFunction.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1237.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_124$TreeNode.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_124$TreeNode.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_124.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_125.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1262.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1262.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1275.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1304.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1304.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1309.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1313.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1331.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1332.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1342.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1343.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1343.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1374.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1413.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1413.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1431.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1460.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1460.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1464.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1464.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1486.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1486.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1528.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1546.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_16_07.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_17_01.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_17_12.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_17_12.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_17_16.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_17_16.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_18.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_18.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_184.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1859$1.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1859.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_1860.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_1860.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_190.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_196.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_210.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_210.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_225.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_225.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_238.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_238.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_242.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_242.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_257.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_258.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_258.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_28.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_29.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_29.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_299.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_344.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_344.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_349.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_38.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_387.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_392.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_40.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_40.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_404.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_404.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_412.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_414.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_434.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_443.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_461.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_463.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_463.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_501.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_504.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_521.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_532.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_538.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_538.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_55_I.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_58.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_594.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_594.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_599.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_606.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_617.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_637.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_64.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_64.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_653.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_657.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_657.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_69.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_696.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_705.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_705.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_724.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_724.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_745$WordFilter.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_745$WordFilter.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_745.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_746.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_746.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_821.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_824.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_832.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_832.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_849.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_898.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_905.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_914.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_914.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_923.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_923.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_925.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_933.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_935.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_938.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_938.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_944.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_949.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_949.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_953.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_974.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_974.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_977.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_977.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_990.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_M_01_02.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/L_M_16_09.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/L_M_16_09.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_03.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_03.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_05.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_10_II.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_39.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_53.class" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_53_II.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_53_II.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_59.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_59.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_61.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_61.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Offer_68.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Offer_68.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/Samle.class" beforeDir="false" afterPath="$PROJECT_DIR$/../../../../target/classes/leetcode/Samle.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../../../../target/classes/samle/TreeNode.class" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="GOROOT" url="file://$PROJECT_DIR$/../../../../../../../../go" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../../../../../../.." />
+  </component>
+  <component name="GoLibraries">
+    <option name="indexEntireGoPath" value="false" />
+  </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
+  <component name="ProjectId" id="22usalh89KQV31BQQiCbniDzDpG" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="ASKED_ADD_EXTERNAL_FILES" value="true" />
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="go.formatter.settings.were.checked" value="true" />
+    <property name="go.import.settings.migrated" value="true" />
+    <property name="go.modules.go.list.on.any.changes.was.set" value="true" />
+    <property name="go.sdk.automatically.set" value="true" />
+    <property name="go.watchers.conflict.with.on.save.actions.check.performed" value="true" />
+    <property name="last_opened_file_path" value="$USER_HOME$" />
+    <property name="settings.editor.selected.configurable" value="preferences.remoteExternalTools" />
+  </component>
+  <component name="RunManager">
+    <configuration default="true" type="GoApplicationRunConfiguration" factoryName="Go Application">
+      <module name="samle" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="FILE" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <method v="2" />
+    </configuration>
+    <configuration name="Test_a in L_886_test.go" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="samle" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="FILE" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/L_886_test.go" />
+      <framework value="gotest" />
+      <pattern value="^\QTest_a\E$" />
+      <method v="2" />
+    </configuration>
+    <configuration default="true" type="GoTestRunConfiguration" factoryName="Go Test">
+      <module name="samle" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="DIRECTORY" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Go Test.Test_a in L_886_test.go" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="VgoProject">
+    <integration-enabled>true</integration-enabled>
+    <environment>
+      <map>
+        <entry key="GOPROXY" value="https://goproxy.io,direct" />
+      </map>
+    </environment>
+  </component>
+</project>

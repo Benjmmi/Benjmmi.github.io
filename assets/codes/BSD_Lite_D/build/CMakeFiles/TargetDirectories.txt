@@ -1,0 +1,7 @@
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/bsd_lite_d.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/edit_cache.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/rebuild_cache.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/list_install_components.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/install.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/install/local.dir
+/mnt/hgfs/benjamin/Documents/github.com/Benjamin.github.io/source/codes/BSD_Lite_D/build/CMakeFiles/install/strip.dir
