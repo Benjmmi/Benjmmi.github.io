@@ -1,0 +1,79 @@
+---
+title: ebpf 扩展篇-trace 的来源
+date: 2021-06-14 19:44:19
+categories: 
+	- [eBPF]
+tags:
+  - ebpf
+  - cilium
+author: Jony
+---
+
+
+
+在开始之前得学习一下 tracepoint。在定义 tracepoint  的时候常常会觉得参数和 tracepoint 的 point 哪里来的。所以需要了解一下 tracepoint 原理
+
+内核跟踪历史：
+
+|        年份      |         技术         |
+|-----------------|----------------------|
+|      2004       |   kprobes/kretprobes |
+|  2005           |     systemtap        |
+|   2008          |       ftrace         |
+| 2009            |     perf_events      |
+|   2009          |    tracepoints       |
+|          2012   |      uprobes         |
+| 2015 ~ 至今      |  eBPF (Linux 4.1+)   |
+
+
+最初的技术只有 `kprobes/kretprobes` 后期的工具和技术基本都是在这个基础之上奠基而来的。
+
+  kprobes 主要用来对内核进行调试追踪, 属于比较轻量级的机制, 本质上是在指定的探测点(比如函数的某行, 函数的入口地址
+  和出口地址, 或者内核的指定地址处)插入一组处理程序. 内核执行到这组处理程序的时候就可以获取到当前正在执行的上下文信息, 
+  比如当前的函数名, 函数处理的参数以及函数的返回值, 也可以获取到寄存器甚至全局数据结构的信息.
+
+  kretprobes 在 kprobes 的机制上实现, 主要用于返回点(比如内核函数
+  或者系统调用的返回值)的探测以及函数执行耗时的计算.
+
+  uprobes 机制类似 kprobes, 不过主要用户空间的追踪调试. 另外 uprobes 应该主要是由 systemtap 实
+  现并完善. 更多的使用示例见 linux-ftrace-uprobe
+
+以上摘要来源：[Linux 系统动态追踪技术介绍](https://blog.arstercz.com/introduction_to_linux_dynamic_tracing/)
+
+## perf_event
+perf_event 随内核的主版本进行发布, 一直是 linux 用户的主要追踪工具, 通常由 perf 命令提供服务. perf 可以将追踪的数据保存起来(默认为 perf.data) 方便以后分析, 这类似 tcpdump 的机制, 在分析存在延迟或者上下文切换的问题时尤为有用. 
+
+## ftrace
+ftrace(function trace) 则更像是一个完整的追踪框架, 可以支持对 tracepoint, kprobes, uprobes 机制的处理, 
+同时还提供了事件追踪(event tracing, 类似 tracepoint 和 function trace 的组合) , 追踪过滤, 事件的计数和计时, 
+记录函数执行流程等功能. 我们常用的 perf-tools 工具集就是依赖 ftrace 机制而实现的.
+
+![ftrace-theory](/jony.github.io/images/ebpf/ftrace-theory.png)
+
+kprobes 相当于图中的 A, 处理程序相当于图中的 B, tracepoint 则相当于图中的 A 和 B, ftrace 则相当于在 A, B 的基础上增加了 C 和 D 的功能. 
+
+所以总结一下 tracepoint 就是为内核性能检测、追踪出现的技术。一开始是 probe 技术后来逐渐演化成各种工具 tracepoint 只是其中一种。
+
+
+# 内核 tracepoints
+
+每个 tracepoints 都提供了一个钩子来调用 probe 函数。也就是说每次用户执行一个函数的时候只要 tracepoint 打开都会调用用户提供的 probe
+函数。
+
+如果要使用或者声明一个 tracepoint 的，就需要理解 tracepoint 的规范，规范格式如下：
+
+```c
+#include <linux/tracepoint.h>
+DECLARE_TRACE(tracepoint_name,TPPROTO(trace_function_prototype),TPARGS(trace_function_args));
+```
+
+tracepoint_name：新定义的 tracepoint 的名字
+trace_function_prototype：用户定义的 probe 函数必须与该属性一致
+trace_function_args：用户定义的 probe 函数的参数列表必须与该属性一致
+
+后面单独搞一个章节学些下 tracepoints 历史到实现
+
+上面列举那么多信息的意思就是，一开始认为 sk_buff 从 ingress 和 egress 将内容转存到用户空间，现在看来完全是多想了。
+只需要 trace 下内核中 `kfree_skb` 和 `consume_skb` 两个函数即可。
+参考:[/include/trace/events/skb.h](https://elixir.bootlin.com/linux/v5.11.2/source/include/trace/events/skb.h#L37)
+

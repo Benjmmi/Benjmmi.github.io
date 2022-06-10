@@ -1,0 +1,252 @@
+---
+title: Raft 实现
+date: 2021-11-29 11:11:43
+categories: 
+	- [Other]
+tags:
+  - http
+  - glang
+author: Jony
+---
+
+Raft 实现的三个核心模块
+1. 通信
+2. 共识算法
+3. 持久化存储
+
+持久化存储可以暂时方式。满足一般通信即可，主要还是一致性算法。
+一致性算法涉及到数据结构的定义。
+
+
+# 介绍
+ 
+
+这个课程包括一系列实验，目标是开发一个容错的KV系统，本实验是其中的第一个。在这个实验里，要求你实现Raft，它是一个复制状态机。在后续的实验中，会要求你在这个Raft的基础上开发一个KV服务。这个服务会把请求打散（Shard）到多个复制状态机上去处理，以提高性能。
+
+ 
+
+复制服务能做到容错的方法是：把多份完整拷贝存放到多个副本服务器上。复制使得这个KV服务在多个服务器故障的情况下（崩溃了、坏了或者网络掉线了）也能正常工作。难点在于，故障可能导致不同服务器上存储的数据副本也是不同的。
+
+ 
+
+Raft把客户端的请求组织成一个序列，叫做日志，并且确保所有副本服务器看到的日志都是相同的。每个副本服务器都按顺序执行这些客户端请求，并且把这些请求应用到自己的服务状态机的本地副本上。因为所有的活着的服务器都有相同的日志内容，并且它们以相同的顺序运行相同的日志，所以他们的状态也就是相同的。如果一个节点故障了，然后又恢复了，Raft负责把它的日志重新带到最新的状态。只要集群里面多数（超过半数）节点正常工作，并且相互之间能够正常通信，那么Raft就可以正常工作。一旦多数节点都不能正常工作了，那么Raft也就停止工作了，只要集群多数节点又恢复正常了，Raft就能立即从上次它停止的状态中恢复过来。
+
+ 
+
+在这个实验中，要求你把Raft实现成一个go的Object类型，并且带有关联的方法，也就是说，这个raft可以作为一个模块用在另外一个更大的服务中。一个Raft实例用RPC相互通信来共同维护日志。你的raft接口应该支持未确定的待编号命令序列，也就是所说的日志条目。这些条目都用index number进行编号。带有特定index的条目最终都会被提交。在这个时刻，你实现的raft服务应该把这个日志条目发送给更大的服务去执行。
+
+ 
+
+你应该按照raft论文（[raft-extended.pdf](https://pdos.csail.mit.edu/6.824/papers/raft-extended.pdf)）里面描述的设计去实现，特别是要注意论文中的图2，包括：持久化保存状态、节点故障重启之后读入这些状态。你不需要实现集群成员变更（Section6里面内容）。
+
+ 
+
+这个指导书（[students-guide-to-raft/](https://thesquareplanet.com/blog/students-guide-to-raft/)）里面的内容可能对你有用，也包括这些关于锁（[raft-locking.txt](https://pdos.csail.mit.edu/6.824/labs/raft-locking.txt)）和[并发结构](https://pdos.csail.mit.edu/6.824/labs/raft-structure.txt) 的建议。从拓宽知识面的角度说，浏览一下Paxos，Chubby，PaxosMade Live，Spanner，Zookeeper，Harp，Viewstamped Replication，以及Bolosky et al ([Bolosky.pdf](http://static.usenix.org/event/nsdi11/tech/full_papers/Bolosky.pdf)都是有好处的。（注意：这个学生指导书是很多年之前写的了，其中2D部分现在已经有些变化了，你自己要思考为这些特殊的实现策略的意义是什么，不要盲从）。
+
+ 
+
+一个raft模块和其他部分的交互图（https://pdos.csail.mit.edu/6.824/notes/raft_diagram.pdf），可以帮助你理解raft模块与其他部分是如何交互的。
+
+ 
+
+# 开始
+如果你完成了实验1，那么你应该有一份实验的源码了。如果你没完成，那么你可以用这里面的命令（[lab-mr.html](https://pdos.csail.mit.edu/6.824/labs/lab-mr.html)）去下载这些代码。
+
+我们给你提供了一些代码框架（src/raft/raft.go）。我们也提供一个测试集，你应该用它驱动你自己实现raft。我们也会用这个测试集给你的实验作业打分。测试代码在/src/raft/test_test.go里面。
+
+用下面命令开始运行。不要忘了用get pull下载最新的软件。
+
+```golang
+$ cd ~/6.824
+$ git pull
+...
+$ cd src/raft
+$ go test -race
+Test (2A): initial election ...
+--- FAIL: TestInitialElection2A (5.04s)
+        config.go:326: expected one leader, got none
+Test (2A): election after network failure ...
+--- FAIL: TestReElection2A (5.03s)
+        config.go:326: expected one leader, got none
+...
+$
+```
+
+
+# 代码
+你实现的raft代码添加到raft/raft.go里面。在这个文件里面，有一些框架代码，以及一些给你展示如何发送和接收RPC的例子代码。
+
+你的实现必须支持下面这些接口，测试代码和以后你要实现的kev/value服务都会用到这些接口。在raft.go里面还有很多有用的注释，就像下面这样。
+
+```golang
+// create a new Raft server instance:
+rf := Make(peers, me, persister, applyCh)
+
+// start agreement on a new log entry:
+rf.Start(command interface{}) (index, term, isleader)
+
+// ask a Raft for its current term, and whether it thinks it is leader
+rf.GetState() (term, isLeader)
+
+// each time a new entry is committed to the log, each Raft peer
+// should send an ApplyMsg to the service (or tester).
+type ApplyMsg
+```
+
+服务调用Make(peers, me, …)来产生一个Raft peer。这个参数peers就是一些Raft peers的网络标识符，RPC用这些标识符。这个参数me是本peer在这个peers数组中的index。Start(command)请求Raft开始一个把命令追加到replicated log中的处理流程。Start()应该立刻返回，不能等到日志追加完毕才返回。服务希望你代码在日志条目提交的时候，给applyCh发送ApplyMsg，每个新提交的日志条目都要发，applyCh是在调用Make()函数时传入的一个参数。
+
+ 
+
+Raft.go有发送RPC的例子代码（sendRequestVote()），以及处理收到的RPC的例子代码（RequestVote()）。你的Raft peers应该用Go语言包labrpc来收发RPC消息。测试代码会控制librpc来对RPC消息人为地制造时延、乱序、丢包等问题来模拟网络故障。你也可以临时修改labrpc，但是你要保证你的代码能够跟原始的labrpc一起正常工作，因为我们要用这个给你的作业打分。你的raft实例之间只能用RPC进行交互，比如，不允许他们之间用共享变量或者文件来交互。
+
+ 
+
+这个课程后面的这些实验都是在这个实验基础上开展的，所以，多花点时间，把代码写的健壮一点，是很重要的。
+
+# 实验2A：领导选举
+
+***任务：实现 Raft 的领导选举和心跳（不带日志条目的 AppendEntries RPC 消息）。实验 2 A 的目标是：如果没有故障，那么领导就一直***
+***是领导。如果发送故障，那么新领导就要接管（集群），这里说的故障，可能是老领导死机或者丢包导致联系不上。运行 `go test -run 2a -race`***
+***来测试你的 2A 代码***
+
+
+- 提示：没办法很容易地直接运行Raft实现，你应该用测试框架去运行：go test -run 2A -race。
+
+- 提示：仔细读Raft论文上的图2。现在这个时间点，你需要关心发送和接收RequestVote RPC消息，跟选举相关的一些服务器规则，以及跟选举相关的领导者规则。
+
+- 提示：把图2中的一些领导者选举状态添加到raft.go文件的Raft结构中。另外，还需要定义一个结构去保存每个日志条目的信息。
+
+- 提示：填充RequestVoteArgs和RequestVoteReply这两个结构。修改Make()这个函数，创建一个后台goroutine，如果长时间没有收到其他peer的消息，这个goroutine就会发送RequestVote RPCs消息，周期性的启动leader选举。如果已经存在一个领导者，或者它自己成了领导者，通过这种方法(周期性发送消息)，让peer知道谁是领导者。实现RequestVote()这个RPC处理函数，这样服务器节点之间就会相互投票。
+
+- 提示：实现心跳，定义AppendEntries的RPC结构（尽管现在可能还不需要所有参数），并且让Leader周期性的发送这个AppendEntries RPC消息。写AppendEntries RPC消息的处理函数，在这个函数中，对选举超时变量进行清零，这样一旦选出一个领导者之后，其他节点就不会再继续尝试成为领导者了。
+
+- 提示：确保不同的peers的超时时间不一样，要不然所有peer都会投票给他们自己，这样就选不出来领导者了。
+
+- 提示：测试框架要求领导者发送心跳RPC消息的频率不超过10次/秒。
+
+- 提示：测试框架要求你的Raft实现应该在老领导者故障后的5秒钟之内选出新领导者（假设多数peers之间可以相互通信）。注意，选举可能会有多轮，因为可能会有多个候选人平分选票的情况（可能是报文丢失导致的，也可能是两个候选人使用了相同的回退时间）。你必须定一个足够短的选举的超时时间（以及heartbeat的间隔），尽量在5秒钟之内能够完成选举，即便经历多轮选举也应该能完成。
+
+- 提示：在Raft论文的5.2节提到，选举超时时间在150ms到300ms之间，这个超时值只在领导者发送心跳的间隔远远小于150ms的情况下才有意义。因为测试框架把心跳频率现在小于10次/1秒，这样你就必须把选举间隔设置为大于论文中给出的150到300ms，但是也不能太长，否则5秒钟之内无法完成选举。
+
+- 提示：你需要用go语言的rand函数（https://golang.org/pkg/math/rand/）。
+
+- 提示：当你要写一个周期性的处理函数，或者需要延时一段时间再处理，那么最方便的实现方法就是创建一个goroutine，里面一个大循环，循环里面调用time.Sleep()。（参见Make()里面创建的ticker() goroutine就是这个目的）。不要用Go的time.Timer或者time.Ticker，想把这俩货用对很难。
+
+- 提示：指导书（https://pdos.csail.mit.edu/6.824/labs/guidance.html）里面有一些怎么开发，怎么调试代码的建议。
+
+- 提示：如果你的代码无法通过测试，那么建议你再回头仔细看论文里面的图2。整个领导者选举的逻辑散落在这个图里面的各个角落。（需要仔细看）
+
+- 提示：别忘了实现GetState()这个函数。
+
+- 提示：测试框架要永久终止某个raft实例的时候，会调用rf.Kill()这个函数。你调用rf.killed()来检查Kill（）是否已经被调用了。你应该在所有的循环中都调用rf.killed()来检查，避免那些已经死掉的raft实例还继续输出迷惑性的打印信息。
+
+- 提示：Go的RPC只能发送struct中名字是大写字母的字段，嵌套结构的字段名字也必须是大写的（主要数组中的logrecord）。Labgob包会提示你这一点，不要忽略这些警告信息。
+
+交实验2A的作业之前，确保通过了2A的测试用例，就像下面这样：
+
+```golang
+$ go test -run 2A -race
+Test (2A): initial election ...
+  ... Passed --   4.0  3   32    9170    0
+Test (2A): election after network failure ...
+  ... Passed --   6.1  3   70   13895    0
+PASS
+ok      raft    10.187s
+$
+```
+
+每个”Passed”行都有五个数字，它们是：这个测试用了多少秒，有多少个Raft peers（一般是3个或者5个），这次测试发送了多少个RPC消息，这些RPC消息的总字节数是多少，Raft报告了多少个日志条目被提交了。你的代码实际运行时的数字可能跟上图不一样。你也可以不管这些数字，尽管这些数字可能对排错有用。尽量把每个单独的测试都控制在120秒之内，因为所有实验2、3、4加起来时间不能超过120秒，超时不给分
+
+# 论文概述
+
+- server 会处在三种状态中的一种：leader、follower 和 candidate
+- 集群中的参与者是被动的
+- ~~Raft 将时间分为任意长度的间隔，每个间隔是一个任期~~
+- 每个任期会由一个连续的整数进行表示，在这个阶段会有一个或者多个候选者参与竞选，
+- 每个任期只会选举出至多一个 leader
+- 每个 server 都用一个变量存储了当前任期,并且这个变量随着时间是单调递增的
+- 当 servers 进行通讯的时候，也会交换当前的任期（心跳）
+- 如果一个 server 存储的任期小于其他机器存储的任期，那么它将更新自己的任期为其它机器传送的最大任期（心跳）
+- 如果一个 server 接受到一个请求，这个请求中的任期是过时的，它将直接拒绝该请求（小于任期，问题：没有说是谁发送的心跳）
+- RequestVote RPCs 是候选在这选举过程中使用的
+- AppendEntries RPCs 是 leader 进行日志复制和心跳时使用的
+
+
+1. Raft 使用心跳机制来触发选主的过程
+2. leader 会发送心跳到其它的 server 来授权延长自己的任期。（发送心跳的过程中，发现server 返回更大的任期，自动跟随？）
+3. 选举定时器超时的时候还没有收到任何请求，它可以假设整个集群没有可用的leader 或者候选者，然后发起新的选举
+  （投票后，等待下一个超时。超时后还是没有心跳更新，就发起投票）
+4. 候选者先选举自己，并行的给集群中的其它机器发送 RequestVote RPCs。（只需要过半以上的票就可以了，自己默认+1）
+5. 一个候选者如果接收到集群中大多数机器在同一个任期的选票，它将胜出成为 leader
+  （先到先得，先到之后直接将当前任期修改为候选任期，后续除非大于当前任期，否则都是反对票，候选人根据投票结果自己判断，然后等待一个心跳周期）
+6. 每台机器在一个任期只能投票给一个候选者（先到先得，先到之后直接将当前任期修改为候选任期，后续除非大于当前任期，否则都是反对票）
+7. 一旦一个候选者胜出将成为集群的 leader，它将会并行的给集群的其它机器发送心跳来宣示自己胜出，并阻止进行新的选举
+  （这里是并行，看似困难，其实简单需要归纳法证明，如何阻止）
+  1. 
+
+> 一个候选者可能接受到来自其它 server 的请求，该请求声明自己已经成为 leader。
+
+1. 如果请求中的 leader 的任期大于候选者本地存储的任期，那么当前候选者认为这个 leader 是合法的并转变为参与者状态。
+   （这里是并行，需要证明，看似简单其实困难需要证明）
+2. 如果请求中 leader 的任期小于当前候选者本地存储的任期，那么候选将拒绝这个请求并保持在候选者状态。
+  （这里是并行，需要证明，看似简单其实困难）
+3. 整个集群的所有候选者都没有胜出,等待候选者的选举定时器超时，增加自己本地存储的任期并启动新一轮的选举
+4. 
+
+
+***注：来源消息看做完全信任，即永远不会被破坏、出现间谍情况，只会出现乱序、重复、超时、失败的情况***
+
+方法实现流程：
+
+# server 处理心跳
+接收 未知来源（默认是 ） 携带 `Term`、`LeaderId` 数据发送的心跳，处理流程如下
+1. `来源.Term` 大于等于当前 `server` 保存的 `leader.currentTerm` 
+  1. 表示接收到心跳
+  2. 修改 当前 `server` 保存的 `leader.currentTerm` 为 `来源.Term`
+  3. 修改 当前 `server` 保存的 `leader.LeaderId` 为 `来源.LeaderId`
+  4. 更新最新收到的心跳时间为 `NOW`
+  解释：
+  - 当前 Server 如果是 Follow
+    - `leader.Term` 小于 `来源.Term` ，自动跟随 `Term` 最新的 `Leader`。不会关心上次心跳的信息包括 `LeaderId`、`Term`，永远追随最新的 `Leader`
+    - `leader.Term` 等于 `来源.Term`
+      - 情况一：当前 `Leader` 已经持续一段时间，属于正常情况
+      - 情况二：当前  `来源.Term` 为未胜出的 `候选人`，根据归纳法证明：只有 `候选人` 在胜出的情况下才可以发送心跳，基于完全相互信任的法则
+    - `leader.Term` 大于 `来源.Term`，自动拒绝
+  - 当前 `Server` 如果是 `候选人`
+    - `候选人` 与上面的情况一致，候选人处了身份特殊以外并无特殊情况
+
+# server 处理拉票
+
+接收 未知来源（默认是 ） 携带 `Term`、`LeaderId` 数据发送的心跳，处理流程如下
+
+
+
+
+**选举超时是为了负载均衡？？？？经验证翻译的并准确，英文原版将心跳拦截他们选举超时，表达的意思就是心跳检测时间就是选举超时时间**
+
+***此选举任期将持续到追随者停止接收心跳并成为候选人为止。*** 好像和之前理解的不一样
+***下次心跳都要重新设置随机，下次选举超时也是***
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
