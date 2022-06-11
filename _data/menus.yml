@@ -4,12 +4,5 @@
 - default: menu_category
   url:   "category"
 
-- title: "Benjamin "
-  absoluteUrl: true
-  url: "https://benjamin-yim.github.io/Benjamin.github.io/"
-
 - default: menu_about
-  url:   "about"
-  
-- title: "About"
   url:   "about"
