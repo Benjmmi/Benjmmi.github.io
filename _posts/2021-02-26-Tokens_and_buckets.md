@@ -34,7 +34,7 @@ author: Jony
 
 令牌和桶的概念紧密相联，它们被用于TBF(一种无类qdiscs)和HTB（一种分类qdiscs）中。在tcng语言中，二色和三色标识法就是令牌桶的应用。
 下面参考图看下：
-![Token Bucket Filter](/jony.github.io/images/tbf-qdisc.png)
+![Token Bucket Filter](/Benjamin.Yim/assets/images/tbf-qdisc.png)
 
 ---
 

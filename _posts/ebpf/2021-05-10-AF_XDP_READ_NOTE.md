@@ -20,7 +20,7 @@ tp_btf 为老版本的 tracepoint ，然后搜索 linux 源码获取到 tracepoi
 include/trace/events/sched.h
 
 进入查看，会看到源码：
-
+```c
 /*
  * Tracepoint called when the task is actually woken; p->state == TASK_RUNNNG.
  * It it not always called from the waking context.
@@ -28,7 +28,7 @@ include/trace/events/sched.h
 DEFINE_EVENT(sched_wakeup_template, sched_wakeup,
 	     TP_PROTO(struct task_struct *p),
 	     TP_ARGS(p));
-
+```
 只要获得参数以后基本就可以对 tracepoint 进行记录和跟踪操作。
 
 

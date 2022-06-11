@@ -20,7 +20,7 @@ tags:
 
 下面是通过 ZeroHTTPd 提供的index页面:
 
-![index页面](/jony.github.io/images/ZeroHTTPd_static.png "index 页面")
+![index页面](/Benjamin.Yim/assets/images/ZeroHTTPd_static.png)
 
 
 现在让我们进入代码。

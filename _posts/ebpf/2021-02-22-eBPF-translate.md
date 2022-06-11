@@ -150,7 +150,7 @@ const struct bpf_func_proto bpf_map_update_elem_proto = {
 ---
 
 # 1.3 Maps
-![Maps](/jony.github.io/images/bpf_map.png)
+![Maps](/Benjamin.Yim/assets/images/bpf_map.png)
 map 是驻留在内核空间中的高效键值仓库（key/value store）。map 中的数据可以被 BPF 程序访问，如果想在多个 BPF 程序调用（invoke）之间保存状态，可以将状态信息放到 map。map 还可以从用户空间通过文件描述符访问，可以在任意 BPF 程序以及用户空间应用之间共享。
 
 共享 map 的 BPF 程序不要求是相同的程序类型，例如 tracing 程序可以和网络程序共享 map。单个 BPF 程序目前最多可直接访问 64 个不同 map。
@@ -182,7 +182,7 @@ map 的实现由核心内核（core kernel）提供。有 per-CPU 及 non-per-CP
 --- 
 
 # 1.4 Object Pinning
-![Object Pinning](/jony.github.io/images/bpf_fs.png)
+![Object Pinning](/Benjamin.Yim/assets/images/bpf_fs.png)
 BPF map和程序作为内核资源只能通过由内核中的匿名节点支持的文件描述符访问。有优点，但也伴随着一些缺点:
 
 **用户空间应用程序可以使用大多数与文件描述符相关的api, Unix域套接字传递的文件描述符可以透明地工作**，等等，但是同时，**文件描述符被限制在进程的生命周期内，这使得像map共享这样的选项执行起来相当麻烦**。
@@ -194,7 +194,7 @@ BPF map和程序作为内核资源只能通过由内核中的匿名节点支持�
 ---
 
 # 1.5 Tail Calls
-![Tail Calls](/jony.github.io/images/bpf_tailcall.png)
+![Tail Calls](/Benjamin.Yim/assets/images/bpf_tailcall.png)
 
 BPF 相关的另一个概念是尾调用（tail calls）。尾调用的机制是：一个 BPF 程序可以调 用另一个 BPF 程序，并且调用完成后不用返回到原来的程序。和普通函数调用相比，这种 调用方式开销最小，因为它是用长跳转（long jump）实现的，复用了原来的栈帧 （stack frame）。
 
@@ -213,7 +213,7 @@ BPF 程序都是独立验证的，因此要传递状态，要么使用 per-CPU m
 
 # 1.6 BPF to BPF Calls
 
-![BPF to BPF Calls](/jony.github.io/images/bpf_call.png)
+![BPF to BPF Calls](/Benjamin.Yim/assets/images/bpf_call.png)
 除了 BPF 辅助函数和 BPF 尾调用之外，BPF 核心基础设施最近刚加入了一个新特性：BPF 到 BPF 调用（BPF to BPF calls）。在这个特性引入内核之前，典型的 BPF C 程序必须 将所有需要复用的代码进行特殊处理，例如，在头文件中声明为 always_inline。当 LLVM 编译和生成 BPF 对象文件时，所有这些函数将被内联，因此会在生成的对象文件中重复多次，导致代码尺寸膨胀：
 ```c
 #include <linux/bpf.h>
@@ -274,7 +274,7 @@ BPF JIT 编译器为每个函数体发出单独的镜像，随后在最后的 JI
 直到kernel5.9，BPF 函数间调用和 BPF 尾调用是不兼容的。利用尾调用的BPF程序不能获得减少程序映像大小和更快加载时间的好处。Linux Kernel 5.10 终于允许用户两全其美，并增加了将BPF子程序与尾调用相结合的能力。
 
 不过，这种改进也有一些限制。混合使用这两种特性可能会导致内核堆栈溢出。为了了解可能发生的情况，请看下面的图片，说明了bpf2bpf调用和尾部调用的组合：
-![bpf_tailcall_subprograms.png](/jony.github.io/images/bpf_tailcall_subprograms.png)
+![bpf_tailcall_subprograms.png](/Benjamin.Yim/assets/images/bpf_tailcall_subprograms.png)
 
 尾调用，在实际跳转到目标程序之前，只会释放其当前的栈帧。在上面的例子中我们可以看到，如果从子函数内部发生尾部调用，当程序执行到func2时，函数（func1）的栈帧将存在于栈中。一旦最后一个函数（func3）函数终止，之前所有的栈帧将被释放，控制权将回到BPF程序的调用者手中。
 
@@ -286,7 +286,7 @@ BPF JIT 编译器为每个函数体发出单独的镜像，随后在最后的 JI
 
 # 1.7 JIT
 
-![bpf_jit.png](/jony.github.io/images/bpf_jit.png)
+![bpf_jit.png](/Benjamin.Yim/assets/images/bpf_jit.png)
 
 64 位的 x86_64、arm64、ppc64、s390x、mips64、sparc64 和 32 位的 arm 、x86_32 架构都内置了 in-kernel eBPF JIT 编译器，它们的功能都是一样的，可 以用如下方式打开：
 
@@ -403,7 +403,7 @@ $ echo 1 > /proc/sys/kernel/unprivileged_bpf_disabled
 
 # 1.9 Offloads
 
-![bpf_offload.png](/jony.github.io/images/bpf_offload.png)
+![bpf_offload.png](/Benjamin.Yim/assets/images/bpf_offload.png)
 
 BPF 网络程序，尤其是 tc 和 XDP BPF 程序在内核中都有一个 offload 到硬件的接口，这 样就可以直接在网卡上执行 BPF 程序。
 

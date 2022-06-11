@@ -25,7 +25,7 @@ tags:
 
 请看下图，它描述了一组请求在一秒钟内发生的事情。线程从阻塞到运行状态。虽然很清楚单线程和多线程应用程序中发生了什么，但异步编程的工作方式可能有点难以理解，尽管它不像造火箭那么难。我希望下图能帮助你理解。
 
-![阻塞到异步](/jony.github.io/images/Linux_Process_Models.jpg "阻塞到异步")
+![阻塞到异步](/Benjamin.Yim/assets/images/Linux_Process_Models.jpg "阻塞到异步")
 
 
 下面是用一个教育网站服务器运行实验的图表，功能上是一样的，但使用不同的Linux进程模型编写。下面是对每种架构名称的解释。
@@ -38,9 +38,9 @@ tags:
 - **poll**：这种类型的服务器是单线程的，使用[poll(2)](https://man7.org/linux/man-pages/man2/poll.2.html)系统调用在请求之间进行多路复用。然而 [poll(2)](https://man7.org/linux/man-pages/man2/poll.2.html)是一个有严重限制的系统调用：当扩展到处理大量文件描述符时，它会产生性能问题。。从下面的图表中可以看出这一点。在这种设计中，每个请求的状态都会被跟踪，并进行一系列函数回调，将该请求的处理带到下一个阶段。
 - **epoll**：这也是一种单线程的，服务器使用[epoll(7)](https://man7.org/linux/man-pages/man7/epoll.7.html)系列系统调用代替 [poll(2)](https://man7.org/linux/man-pages/man2/poll.2.html) ，但除此之外，架构上是一样的。
 
-![Linux_Performance_upto_1000_users](/jony.github.io/images/Linux_Performance_upto_1000_users.png "Linux_Performance_upto_1000_users")
-![Linux_Performance_more_than_1000_users](/jony.github.io/images/Linux_Performance_more_than_1000_users.png "Linux_Performance_more_than_1000_users")
-![Linux_Performance_Fulll_Chart-1](/jony.github.io/images/Linux_Performance_upto_1000_users.png "Linux_Performance_Fulll_Chart-1")
+![Linux_Performance_upto_1000_users](/Benjamin.Yim/assets/images/Linux_Performance_upto_1000_users.png "Linux_Performance_upto_1000_users")
+![Linux_Performance_more_than_1000_users](/Benjamin.Yim/assets/images/Linux_Performance_more_than_1000_users.png "Linux_Performance_more_than_1000_users")
+![Linux_Performance_Fulll_Chart-1](/Benjamin.Yim/assets/images/Linux_Performance_upto_1000_users.png "Linux_Performance_Fulll_Chart-1")
 
 正如您所看到的，Prethreaded 或基于线程池的Web服务器使基于[epoll(7)](https://man7.org/linux/man-pages/man7/epoll.7.html)的服务器在这个特定的基准测试中达到11,000个用户的并发性之前都是运行非常良好。这是大量的并发用户。只有非常流行的Web服务才会体验到这种并发性。这一点非常重要，因为就复杂性而言，与异步程序相比，基于线程池的程序更容易编码。这也意味着它们也更容易维护，因为它们本质上更容易理解。
 
