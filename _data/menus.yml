@@ -4,9 +4,12 @@
 - default: menu_category
   url:   "category"
 
-- title: "Jekyll Paper"
+- title: "Benjamin "
   absoluteUrl: true
-  url: "https://github.com/ghosind/Jekyll-Paper"
+  url: "https://benjamin-yim.github.io/Benjamin.github.io/"
 
 - default: menu_about
+  url:   "about"
+  
+- title: "About"
   url:   "about"
