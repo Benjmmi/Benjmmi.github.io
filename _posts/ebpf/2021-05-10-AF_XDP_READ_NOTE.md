@@ -1,8 +1,7 @@
 ---
 title: AF_XDP 散读笔记
 date: 2021-05-10 13:14:19
-categories: 
-	- [eBPF]
+categories:  'eBPF'
 tags:
   - ebpf
 author: Jony
