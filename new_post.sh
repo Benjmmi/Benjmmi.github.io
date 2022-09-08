@@ -36,5 +36,5 @@ else
 fi
 
 # edit file with vim
-vim _posts/$FILE_NAME
+#vim _posts/$FILE_NAME
 
