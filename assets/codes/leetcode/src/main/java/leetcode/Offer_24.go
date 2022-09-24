@@ -1,6 +1,6 @@
 package sample
 
-func reverseList(head *ListNode) *ListNode {
+func reverseList2(head *ListNode) *ListNode {
 
 	if head == nil || head.Next == nil {
 		return head
