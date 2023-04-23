@@ -1,0 +1,1 @@
+cmd_/root/Documents/jony.github.io/source/codes/kernel/devices/dev.ko := ld -r -m elf_x86_64  --build-id=sha1  -T scripts/module.lds -o /root/Documents/jony.github.io/source/codes/kernel/devices/dev.ko /root/Documents/jony.github.io/source/codes/kernel/devices/dev.o /root/Documents/jony.github.io/source/codes/kernel/devices/dev.mod.o;  true

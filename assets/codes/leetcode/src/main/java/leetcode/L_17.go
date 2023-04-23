@@ -1,0 +1,33 @@
+package sample
+
+var kv = map[byte][]byte{
+	'2': []byte{'a', 'b', 'c'},
+	'3': []byte{'d', 'e', 'f'},
+	'4': []byte{'g', 'h', 'i'},
+	'5': []byte{'j', 'k', 'l'},
+	'6': []byte{'m', 'n', 'o'},
+	'7': []byte{'p', 'q', 'r', 's'},
+	'8': []byte{'t', 'u', 'v'},
+	'9': []byte{'w', 'x', 'y', 'z'},
+}
+
+func letterCombinations(digits string) []string {
+	if len(digits) == 0 {
+		return []string{}
+	}
+	result := &[]string{}
+	letter(digits, -1, []byte{}, result)
+	return *result
+}
+
+func letter(digits string, index int, cur []byte, result *[]string) {
+	if index == len(digits)-1 {
+		*result = append(*result, string(cur))
+		return
+	}
+	index++
+	alphadata := kv[digits[index]]
+	for i := 0; i < len(alphadata); i++ {
+		letter(digits, index, append(cur, alphadata[i]), result)
+	}
+}

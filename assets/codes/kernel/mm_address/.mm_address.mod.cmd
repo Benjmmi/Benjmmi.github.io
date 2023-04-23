@@ -1,0 +1,1 @@
+cmd_/root/Documents/jony.github.io/source/codes/kernel/mm_address/mm_address.mod := { echo  /root/Documents/jony.github.io/source/codes/kernel/mm_address/mm_address.o;  echo; } > /root/Documents/jony.github.io/source/codes/kernel/mm_address/mm_address.mod
