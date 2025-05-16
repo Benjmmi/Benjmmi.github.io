@@ -19,7 +19,6 @@ public class L_01_04 {
             }
         }
         TreeSet set = new TreeSet();
-        set.ceiling()
         return b.size() < 1;
     }
 }
