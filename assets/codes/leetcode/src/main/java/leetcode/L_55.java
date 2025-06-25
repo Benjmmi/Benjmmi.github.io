@@ -27,21 +27,43 @@ package leetcode;
  */
 public class L_55 {
     public boolean canJump(int[] nums) {
-        // 单指针不行
-//        int i = 0;
-//        while (true) {
-//            if (i >= nums.length - 1) {
-//                return true;
-//            }
-//            if (nums[i] == 0) {
-//                break;
-//            }
-//            i += nums[i];
-//        }
-//        return false;
-        // 暴力破解 需要 2n
+        int y = nums[0];
+        for (int i = 0; i < nums.length && i <= y; i++) {
+            if (i + nums[i] > y) {
+                y = i + nums[i];
+            }
+            if (y >= nums.length-1) {
+                return true;
+            }
+        }
         return false;
     }
+
+    //    可行
+//        {
+    // 反向算法
+    // 从后往前看，0 能否跳过0
+//            int mark = -1;
+//            int skip = 0;
+//            boolean canJump = true;
+//            for (int i = nums.length - 2; i >= 0; i--) {
+//                if (mark > -1) {
+//                    skip++;
+//                }
+//                if (nums[i] == 0 && mark == -1) {
+//                    mark = i;
+//                    canJump = false;
+//                    skip = 0;
+//                    continue;
+//                }
+//                if (nums[i] > skip) {
+//                    canJump = true;
+//                    mark = -1; // 重置标记
+//                }
+//            }
+//            return canJump;
+//        }
+
 
     public static void main(String[] args) {
         L_55 l55 = new L_55();
@@ -54,7 +76,7 @@ public class L_55 {
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {3, 2, 1, 1, 0}; // false
+            int[] nums = {3, 2, 1, 1, 0}; // true
             System.out.println(l55.canJump(nums));
         }
         {
@@ -66,23 +88,47 @@ public class L_55 {
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {1, 1, 1, 1, 0}; // false
+            int[] nums = {1, 1, 1, 1, 0}; // true
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {2, 5, 0, 0}; // false
+            int[] nums = {2, 5, 0, 0}; // true
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {5, 5, 0, 0}; // false
+            int[] nums = {5, 5, 0, 0}; // true
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {4, 1, 3, 3, 0, 0, 5, 0, 5, 2, 0, 0}; // false
+            int[] nums = {4, 1, 3, 3, 0, 0, 5, 0, 5, 2, 0, 0}; // true
             System.out.println(l55.canJump(nums));
         }
         {
-            int[] nums = {4, 1, 3, 3, 0, 0, 5, 0, 5, 2, 0, 0}; // false
+            int[] nums = {2, 0, 0}; // true
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {0}; // true
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {0, 0}; // false
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {0, 1, 0}; // false
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {1, 0}; // true
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {10, 0, 1, 0, 0, 0, 1, 0, 0}; // true
+            System.out.println(l55.canJump(nums));
+        }
+        {
+            int[] nums = {5, 0, 1, 0, 0, 0, 1, 0, 0}; // false
             System.out.println(l55.canJump(nums));
         }
     }
