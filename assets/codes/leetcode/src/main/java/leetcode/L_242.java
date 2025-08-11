@@ -30,20 +30,43 @@ public class L_242 {
     }
 
     public boolean isAnagram(String s, String t) {
-        if (s.length() != t.length()){
+        if (t.length() != s.length()) {
             return false;
         }
-        char[] sums = new char[s.length()];
-        char[] sumt = new char[s.length()];
-        for (int i = 0; i < s.length(); i++) {
-            sums[i] = s.charAt(i);
-        }
-        for (int i = 0; i < t.length(); i++) {
-            sumt[i] = t.charAt(i);
-        }
-        Arrays.sort(sums);
-        Arrays.sort(sumt);
 
-        return new String(sums).equals(new String(sumt));
+        int[] is = new int[26];
+        int[] it = new int[26];
+
+        for (int i = 0; i < s.length(); i++) {
+            int cs = s.charAt(i) - 'a';
+            int ct = t.charAt(i) - 'a';
+            is[cs] += 1;
+            it[ct] += 1;
+        }
+
+        for (int i = 0; i < is.length; i++) {
+            if (is[i] != it[i]) {
+                return false;
+            }
+        }
+        return true;
     }
+
+//    public boolean isAnagram(String s, String t) {
+//        if (s.length() != t.length()){
+//            return false;
+//        }
+//        char[] sums = new char[s.length()];
+//        char[] sumt = new char[s.length()];
+//        for (int i = 0; i < s.length(); i++) {
+//            sums[i] = s.charAt(i);
+//        }
+//        for (int i = 0; i < t.length(); i++) {
+//            sumt[i] = t.charAt(i);
+//        }
+//        Arrays.sort(sums);
+//        Arrays.sort(sumt);
+//
+//        return new String(sums).equals(new String(sumt));
+//    }
 }
