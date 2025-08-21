@@ -21,16 +21,23 @@ public class L_82 {
 
 
     public ListNode deleteDuplicates(ListNode head) {
-        ListNode dumpNode = new ListNode();
-        dumpNode.next = head;
-        ListNode temp = dumpNode;
-        while (temp != null) {
-            if (temp.next.val == temp.next.next.val) {
-                int value = temp.next.val;
+        ListNode dummyNode = new ListNode();
+        dummyNode.next = head;
+        ListNode cur = dummyNode;
+
+        while (cur.next != null && cur.next.next != null) {
+            if (cur.next.val == cur.next.next.val) {
+                int x = cur.next.val;
+                while (cur.next != null && cur.next.val == x) {
+                    cur.next = cur.next.next;
+                }
+            } else {
+                cur = cur.next;
             }
         }
 
-        return dumpNode.next;
+
+        return dummyNode.next;
     }
 
 
@@ -44,6 +51,30 @@ public class L_82 {
             listNode.next.next.next = new ListNode(4);
             listNode.next.next.next.next = new ListNode(5);
             listNode.next.next.next.next.next = new ListNode(6);
+            println(l82.deleteDuplicates(listNode));
+        }
+        {
+            listNode = new ListNode(1);
+            listNode.next = new ListNode(1);
+            listNode.next.next = new ListNode(2);
+            listNode.next.next.next = new ListNode(2);
+            listNode.next.next.next.next = new ListNode(2);
+            listNode.next.next.next.next.next = new ListNode(2);
+            println(l82.deleteDuplicates(listNode));
+        }
+        {
+            listNode = new ListNode(1);
+            listNode.next = new ListNode(2);
+            listNode.next.next = new ListNode(2);
+            println(l82.deleteDuplicates(listNode));
+        }
+        {
+            listNode = new ListNode(1);
+            listNode.next = new ListNode(1);
+            println(l82.deleteDuplicates(listNode));
+        }
+        {
+            listNode = new ListNode(1);
             println(l82.deleteDuplicates(listNode));
         }
     }
