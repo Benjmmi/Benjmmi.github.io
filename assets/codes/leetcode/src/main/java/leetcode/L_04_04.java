@@ -34,18 +34,28 @@ public class L_04_04 {
         return !(Math.abs(deep(root)) > 1);
     }
 
-    public int deep(TreeNode root){
-        if (root == null){
+    public int deep(TreeNode root) {
+        if (root == null) {
             return 0;
         }
-        int i = deep(root.left) ;
-        int j = deep(root.right) ;
-        return Math.max(i,j)+1;
+        int i = deep(root.left);
+        int j = deep(root.right);
+        return Math.max(i, j) + 1;
     }
 }
+
 class TreeNode {
     int val;
     TreeNode left;
     TreeNode right;
-    TreeNode(int x) { val = x; }
+
+    TreeNode(int x) {
+        val = x;
+    }
+
+    public TreeNode(int root, TreeNode left, TreeNode right) {
+        this.val = root;
+        this.left = left;
+        this.right = right;
+    }
 }
