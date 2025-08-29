@@ -41,6 +41,14 @@ public class L_124 {
         System.out.println(new L_124().maxPathSum(root));
     }
 
+
+
+
+
+
+
+
+
     static int maxNum = Integer.MIN_VALUE;
 
     public int maxPathSum(TreeNode root) {
@@ -61,26 +69,6 @@ public class L_124 {
         int s = root.val + l+r;
         maxNum = Math.max(s,maxNum);
         return root.val + Math.max(l,r);
-    }
-
-
-    public static class TreeNode {
-        int val;
-        TreeNode left;
-        TreeNode right;
-
-        TreeNode() {
-        }
-
-        TreeNode(int val) {
-            this.val = val;
-        }
-
-        TreeNode(int val, TreeNode left, TreeNode right) {
-            this.val = val;
-            this.left = left;
-            this.right = right;
-        }
     }
 
 }
