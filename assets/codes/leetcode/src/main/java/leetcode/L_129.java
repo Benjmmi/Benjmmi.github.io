@@ -7,9 +7,28 @@ public class L_129 {
         if (root == null) {
             return 0;
         }
+        return dsf(root, 0);
+    }
+
+    public int sumNumbers2(TreeNode root) {
+        if (root == null) {
+            return 0;
+        }
         build(root, 0);
         System.out.println(sum);
         return sum;
+    }
+
+    public int dsf(TreeNode root, int preSum) {
+        if (root == null) {
+            return 0;
+        }
+        int total = preSum * 10 + root.val;
+        if (root.left == null && root.right == null) {
+            return total;
+        } else {
+            return dsf(root.left, total) + dsf(root.right, total);
+        }
     }
 
     public void build(TreeNode root, int s) {
@@ -31,7 +50,8 @@ public class L_129 {
             TreeNode root = new TreeNode(1);
             root.left = new TreeNode(2);
             root.right = new TreeNode(3);
-            l129.sumNumbers(root);
+            System.out.println(l129.sumNumbers(root));
+            ;
         }
         {
             l129.sum = 0;
@@ -40,19 +60,22 @@ public class L_129 {
             root.left.left = new TreeNode(5);
             root.left.right = new TreeNode(1);
             root.right = new TreeNode(0);
-            l129.sumNumbers(root);
+            System.out.println(l129.sumNumbers(root));
+            ;
         }
         {
             l129.sum = 0;
             TreeNode root = new TreeNode(4);
             root.right = new TreeNode(0);
-            l129.sumNumbers(root);
+            System.out.println(l129.sumNumbers(root));
+            ;
         }
         {
             l129.sum = 0;
             TreeNode root = new TreeNode(4);
             root.left = new TreeNode(0);
-            l129.sumNumbers(root);
+            System.out.println(l129.sumNumbers(root));
+            ;
         }
     }
 }
