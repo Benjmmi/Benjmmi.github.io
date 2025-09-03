@@ -9,22 +9,12 @@
     <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Central Repository" />
-      <option name="url" value="https://odin.shizhuang-inc.com/repository/maven-group/" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="central" />
-      <option name="name" value="Central Repository" />
       <option name="url" value="https://repo.maven.apache.org/maven2" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Central Repository" />
       <option name="url" value="http://maven.aliyun.com/nexus/content/groups/public/" />
-    </remote-repository>
-    <remote-repository>
-      <option name="id" value="odinMavenGroup" />
-      <option name="name" value="odinMavenGroup" />
-      <option name="url" value="https://odin.shizhuang-inc.com/repository/maven-group/" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="ELongTestNexus" />
