@@ -48,86 +48,121 @@ import java.util.*;
 public class L_210 {
 
     public static void main(String[] args) {
-//        new L_210().findOrder(1, new int[][]{}); // [0]
-//        new L_210().findOrder(2, new int[][]{{1, 0}, {0, 1}}); // 环路
-//        new L_210().findOrder(3, new int[][]{{0, 1}, {0, 2}, {1, 2}}); // [2, 1, 0]
-//        new L_210().findOrder(3, new int[][]{{1, 0}, {0, 2}, {2, 1}}); // 环路
-//        new L_210().findOrder(2, new int[][]{{1, 0}}); // [0, 1]
-//        new L_210().findOrder(7, new int[][]{{1,0},{0,3},{0,2},{3,2},{2,5},{4,5},{5,6},{2,4}}); // [6, 5, 4, 2, 3, 0, 1]
-//        new L_210().findOrder(3, new int[][]{{1, 0}, {2, 0}, {0, 2}}); // 环路
-        new L_210().findOrder(10, new int[][]{{5,6},{0,2},{1,7},{5,9},{1,8},{3,4},{0,6},{0,7},{0,3},{8,9}});
+        L_210 l210 = new L_210();
+        System.out.println(Arrays.toString(l210.findOrder(1, new int[][]{}))); // [0]
+        System.out.println(Arrays.toString(l210.findOrder(2, new int[][]{{1, 0}, {0, 1}}))); // 环路
+        System.out.println(Arrays.toString(l210.findOrder(3, new int[][]{{0, 1}, {0, 2}, {1, 2}}))); // [2, 1, 0]
+        System.out.println(Arrays.toString(l210.findOrder(3, new int[][]{{1, 0}, {0, 2}, {2, 1}}))); // 环路
+        System.out.println(Arrays.toString(l210.findOrder(2, new int[][]{{1, 0}}))); // [0, 1]
+        System.out.println(Arrays.toString(l210.findOrder(7, new int[][]{{1, 0}, {0, 3}, {0, 2}, {3, 2}, {2, 5}, {4, 5}, {5, 6}, {2, 4}}))); // [6, 5, 4, 2, 3, 0, 1]
+        System.out.println(Arrays.toString(l210.findOrder(3, new int[][]{{1, 0}, {2, 0}, {0, 2}}))); // 环路
+        System.out.println(Arrays.toString(l210.findOrder(10, new int[][]{{5, 6}, {0, 2}, {1, 7}, {5, 9}, {1, 8}, {3, 4}, {0, 6}, {0, 7}, {0, 3}, {8, 9}})));
 
     }
 
     public int[] findOrder(int numCourses, int[][] prerequisites) {
 
-        if (numCourses <= 1){
-            return new int[]{0};
+        List<Integer>[] g = new ArrayList[numCourses];
+        Arrays.setAll(g, i -> new ArrayList<>());
+        for (int[] prerequisite : prerequisites) {
+            g[prerequisite[1]].add(prerequisite[0]);
         }
+        int[] visited = new int[numCourses];
+        List<Integer> answer = new ArrayList<>();
 
-        LinkedList<Integer>[] linkedLists = new LinkedList[numCourses];
-
-        for (int i = 0; i < linkedLists.length; i++) {
-            linkedLists[i] = new LinkedList<>();
-        }
-
-        // 转为邻接表
-        for (int i = 0; i < prerequisites.length; i++) {
-            int from = prerequisites[i][1];
-            int to = prerequisites[i][0];
-            if (linkedLists[from] == null){
-                linkedLists[from] = new LinkedList<>();
-            }
-            if (!linkedLists[from].contains(to)){
-                linkedLists[from].add(to);
-            }
-        }
-        // 入度为 0 的顶点存放集合，从后往前存
-        int[] sqe = new int[numCourses];
-        int step = numCourses-1;
-
-        Set<Integer> points = new HashSet<>();
-        while (true){
-            int len = linkedLists.length;
-            points.clear();
-
-            // 寻找入度为 0 的顶点
-            for (int i = 0; i < len; i++) {
-                if (linkedLists[i] != null && linkedLists[i].size() == 0){
-                    points.add(i);
-                    linkedLists[i] = null;
-                }
-            }
-
-            if (points.size() == 0){
-                // 如果入度为 0 的顶点集为空，且邻接表不为空，说明有环
-                for (int i = 0; i < len; i++) {
-                    if (linkedLists[i] != null && linkedLists[i].size() != 0){
-                        System.out.println("存在环");
-                        return new int[0];
-                    }
-                }
-                break;
-            }else {
-                // 否则就添加到倒序列表中
-                for (Integer point : points) {
-                    for (int i = 0; i < len; i++) {
-                        if (linkedLists[i] != null && linkedLists[i].size() != 0){
-                            int index = linkedLists[i].indexOf(point);
-                            if (index > -1 ){
-                                linkedLists[i].remove(index);
-                            }
-                        }
-                    }
-                    sqe[step--] = point;
-                }
+        for (int i = 0; i < visited.length; i++) {
+            if (visited[i] == 0 && dfs(i, g, visited, answer)) {
+                return new int[0]; // 有环，返回空数组
             }
         }
 
-        return sqe;
+        int[] res = new int[answer.size()];
+        for (int i = 0; i < answer.size(); i++) {
+            res[i] = answer.get(answer.size() - 1 - i);
+        }
+
+        return res;
     }
 
+    public boolean dfs(int x, List<Integer>[] g, int[] colors, List<Integer> answer) {
+        colors[x] = 1;
+        for (Integer item : g[x]) {
+            if (colors[item] == 1 || colors[item] == 0 && dfs(item, g, colors, answer)) {
+                return true;
+            }
+        }
+        colors[x] = 2;
+        answer.add(x);
+        return false;
+    }
 
+//    public int[] findOrder(int numCourses, int[][] prerequisites) {
+//
+//        if (numCourses <= 1){
+//            return new int[]{0};
+//        }
+//
+//        LinkedList<Integer>[] linkedLists = new LinkedList[numCourses];
+//
+//        for (int i = 0; i < linkedLists.length; i++) {
+//            linkedLists[i] = new LinkedList<>();
+//        }
+//
+//        // 转为邻接表
+//        for (int i = 0; i < prerequisites.length; i++) {
+//            int from = prerequisites[i][1];
+//            int to = prerequisites[i][0];
+//            if (linkedLists[from] == null){
+//                linkedLists[from] = new LinkedList<>();
+//            }
+//            if (!linkedLists[from].contains(to)){
+//                linkedLists[from].add(to);
+//            }
+//        }
+//        // 入度为 0 的顶点存放集合，从后往前存
+//        int[] sqe = new int[numCourses];
+//        int step = numCourses-1;
+//
+//        Set<Integer> points = new HashSet<>();
+//        while (true){
+//            int len = linkedLists.length;
+//            points.clear();
+//
+//            // 寻找入度为 0 的顶点
+//            for (int i = 0; i < len; i++) {
+//                if (linkedLists[i] != null && linkedLists[i].size() == 0){
+//                    points.add(i);
+//                    linkedLists[i] = null;
+//                }
+//            }
+//
+//            if (points.size() == 0){
+//                // 如果入度为 0 的顶点集为空，且邻接表不为空，说明有环
+//                for (int i = 0; i < len; i++) {
+//                    if (linkedLists[i] != null && linkedLists[i].size() != 0){
+//                        System.out.println("存在环");
+//                        return new int[0];
+//                    }
+//                }
+//                break;
+//            }else {
+//                // 否则就添加到倒序列表中
+//                for (Integer point : points) {
+//                    for (int i = 0; i < len; i++) {
+//                        if (linkedLists[i] != null && linkedLists[i].size() != 0){
+//                            int index = linkedLists[i].indexOf(point);
+//                            if (index > -1 ){
+//                                linkedLists[i].remove(index);
+//                            }
+//                        }
+//                    }
+//                    sqe[step--] = point;
+//                }
+//            }
+//        }
+//
+//        return sqe;
+//    }
 
 
 }
