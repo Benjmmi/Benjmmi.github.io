@@ -13,10 +13,10 @@ public class L_215 {
                 return o2-o1;
             }
         });
-        for (int num : nums) {
-            integers.offer(num);
+        for (int i = 0; i < nums.length; i++) {
+            integers.offer(nums[i]);
         }
-        for (int i = 0; i < k-1; i++) {
+        for (int i = 0; i < k - 1; i++) {
             integers.poll();
         }
         return integers.poll();
