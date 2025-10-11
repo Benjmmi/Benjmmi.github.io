@@ -1,4 +1,4 @@
-# [https://benjamin-yim.github.io/Benjamin.Yim/](https://benjamin-yim.github.io/Benjamin.Yim/)
+# [https://Benjmmi.github.io/Benjmmi/](https://Benjmmi.github.io/Benjmmi/)
 ![Jekyll-Paper](./favicon.ico)
 
 English | [简体中文](./README-CN.md)
