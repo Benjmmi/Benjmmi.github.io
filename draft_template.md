@@ -4,7 +4,7 @@ title: "{title}"
 keywords: ""
 description: ""
 tagline: ""
-date: '{time} +0800'
+date: '{time}'
 category: linux
 tags: linux
 ---

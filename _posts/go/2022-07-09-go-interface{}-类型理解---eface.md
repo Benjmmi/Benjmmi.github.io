@@ -4,7 +4,7 @@ title: "go interface{} 类型理解 - eface"
 keywords: ""
 description: ""
 tagline: ""
-date: '2022-07-09 23:05:15 +0800'
+date: '2022-07-09 23:05:15'
 category: linux
 tags: linux
 ---
