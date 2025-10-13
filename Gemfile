@@ -20,9 +20,9 @@ gem "kramdown-parser-gfm"
 # If you have any plugins, put them here!
 group :jekyll_plugins do
   gem "jekyll-feed", "~> 0.11"
-  gem "jekyll-paginate"
+  gem "jekyll-paginate-v2"
   gem "jekyll-sitemap"
-  gem "jekyll-archives"
+  gem "jekyll-archives", github: "jekyll/jekyll-archives"
   gem "jekyll-seo-tag"
 end
 
