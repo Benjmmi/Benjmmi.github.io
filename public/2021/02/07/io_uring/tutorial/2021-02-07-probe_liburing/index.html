@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>探测支持功能 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">探测支持功能</h1>
+<article class="post markdown-style">
+  <p>下面的程序演示了如何使用 <code>io_uring_get_probe()</code> 。它打印出是否支持某个操作。</p>
+<blockquote>
+<p>A program to print details about supported and unsupported operations</p>
+</blockquote>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/utsname.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;liburing.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;liburing/io_uring.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">static</span> <span class="type">const</span> <span class="type">char</span> *op_strs[] = &#123;</span><br><span class="line">        <span class="string">&quot;IORING_OP_NOP&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_READV&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_WRITEV&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_FSYNC&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_READ_FIXED&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_WRITE_FIXED&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_POLL_ADD&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_POLL_REMOVE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_SYNC_FILE_RANGE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_SENDMSG&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_RECVMSG&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_TIMEOUT&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_TIMEOUT_REMOVE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_ACCEPT&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_ASYNC_CANCEL&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_LINK_TIMEOUT&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_CONNECT&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_FALLOCATE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_OPENAT&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_CLOSE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_FILES_UPDATE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_STATX&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_READ&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_WRITE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_FADVISE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_MADVISE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_SEND&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_RECV&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_OPENAT2&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_EPOLL_CTL&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_SPLICE&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_PROVIDE_BUFFERS&quot;</span>,</span><br><span class="line">        <span class="string">&quot;IORING_OP_REMOVE_BUFFERS&quot;</span>,</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">utsname</span> <span class="title">u</span>;</span></span><br><span class="line">    uname(&amp;u);</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;You are running kernel version: %s\n&quot;</span>, u.release);</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_probe</span> *<span class="title">probe</span> =</span> io_uring_get_probe();</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;Report of your kernel&#x27;s list of supported io_uring operations:\n&quot;</span>);</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">char</span> i = <span class="number">0</span>; i &lt; IORING_OP_LAST; i++ ) &#123;</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">&quot;%s: &quot;</span>, op_strs[i]);</span><br><span class="line">        <span class="keyword">if</span>(io_uring_opcode_supported(probe, i))</span><br><span class="line">            <span class="built_in">printf</span>(<span class="string">&quot;yes.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">            <span class="built_in">printf</span>(<span class="string">&quot;no.\n&quot;</span>);</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">free</span>(probe);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>下面是程序在Linux内核5.6.4上运行时的输出<br>	You are running kernel version: 5.6.4-arch1-1<br>	Report of your kernel’s list of supported io_uring operations:<br>	IORING_OP_NOP: yes.<br>	IORING_OP_READV: yes.<br>	IORING_OP_WRITEV: yes.<br>	IORING_OP_FSYNC: yes.<br>	IORING_OP_READ_FIXED: yes.<br>	IORING_OP_WRITE_FIXED: yes.<br>	IORING_OP_POLL_ADD: yes.<br>	IORING_OP_POLL_REMOVE: yes.<br>	IORING_OP_SYNC_FILE_RANGE: yes.<br>	IORING_OP_SENDMSG: yes.<br>	IORING_OP_RECVMSG: yes.<br>	IORING_OP_TIMEOUT: yes.<br>	IORING_OP_TIMEOUT_REMOVE: yes.<br>	IORING_OP_ACCEPT: yes.<br>	IORING_OP_ASYNC_CANCEL: yes.<br>	IORING_OP_LINK_TIMEOUT: yes.<br>	IORING_OP_CONNECT: yes.<br>	IORING_OP_FALLOCATE: yes.<br>	IORING_OP_OPENAT: yes.<br>	IORING_OP_CLOSE: yes.<br>	IORING_OP_FILES_UPDATE: yes.<br>	IORING_OP_STATX: yes.<br>	IORING_OP_READ: yes.<br>	IORING_OP_WRITE: yes.<br>	IORING_OP_FADVISE: yes.<br>	IORING_OP_MADVISE: yes.<br>	IORING_OP_SEND: yes.<br>	IORING_OP_RECV: yes.<br>	IORING_OP_OPENAT2: yes.<br>	IORING_OP_EPOLL_CTL: yes.<br>	IORING_OP_SPLICE: no.<br>	IORING_OP_PROVIDE_BUFFERS: no.<br>	IORING_OP_REMOVE_BUFFERS: no.</p>
+<h1 id="源码"><a href="#源码" class="headerlink" title="源码"></a>源码</h1><p>源代码可以在 <a target="_blank" rel="noopener" href="https://github.com/shuveb/loti-examples">Github</a>上找到。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-02-07-link_liburing/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-02-07-webserver_liburing/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

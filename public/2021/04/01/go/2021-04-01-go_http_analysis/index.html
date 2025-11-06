@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Other - Golang HTTP 请求过程分析 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Other - Golang HTTP 请求过程分析</h1>
+<article class="post markdown-style">
+  <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>源于项目需求：将传统项目对接到注册中心，最好在无感的情况下。<br>传统项目之间的访问大多数都是通过 <code>HTTP*</code> 协议来通信，即域名级别的服务发现，传统项目<br>在访问时遇到如下问题：</p>
+<ol>
+<li>传统项目只能通过域名级别</li>
+<li>传统项目只能通过 DNS 来做寻址发现</li>
+<li>传统项目无法判断远程服务是否存活，只能根据 DNS 结果来请求，容灾效果差</li>
+</ol>
+<p>改造难点：</p>
+<ul>
+<li>传统开发模式不改变的情况下，最好较少改动或者不改动</li>
+<li>提搞容灾能力，在域名级别访问的情况下降提高容灾能力</li>
+</ul>
+<p>解决方案：</p>
+<ul>
+<li>设置统一网关模式，由网关统一管理后端节点信息转发</li>
+<li>iptables 模式，每个客户端实例下都部署 agent 来监控，实时更新 iptables</li>
+<li>代理 DNS 解析</li>
+</ul>
+<h1 id="代理-DNS-解析"><a href="#代理-DNS-解析" class="headerlink" title="代理 DNS 解析"></a>代理 DNS 解析</h1><p>golang 在发起 http 请求的时候必然需要经过 DNS 解析。常用的请求方式如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// GET 请求</span></span><br><span class="line">httpClient.Get(<span class="string">&quot;http://fjlfkdafjlkf:8000/&quot;</span>)</span><br><span class="line"><span class="comment">// POST 请求</span></span><br><span class="line">http.Post(<span class="string">&quot;http://fjlfkdafjlkf:8000/&quot;</span>,<span class="string">&quot;application/json&quot;</span>,<span class="literal">nil</span>)</span><br><span class="line"><span class="comment">// 自定义请求</span></span><br><span class="line">req, err := http.NewRequest(<span class="string">&quot;DELETE&quot;</span>, endpoint, <span class="literal">nil</span>)</span><br><span class="line">  <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> err</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="comment">// use httpClient to send request</span></span><br><span class="line">rsp, err := client.Do(req)  </span><br></pre></td></tr></table></figure>
+
+<p>解决 DNS 代理之前先了解下 <code>RoundTripper</code> 和  <code>Dialer</code>。</p>
+<h3 id="RoundTripper"><a href="#RoundTripper" class="headerlink" title="RoundTripper"></a>RoundTripper</h3><p>先看代码</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> RoundTripper <span class="keyword">interface</span> &#123;</span><br><span class="line">  RoundTrip(*Request) (*Response, <span class="type">error</span>)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>RoundTripper</strong> 注释：<code>RoundTripper</code> 是 <code>goroutines-safe</code>的。其中唯一的 <code>RoundTrip()</code><br>方法只负责 <code>HTTP</code> 请求的建立、发送、接收<code>HTTP</code>响应以及关闭；但是不会对 <code>HTTP</code> 响应，<br>例如：<code>redirect</code>、<code>authentication</code> 或者 <code>cookies</code> 等上层协议细节。<br>在非必要情况下，不应该在 <code>RoundTrip()</code> 方法中改写传入的请求对象 <code>*Request</code>。</p>
+<blockquote>
+<p>注意：任何实现了 <code>RoundTrip()</code> 方法的类型都实现了 <code>http.RoundTripper</code> 接口。</p>
+</blockquote>
+<p>通过对源码的跟踪发现 <code>http.Transport</code> 也是通过实现 <code>RoundTrip()</code> 方法，而继承了该接口。</p>
+<h3 id="Dialer"><a href="#Dialer" class="headerlink" title="Dialer"></a>Dialer</h3><p>在 golang 中无论什么协议建立什么形式的连接，都只需要调用 <code>net.Dial()</code> 就可以。在 <code>net.Dial()</code><br>实际上并没有发起真正的连接，只是在为连接做一些列的准备，比如：解析网络类型、解析 <code>IP</code> 地址，实际发<br>起连接的方法在具体的 <code>tcpsock_posix.go</code>、<code>udpsock_posix.go</code> 文件下。代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(d *Dialer)</span></span> DialContext(ctx context.Context, network, address <span class="type">string</span>) </span><br><span class="line">(Conn, <span class="type">error</span>) &#123;</span><br><span class="line">  ...</span><br><span class="line">  <span class="comment">// 先对目标地址进行解析</span></span><br><span class="line">  addrs, err := d.resolver().resolveAddrList(resolveCtx, <span class="string">&quot;dial&quot;</span>, network, address, d.LocalAddr)</span><br><span class="line">  ...</span><br><span class="line">  <span class="keyword">if</span> d.dualStack() &amp;&amp; network == <span class="string">&quot;tcp&quot;</span> &#123; <span class="comment">// 表示同时支持 ipv4 和 ipv6</span></span><br><span class="line">    <span class="comment">// 将addrs分成两个切片，前者包含ipv4地址，后者包含ipv6地址</span></span><br><span class="line">    primaries, fallbacks = addrs.partition(isIPv4) </span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    primaries = addrs</span><br><span class="line">  &#125;</span><br><span class="line">  ...</span><br><span class="line">  <span class="keyword">var</span> c Conn</span><br><span class="line">  <span class="keyword">if</span> <span class="built_in">len</span>(fallbacks) &gt; <span class="number">0</span> &#123; <span class="comment">//有ipv6的情况，v4和v6一起dial</span></span><br><span class="line">    c, err = sd.dialParallel(ctx, primaries, fallbacks)</span><br><span class="line">  &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">    c, err = sd.dialSerial(ctx, primaries)</span><br><span class="line">  &#125;</span><br><span class="line">  ...</span><br><span class="line">  <span class="keyword">if</span> tc, ok := c.(*TCPConn); ok &amp;&amp; d.KeepAlive &gt;= <span class="number">0</span> &#123;</span><br><span class="line">    setKeepAlive(tc.fd, <span class="literal">true</span>)</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> c, <span class="literal">nil</span>  </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>可以看到 <code>DialContext</code> 在真正创建连接之前对先使用了  <code>Resolver *Resolver</code> 解析 <code>DNS</code><br><code>Resolver \*Resolver</code> 是一个<code>struct</code>，不是个<code>interface</code>。然后在根据解析结果，创建<br><code>TCPConn</code> 。</p>
+<blockquote>
+<p>具体其他详情查看，参考文档</p>
+</blockquote>
+<p>对 <code>RoundTripper</code> 和 <code>Dialer</code> 了解之后发现好像并没有什么帮助，其实不然。直接来跟踪 <code>Get</code>、<br><code>Post</code> 方法就会发现最终调用的都是 <code>client.Do(req *Request)</code> 方法。<br> <code>Do(req *Request)</code> 实际上就一个包裹方法，将内部实现对外开放的接口。跟踪代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> Post(url, contentType <span class="type">string</span>, body io.Reader) </span><br><span class="line">    (resp *Response, err <span class="type">error</span>) &#123;</span><br><span class="line">  ...</span><br><span class="line">  <span class="keyword">return</span> c.Do(req)</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> Get(url <span class="type">string</span>) (resp *Response, err <span class="type">error</span>) &#123;</span><br><span class="line">  ...</span><br><span class="line">  <span class="keyword">return</span> c.Do(req)</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> Do(req *Request) (*Response, <span class="type">error</span>) &#123;</span><br><span class="line">  <span class="keyword">return</span> c.do(req)</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> do(req *Request) (retres *Response, reterr <span class="type">error</span>) &#123;</span><br><span class="line">  <span class="keyword">if</span> resp, didTimeout, err = c.send(req, deadline); err != <span class="literal">nil</span> &#123;</span><br><span class="line">    ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>最终的请求是通过 <code>send</code> 方法，来发送请求和获取响应。这里的 <code>send</code> 同样也是一个包裹函数，<br>内部调用了一个同名的 <code>send</code> 方法。代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> send(req *Request, deadline time.Time) (resp *Response, didTimeout </span><br><span class="line">  <span class="function"><span class="keyword">func</span><span class="params">()</span></span> <span class="type">bool</span>, err <span class="type">error</span>) &#123;</span><br><span class="line">  ...</span><br><span class="line">  resp, didTimeout, err = send(req, c.transport(), deadline)</span><br><span class="line">  <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">nil</span>, didTimeout, err</span><br><span class="line">  &#125;  </span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>内部 <code>send()</code> 调用参数包含了一个 <code>c.transport()</code> 。而 <code>c.transport()</code> 就是我们上面<br><code>RoundTripper</code> 的一个实现。查看 <code>c.transport()</code> 代码实现如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(c *Client)</span></span> transport() RoundTripper &#123;</span><br><span class="line">  <span class="keyword">if</span> c.Transport != <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> c.Transport</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> DefaultTransport</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>通过代码得知，如果用户没有实现 <code>Transport</code> 的情况下就会使用默认的 <code>DefaultTransport</code> 来代替</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">var</span> DefaultTransport RoundTripper = &amp;Transport&#123;</span><br><span class="line">  Proxy: ProxyFromEnvironment,</span><br><span class="line">  DialContext: (&amp;net.Dialer&#123;</span><br><span class="line">    Timeout:   <span class="number">30</span> * time.Second,</span><br><span class="line">    KeepAlive: <span class="number">30</span> * time.Second,</span><br><span class="line">  &#125;).DialContext,</span><br><span class="line">  ForceAttemptHTTP2:     <span class="literal">true</span>,</span><br><span class="line">  MaxIdleConns:          <span class="number">100</span>,</span><br><span class="line">  IdleConnTimeout:       <span class="number">90</span> * time.Second,</span><br><span class="line">  TLSHandshakeTimeout:   <span class="number">10</span> * time.Second,</span><br><span class="line">  ExpectContinueTimeout: <span class="number">1</span> * time.Second,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这里发现 <code>DialContext</code> 是开放字段也就是说默认情况下,DialContext 的策略是可以修改的。<br>所以我们实现 <code>DialContext</code> 功能，在创建 <code>TCPConn</code> 之前的地址解析通过释放为我们指定的<br>注册中心即可，基本上不会影响到用户的使用。</p>
+<p>大致实现如下:</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">dialContext :=<span class="function"><span class="keyword">func</span><span class="params">(ctx context.Context, network, addr <span class="type">string</span>)</span></span> (net.Conn, <span class="type">error</span>) &#123;</span><br><span class="line"></span><br><span class="line">  rtcpAddr, err := net.ResolveTCPAddr(<span class="string">&quot;tcp&quot;</span>, <span class="string">&quot;172.22.3.222:8848&quot;</span>)</span><br><span class="line">  <span class="keyword">if</span> err != <span class="literal">nil</span>&#123;</span><br><span class="line">   <span class="keyword">return</span> <span class="literal">nil</span>, err</span><br><span class="line">  &#125;</span><br><span class="line">  conn, err := net.DialTCP(<span class="string">&quot;tcp&quot;</span>, <span class="literal">nil</span>, rtcpAddr)</span><br><span class="line"></span><br><span class="line">  <span class="keyword">return</span> conn, err</span><br><span class="line">&#125;</span><br><span class="line">http.DefaultTransport.(*http.Transport).DialContext = dialContext</span><br></pre></td></tr></table></figure>
+
+<p>通过上面这种方式就可以完成对 <code>Golang</code> 域名解析的私有化定制。</p>
+<p>参考文档：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://gocn.vip/topics/12017">Golang Http 库指定 dns 服务器进行解析</a></li>
+<li><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/54989059">Golang DNS解析</a></li>
+<li><a target="_blank" rel="noopener" href="https://blog.csdn.net/benben_2015/article/details/84886088">Go Transport</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/b4ce0794fa32">golang net&#x2F;dial.go 阅读笔记</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/79fe0a4a4850">golang net&#x2F;dial.go 阅读笔记二</a></li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../05/10/ebpf/2021-05-10-AF_XDP_READ_NOTE/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../katran/2021-04-01-benchmarks_katran/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>固定缓冲区 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">固定缓冲区</h1>
+<article class="post markdown-style">
+  <p>使用固定缓冲区的思想是这样的:您提供一组用<code>iovec</code>结构体数组描述的缓冲区，并使用 <code>[io_uring_register_buffers()](https://unixism.net/loti/ref-liburing/advanced_usage.html#c.io_uring_register_buffers)</code> 将它们注册到内核。这将导致内核将这些缓冲区映射到内存中，从而避免将来在用户空间中来回复制。然后可以使用像<a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_write_fixed">io_uring_prep_write_fixed()</a>和<a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_read_fixed">io_uring_prep_read_fixed()</a>这样的“固定缓冲区”函数来指定要使用的缓冲区的索引。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;fcntl.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;liburing.h&quot;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> BUF_SIZE    512</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> FILE_NAME   <span class="string">&quot;/tmp/io_uring_test.txt&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> STR1        <span class="string">&quot;What is this life if, full of care,\n&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> STR2        <span class="string">&quot;We have no time to stand and stare.&quot;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">fixed_buffers</span><span class="params">(<span class="keyword">struct</span> io_uring *ring)</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">iovec</span> <span class="title">iov</span>[4];</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sqe</span> *<span class="title">sqe</span>;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cqe</span> *<span class="title">cqe</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> fd = open(FILE_NAME, O_RDWR|O_TRUNC|O_CREAT, <span class="number">0644</span>);</span><br><span class="line">    <span class="keyword">if</span> (fd &lt; <span class="number">0</span> ) &#123;</span><br><span class="line">        perror(<span class="string">&quot;open&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; <span class="number">4</span>; i++) &#123;</span><br><span class="line">        iov[i].iov_base = <span class="built_in">malloc</span>(BUF_SIZE);</span><br><span class="line">        iov[i].iov_len = BUF_SIZE;</span><br><span class="line">        <span class="built_in">memset</span>(iov[i].iov_base, <span class="number">0</span>, BUF_SIZE);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> ret = io_uring_register_buffers(ring, iov, <span class="number">4</span>);</span><br><span class="line">    <span class="keyword">if</span>(ret) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error registering buffers: %s&quot;</span>, strerror(-ret));</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    sqe = io_uring_get_sqe(ring);</span><br><span class="line">    <span class="keyword">if</span> (!sqe) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Could not get SQE.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> str1_sz = <span class="built_in">strlen</span>(STR1);</span><br><span class="line">    <span class="type">int</span> str2_sz = <span class="built_in">strlen</span>(STR2);</span><br><span class="line">    <span class="built_in">strncpy</span>(iov[<span class="number">0</span>].iov_base, STR1, str1_sz);</span><br><span class="line">    <span class="built_in">strncpy</span>(iov[<span class="number">1</span>].iov_base, STR2, str2_sz);</span><br><span class="line">    io_uring_prep_write_fixed(sqe, fd, iov[<span class="number">0</span>].iov_base, str1_sz, <span class="number">0</span>, <span class="number">0</span>);</span><br><span class="line"></span><br><span class="line">    sqe = io_uring_get_sqe(ring);</span><br><span class="line">    <span class="keyword">if</span> (!sqe) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Could not get SQE.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    io_uring_prep_write_fixed(sqe, fd, iov[<span class="number">1</span>].iov_base, str2_sz, str1_sz, <span class="number">1</span>);</span><br><span class="line"></span><br><span class="line">    io_uring_submit(ring);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> i = <span class="number">0</span>; i &lt; <span class="number">2</span>; i ++) &#123;</span><br><span class="line">        <span class="type">int</span> ret = io_uring_wait_cqe(ring, &amp;cqe);</span><br><span class="line">        <span class="keyword">if</span> (ret &lt; <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error waiting for completion: %s\n&quot;</span>,</span><br><span class="line">                    strerror(-ret));</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">/* Now that we have the CQE, let&#x27;s process the data */</span></span><br><span class="line">        <span class="keyword">if</span> (cqe-&gt;res &lt; <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error in async operation: %s\n&quot;</span>, strerror(-cqe-&gt;res));</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">&quot;Result of the operation: %d\n&quot;</span>, cqe-&gt;res);</span><br><span class="line">        io_uring_cqe_seen(ring, cqe);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    sqe = io_uring_get_sqe(ring);</span><br><span class="line">    <span class="keyword">if</span> (!sqe) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Could not get SQE.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    io_uring_prep_read_fixed(sqe, fd, iov[<span class="number">2</span>].iov_base, str1_sz, <span class="number">0</span>, <span class="number">2</span>);</span><br><span class="line"></span><br><span class="line">    sqe = io_uring_get_sqe(ring);</span><br><span class="line">    <span class="keyword">if</span> (!sqe) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Could not get SQE.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    io_uring_prep_read_fixed(sqe, fd, iov[<span class="number">3</span>].iov_base, str2_sz, str1_sz, <span class="number">3</span>);</span><br><span class="line"></span><br><span class="line">    io_uring_submit(ring);</span><br><span class="line">    <span class="keyword">for</span>(<span class="type">int</span> i = <span class="number">0</span>; i &lt; <span class="number">2</span>; i ++) &#123;</span><br><span class="line">        <span class="type">int</span> ret = io_uring_wait_cqe(ring, &amp;cqe);</span><br><span class="line">        <span class="keyword">if</span> (ret &lt; <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error waiting for completion: %s\n&quot;</span>,</span><br><span class="line">                    strerror(-ret));</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">/* Now that we have the CQE, let&#x27;s process the data */</span></span><br><span class="line">        <span class="keyword">if</span> (cqe-&gt;res &lt; <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error in async operation: %s\n&quot;</span>, strerror(-cqe-&gt;res));</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">&quot;Result of the operation: %d\n&quot;</span>, cqe-&gt;res);</span><br><span class="line">        io_uring_cqe_seen(ring, cqe);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;Contents read from file:\n&quot;</span>);</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;%s%s&quot;</span>, iov[<span class="number">2</span>].iov_base, iov[<span class="number">3</span>].iov_base);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring</span> <span class="title">ring</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> ret = io_uring_queue_init(<span class="number">8</span>, &amp;ring, <span class="number">0</span>);</span><br><span class="line">    <span class="keyword">if</span> (ret) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Unable to setup io_uring: %s\n&quot;</span>, strerror(-ret));</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    fixed_buffers(&amp;ring);</span><br><span class="line">    io_uring_queue_exit(&amp;ring);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="它是如何工作的"><a href="#它是如何工作的" class="headerlink" title="它是如何工作的"></a>它是如何工作的</h1><p>我们通过malloc(3)分配4个缓冲区，然后用io_uring_register_buffers()函数向内核注册它们。iovec结构通过持有一个基地址和分配的缓冲区大小来描述每个数组。我们使用一个4个元素长的iovec结构数组来保存我们需要的4个数组的详细信息。</p>
+<p>这个程序只是简单的演示了如何使用固定缓冲区，除此之外并没有更多有用的东西。使用两个固定的写操作(io_uring_prep_write_fixed())将两个字符串写入写入到一个使用索引为0和1的缓冲区的文件。 之后，我们使用两个固定的读操作(io_uring_prep_read_fixed())读取文件，这次使用的是2和3的缓冲区。然后我们打印这些读取的结果。</p>
+<p>你可以看到这个程序的输出如下所示:</p>
+<pre><code>Result of the operation: 36
+Result of the operation: 35
+Result of the operation: 36
+Result of the operation: 35
+Contents read from file:
+What is this life if, full of care,
+We have no time to stand and stare.
+</code></pre>
+<h1 id="源代码"><a href="#源代码" class="headerlink" title="源代码"></a>源代码</h1><p>这个和其他例子的源代码可以在 <a target="_blank" rel="noopener" href="https://github.com/shuveb/loti-examples">Github</a> 上找到。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-02-07-sq_poll/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-02-07-link_liburing/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

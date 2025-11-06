@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>用ebpf编写网络监控 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">用ebpf编写网络监控</h1>
+<article class="post markdown-style">
+  <h1 id="用ebpf-编写网络监控"><a href="#用ebpf-编写网络监控" class="headerlink" title="用ebpf 编写网络监控"></a>用ebpf 编写网络监控</h1><p>网络流量将空应该在 raw_tracepoint 监控。<br>参考文档：<a target="_blank" rel="noopener" href="https://lwn.net/Articles/801992/">bpf: revolutionize bpf tracing</a>、<a target="_blank" rel="noopener" href="https://lwn.net/Articles/748352/">bpf, tracing: introduce bpf raw tracepoints</a></p>
+<p>SO  网络流量监控并不一定要在入口和出口才可以去监控，这里将介绍一个早就已经存在得技术，但是不常见得东东，<code>kfree_skb</code> 释放 <code>skb_buff</code> ，<br>方法名就可以看出用处。</p>
+<p>开始之前来复习下如何 trace 内核方法，之前都没有关注过，一直认为不会与内核打交道，看了程序得世界里不会有这种假设了，程序员要死于学习。<br>分析下现有得程序吧。代码流程应该与前面得类似</p>
+<p>猜测中<br>加载器</p>
+<ol>
+<li>指定 BPF 程序</li>
+<li>打开 BPF 程序</li>
+<li>读取 section ，按照 section 读取 program</li>
+<li>attach 到函数入口</li>
+<li>获取所有 map_fd </li>
+<li>pin 住 map</li>
+</ol>
+<p>BPF 程序</p>
+<ol>
+<li>找到入参</li>
+<li>分析入参</li>
+<li>函数返回值是否参与决断，根据情况返回返回值</li>
+</ol>
+<p>看看简单得如下程序：</p>
+<p>minimal.bpf.c</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;linux/bpf.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/bpf_helpers.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">char</span> LICENSE[] SEC(<span class="string">&quot;license&quot;</span>) = <span class="string">&quot;Dual BSD/GPL&quot;</span>;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> my_pid = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">SEC(<span class="string">&quot;tp/syscalls/sys_enter_write&quot;</span>) <span class="comment">// 指定是 tracepoint:syscalls:sys_enter_write</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">handle_tp</span><span class="params">(<span class="type">void</span> *ctx)</span>  <span class="comment">// 因为不需要分析参数所以这里就直接使用了 void * 任何参数类型</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="type">int</span> pid = bpf_get_current_pid_tgid() &gt;&gt; <span class="number">32</span>;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> (pid != my_pid)</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">  bpf_printk(<span class="string">&quot;BPF triggered from PID %d.\n&quot;</span>, pid);</span><br><span class="line"></span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>大致调用编译得方式如下：</p>
+<ol>
+<li>因为程序依赖 libbpf 所以先将 libbpf 编译为库文件</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p .output</span><br><span class="line"></span><br><span class="line"><span class="built_in">mkdir</span> -p .output/libbpf</span><br><span class="line"></span><br><span class="line">make -C /home/vagrant/libbpf-bootstrap/libbpf/src BUILD_STATIC_ONLY=1                    \</span><br><span class="line">            OBJDIR=/home/vagrant/libbpf-bootstrap/examples/c/.output//libbpf DESTDIR=/home/vagrant/libbpf-bootstrap/examples/c/.output/                     \</span><br><span class="line">            INCLUDEDIR= LIBDIR= UAPIDIR=                              \</span><br><span class="line">            install</span><br></pre></td></tr></table></figure>
+
+<p>libbpf 安装完成后就可以编译 bpf 程序了</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">git pull &amp;&amp; clang -g -O2 \</span><br><span class="line">-target bpf \</span><br><span class="line">-D__TARGET_ARCH_x86 \</span><br><span class="line">-I.output \</span><br><span class="line">-I../../libbpf/include/uapi \</span><br><span class="line">-I../../vmlinux/ \</span><br><span class="line">-idirafter /usr/local/include \</span><br><span class="line">-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \</span><br><span class="line">-idirafter /usr/include/x86_64-linux-gnu \</span><br><span class="line">-idirafter /usr/include \</span><br><span class="line">-c trace_consume_skb.bpf.c \</span><br><span class="line">-o .output/trace_consume_skb.bpf.o</span><br></pre></td></tr></table></figure>
+
+<p>命令参数还是比较容易理解的：目标 bpf 程序，架构：arch x86 架构，连接系统库目录</p>
+<p>然后执行下面命令，将目标程序进一步处理：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 裁剪</span></span><br><span class="line">llvm-strip -g .output/trace_consume_skb.bpf.o</span><br></pre></td></tr></table></figure>
+
+<p>通过 bpftool skel 工具将代码提取生成文件:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/home/vagrant/libbpf-bootstrap/tools/bpftool gen skeleton .output/trace_consume_skb.bpf.o &gt; .output/trace_consume_skb.skel.h</span><br></pre></td></tr></table></figure>
+
+<p>编译用户态程序：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 编译用户程序</span></span><br><span class="line">cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c trace_consume_skb.c -o .output/trace_consume_skb.o</span><br><span class="line"><span class="comment"># 连接目标文件组成可执行文件</span></span><br><span class="line">cc -g -Wall .output/trace_consume_skb.o /home/vagrant/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o trace_consume_skb</span><br></pre></td></tr></table></figure>
+
+<p>下面就需要着实考虑下 sk_buff 转存到用户空间的实现了。直接看下 trace 的定义：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">TRACE_EVENT(consume_skb,</span><br><span class="line"></span><br><span class="line">  TP_PROTO(<span class="keyword">struct</span> sk_buff *skb),</span><br><span class="line"></span><br><span class="line">  TP_ARGS(skb),</span><br><span class="line"></span><br><span class="line">  TP_STRUCT__entry(</span><br><span class="line">    __field(  <span class="type">void</span> *, skbaddr )</span><br><span class="line">  ),</span><br><span class="line"></span><br><span class="line">  TP_fast_assign(</span><br><span class="line">    __entry-&gt;skbaddr = skb;</span><br><span class="line">  ),</span><br><span class="line"></span><br><span class="line">  TP_printk(<span class="string">&quot;skbaddr=%p&quot;</span>, __entry-&gt;skbaddr)</span><br><span class="line">);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>consume_skb 的功能就是 sk_buff 正常消费的后进行释放的一个函数。所以我们在上面对其进行了 attach。通过 <code>TP_PROTO</code><br>属性确定参数类型。</p>
+<h1 id="参考文档"><a href="#参考文档" class="headerlink" title="参考文档"></a>参考文档</h1><p><a target="_blank" rel="noopener" href="https://blog.arstercz.com/introduction_to_linux_dynamic_tracing/">Linux 系统动态追踪技术介绍</a></p>
+<h1 id="常用命令合集"><a href="#常用命令合集" class="headerlink" title="常用命令合集"></a>常用命令合集</h1><p>clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I..&#x2F;..&#x2F;libbpf&#x2F;include&#x2F;uapi -I..&#x2F;..&#x2F;vmlinux&#x2F; <br>-idirafter &#x2F;usr&#x2F;local&#x2F;include <br>-idirafter &#x2F;usr&#x2F;lib&#x2F;llvm-11&#x2F;lib&#x2F;clang&#x2F;11.1.0&#x2F;include <br>-idirafter &#x2F;usr&#x2F;include&#x2F;x86_64-linux-gnu <br>-idirafter &#x2F;usr&#x2F;include <br>-c url_map.bpf.c <br>-o url_map.bpf.o</p>
+<p>cc -g -Wall -I.output -I..&#x2F;..&#x2F;libbpf&#x2F;include&#x2F;uapi -I..&#x2F;..&#x2F;vmlinux&#x2F; -c url_map_read.c -o .output&#x2F;url_map_read.o &amp;&amp; cc -g -Wall .output&#x2F;url_map_read.o &#x2F;home&#x2F;vagrant&#x2F;libbpf-bootstrap&#x2F;examples&#x2F;c&#x2F;.output&#x2F;libbpf.a -lelf -lz -o url_map_read</p>
+<p>cc -g -Wall -I.output -I..&#x2F;..&#x2F;libbpf&#x2F;include&#x2F;uapi -I..&#x2F;..&#x2F;vmlinux&#x2F; -c url_map.c -o .output&#x2F;url_map.o &amp;&amp; cc -g -Wall .output&#x2F;url_map.o &#x2F;home&#x2F;vagrant&#x2F;libbpf-bootstrap&#x2F;examples&#x2F;c&#x2F;.output&#x2F;libbpf.a -lelf -lz -o url_map</p>
+<p>tc filter add dev eth0 ingress bpf da obj url_map.bpf.o sec ingress<br>tc filter add dev eth0 ingress bpf da obj url_map.bpf.o</p>
+<p>sudo tc filter del dev eth0 ingress<br>sudo ip link set dev eth0 xdp off<br>sudo tc qdisc del dev eth0 clsact</p>
+<p>sudo tc qdisc add dev eth0 clsact<br>sudo tc qdisc del dev eth0 ingress<br>sudo ip link set dev eth0 xdp off &amp;&amp; sudo tc qdisc del dev eth0 clsact &amp;&amp; sudo .&#x2F;url_map</p>
+<p>sudo cat &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;tracing&#x2F;trace_pipe</p>
+<p>git pull &amp;&amp; clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I..&#x2F;..&#x2F;libbpf&#x2F;include&#x2F;uapi -I..&#x2F;..&#x2F;vmlinux&#x2F; -idirafter &#x2F;usr&#x2F;local&#x2F;include -idirafter &#x2F;usr&#x2F;lib&#x2F;llvm-11&#x2F;lib&#x2F;clang&#x2F;11.1.0&#x2F;include -idirafter &#x2F;usr&#x2F;include&#x2F;x86_64-linux-gnu -idirafter &#x2F;usr&#x2F;include -c url_map.bpf.c -o url_map.bpf.o &amp;&amp; sudo ip link set dev eth0 xdp off &amp;&amp; sudo tc qdisc del dev eth0 clsact &amp;&amp; sudo .&#x2F;url_map</p>
+<p>git pull &amp;&amp; cc -g -Wall -I.output -I..&#x2F;..&#x2F;libbpf&#x2F;include&#x2F;uapi -I..&#x2F;..&#x2F;vmlinux&#x2F; -c url_map_read.c -o .output&#x2F;url_map_read.o &amp;&amp; cc -g -Wall .output&#x2F;url_map_read.o &#x2F;home&#x2F;vagrant&#x2F;libbpf-bootstrap&#x2F;examples&#x2F;c&#x2F;.output&#x2F;libbpf.a -lelf -lz -o url_map_read &amp;&amp; sudo .&#x2F;url_map_read</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../09/ebpf/2021-07-09-libbpf6/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../05/ebpf/2021-07-05-libbpf3/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

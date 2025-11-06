@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Cilium 源码阅读：cilium-docker [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Cilium 源码阅读：cilium-docker</h1>
+<article class="post markdown-style">
+  <h1 id="Cilium-源码阅读：-功能解析"><a href="#Cilium-源码阅读：-功能解析" class="headerlink" title="Cilium 源码阅读： 功能解析"></a>Cilium 源码阅读： 功能解析</h1><p>git clone <a target="_blank" rel="noopener" href="https://gitee.com/2228598786/delve.git">https://gitee.com/2228598786/delve.git</a> $GOPATH&#x2F;src&#x2F;github.com&#x2F;go-delve&#x2F;delve<br>export GOPROXY&#x3D;<a target="_blank" rel="noopener" href="https://goproxy.io,direct/">https://goproxy.io,direct</a></p>
+<p>查看了一下 cilium-docker 的功能主要以 IPAM 为主<br>sudo nohup &#x2F;home&#x2F;vagrant&#x2F;go&#x2F;bin&#x2F;dlv attach 5131 –headless&#x3D;true –listen&#x3D;:9526  –api-version&#x3D;2 –accept-multiclient –log &amp;<br>sudo nohup &#x2F;home&#x2F;vagrant&#x2F;go&#x2F;bin&#x2F;dlv attach 7590 –headless&#x3D;true –listen&#x3D;:9527  –api-version&#x3D;2 –accept-multiclient –log &amp;<br>sudo nohup &#x2F;home&#x2F;vagrant&#x2F;go&#x2F;bin&#x2F;dlv attach 5049 –headless&#x3D;true –listen&#x3D;:9528  –api-version&#x3D;2 –accept-multiclient –log &amp;</p>
+<p>docker network create –driver cilium –ipam-driver cilium cilium-net<br>docker run -d –name app1 –net cilium-net -l “id&#x3D;app1” cilium&#x2F;demo-httpd<br>docker run -d –name app4 –net cilium-net -l “id&#x3D;app2” nginx<br>docker run -d –name app2 –net cilium-net -l “id&#x3D;app2” nginx<br>docker run –rm -ti –net cilium-net -l “id&#x3D;app2” cilium&#x2F;demo-client curl -m 20 <a target="_blank" rel="noopener" href="http://app1/">http://app1</a><br>docker run –rm -ti –net cilium-net -l “id&#x3D;app3” cilium&#x2F;demo-client curl -m 20 <a target="_blank" rel="noopener" href="http://app1/">http://app1</a></p>
+<p>[{<br>    “labels”: [{“key”: “name”, “value”: “l3-rule”}],<br>    “endpointSelector”: {“matchLabels”:{“id”:”app1”}},<br>    “ingress”: [{<br>        “fromEndpoints”: [<br>            {“matchLabels”:{“id”:”app2”}}<br>        ],<br>        “toPorts”: [{<br>                “ports”: [{“port”: “80”, “protocol”: “TCP”}]<br>        }]<br>    }]<br>}]</p>
+<p>http:&#x2F;&#x2F;&#x2F;var&#x2F;run&#x2F;cilium&#x2F;cilium.sock&#x2F;&#x2F;v1&#x2F;ipam?family&#x3D;ipv4&amp;owner&#x3D;docker-ipam<br>Accept:application&#x2F;json<br>Content-Type:application&#x2F;json<br>Expiration:false</p>
+<p>curl -X POST –unix-socket &#x2F;var&#x2F;run&#x2F;cilium&#x2F;cilium.sock <br>  ‘http:&#x2F;&#x2F;&#x2F;v1&#x2F;ipam?family&#x3D;ipv4&amp;owner&#x3D;docker-ipam’ <br>  -H ‘Accept: application&#x2F;json’ <br>  -H ‘Content-Type: application&#x2F;json’ <br>  -H ‘Expiration: false’ </p>
+<p>curl -XPOST –unix-socket &#x2F;var&#x2F;run&#x2F;cilium&#x2F;cilium.sock&#x2F;  <a target="_blank" rel="noopener" href="http://localhost/v1/ipam?family=ipv4&owner=docker-ipam">http://localhost/v1/ipam?family=ipv4&amp;owner=docker-ipam</a></p>
+<p>HTTP&#x2F;1.1 201 Created<br>Content-Type: application&#x2F;json<br>Date: Sun, 13 Jun 2021 08:41:33 GMT<br>Content-Length: 259</p>
+<p>{“address”:{“ipv4”:”10.11.215.121”},”host-addressing”:{“ipv4”:{“alloc-range”:”10.11.0.0&#x2F;16”,”enabled”:true,”ip”:”10.11.168.111”},”ipv6”:{“alloc-range”:”f00d::a0f:0:0:0&#x2F;96”,”enabled”:true,”ip”:”f00d::a0f:0:0:56a9”}},”ipv4”:{“cidrs”:null,”ip”:”10.11.215.121”}}<br>el”:”None”,”NAT46”:”Disabled”,”PolicyAuditMode”:”Disabled”,”PolicyVerdictNotification”:”Enabled”,”TraceNotification”:”Enabled”}},”status”:{“controllers”:[{“configuration”:{“error-retry”:true,”error-retry-base”:”2s”},”name”:”endpoint-922-regeneration-recovery”,”status”:{“last-failure-timestamp”:”0001-01-01T00:00:00.000Z”,”last-success-timestamp”:”0001-01-01T00:00:00.000Z”},”uuid”:”00b7c499-cc22-11eb-8a22-080027e4875d”},{“configuration”:{“error-retry”:true,”interval”:”5m0s”},”name”:”resolve-identity-922”,”status”:{“last-failure-timestamp”:”0001-01-01T00:00:00.000Z”,”last-success-timestamp”:”2021-06-13T08:33:17.807Z”,”success-count”:1},”uuid”:”00b9ae9e-cc22-11eb-8a22-080027e4875d”},{“configuration”:{“error-retry”:true,”interval”:”5m0s”},”name”:”sync-IPv4-identity-mapping (922)”,”status”:{“last-failure-timestamp”:”0001-01-01T00:00:00.000Z”,”last-success-timestamp”:”2021-06-13T08:33:17.806Z”,”success-count”:1},”uuid”:”00b939f9-cc22-11eb-8a22-080027e4875d”},{“configuration”:{“error-retry”:true,”interval”:”1m0s”},”name”:”sync-policymap-922”,”status”:{“last-failure-timestamp”:”0001-01-01T00:00:00.000Z”,”last-success-timestamp”:”2021-06-13T08:33:18.387Z”,”success-count”:1},”uuid”:”011253cb-cc22-11eb-8a22-080027e4875d”}],”external-identifiers”:{“docker-endpoint-id”:”74515cf5064ba31007dabcf724e6fa3d2914241f01da8ba888227ab3a0283304”,”docker-network-id”:”f1e88970d55e632a6f130bcacb4a9e328a3489d88c231b191fcff94e053d30ed”,”pod-name”:”&#x2F;“},”health”:{“bpf”:”OK”,”connected”:true,”overallHealth”:”OK”,”policy”:”OK”},”identity”:{“id”:5,”labels”:[“reserved:init”],”labelsSHA256”:”200a5c3596eeb6d318ecd6d810acfd1fd5408e498501fd8a7ed212d3adab62e3”},”labels”:{“realized”:{},”security-relevant”:[“reserved:init”]},”log”:[{“code”:”OK”,”message”:”Successfully regenerated endpoint program (Reason: updated security labels)”,”state”:”ready”,”timestamp”:”2021-06-13T08:33:18Z”}],”networking”:{“addressing”:[{“ipv4”:”10.11.125.251”}],”host-mac”:”3a:e1:e1:cb:18:23”,”interface-index”:19,”interface-name”:”lxcc502f5f6cac7”,”mac”:”92:59:a2:63:f0:9c”},”policy”:{“proxy-statistics”:[],”realized”:{“allowed-egress-identities”:[],”allowed-ingress-identities”:[],”build”:1,”cidr-policy”:{“egress”:[],”ingress”:[]},”id”:5,”l4”:{“egress”:[],”ingress”:[]},”policy-enabled”:”both”,”policy-revision”:1},”spec”:{“allowed-egress-identities”:[],”allowed-ingress-identities”:[],”build”:1,”cidr-policy”:{“egress”:[],”ingress”:[]},”id”:5,”l4”:{“egress”:[],”ingress”:[]},”policy-enabled”:”both”,”policy-revision”:1}},”realized”:{“label-configuration”:{},”options”:{“Conntrack”:”Enabled”,”ConntrackAccounting”:”Enabled”,”ConntrackLocal”:”Disabled”,”Debug”:”Disabled”,”DebugLB”:”Disabled”,”DebugPolicy”:”Disabled”,”DropNotification”:”Enabled”,”MonitorAggregationLevel”:”None”,”NAT46”:”Disabled”,”PolicyAuditMode”:”Disabled”,”PolicyVerdictNotification”:”Enabled”,”TraceNotification”:”Enabled”}},”state”:”ready”}}</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-06-14-cilium7/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-06-14-libbpf5/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>DBLog_论文 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">DBLog_论文</h1>
+<article class="post markdown-style">
+  <blockquote>
+</blockquote>
+<h1 id="DBLog-一个通用的变更数据捕获框架"><a href="#DBLog-一个通用的变更数据捕获框架" class="headerlink" title="DBLog: 一个通用的变更数据捕获框架"></a>DBLog: 一个通用的变更数据捕获框架</h1><h1 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h1><p>变更数据捕获 (CDC) 允许实时捕获数据库中已提交的更改，并将这些更改传播给下游消费者。CDC 在需要保持多个异构数据存储（例如 MySQL 和 ElasticSearch）同步的用例中变得越来越流行，并解决了传统技术（如双写和分布式事务）中存在的挑战。</p>
+<p>在 MySQL 和 PostgreSQL 等数据库中，事务日志是 CDC 事件的来源。由于事务日志通常有保留时间限制，因此它们无法保证包含所有历史更改。因此，需要使用<code>dump</code>来捕获源的完整状态。目前有多个开源 CDC 项目，通常使用相同的底层库、数据库 API 和协议。然而，我们发现这些解决方案存在一些无法满足我们需求的局限性，例如在<code>dump</code>完成之前暂停日志事件处理、无法按需触发<code>dump</code>，或者通过锁定表来阻止写入流量的实现。</p>
+<p>这促使我们开发了 DBLog，它提供了日志和<code>dump</code>处理的通用框架。为了被支持，数据库需要具备一组常见的功能，这些功能通常在 MySQL、PostgreSQL、MariaDB 等系统中可用。</p>
+<p>DBLog 的一些功能包括：</p>
+<ul>
+<li><strong>按顺序处理捕获的日志事件。</strong></li>
+<li><strong>Dump 可以随时进行，可以针对所有表、特定表或特定表的主键。</strong></li>
+<li><strong>通过分块进行<code>dump</code>，将日志与<code>dump</code>事件交错处理。</strong> 这样，日志处理可以与<code>dump</code>处理同步进行。如果进程被终止，它可以从上次完成的块继续，而无需从头开始。这还允许在需要时对<code>dump</code>进行节流和暂停。</li>
+<li><strong>永远不会获取表的锁，</strong> 这样可以防止影响源数据库的写入流量。</li>
+<li><strong>支持任何形式的输出，</strong> 这样输出可以是流、数据存储甚至是 API。</li>
+<li><strong>考虑了高可用性设计</strong>。 因此，下游消费者可以放心地接收源上的更改事件。</li>
+</ul>
+<h1 id="要求"><a href="#要求" class="headerlink" title="要求"></a>要求</h1><p>在之前的一篇博客中，我们讨论了 Delta，这是一个数据增强和同步平台。Delta 的目标是保持多个数据存储的同步，其中一个存储是“真相来源”（如 MySQL），而其他存储则是派生存储（如 ElasticSearch）。一个关键要求是从真相来源到目标的传播延迟要低，并且事件流的可用性要高。这些条件适用于同一个团队使用多个数据存储的情况，或者一个团队拥有数据，而另一个团队消费数据的情况。</p>
+<p>对于数据同步和事件处理的用例，我们需要满足以下要求，除了能够实时捕获更改外：</p>
+<ul>
+<li><strong>捕获完整状态</strong>：派生存储（如 ElasticSearch）最终必须存储源的完整状态。我们通过从源数据库的<code>dump</code>来提供这个功能。</li>
+<li><strong>随时触发修复</strong>：我们希望能够随时触发<code>dump</code>，而不是将其视为一次性设置活动。无论是对所有表、特定表，还是特定主键，这对下游修复丢失或损坏的数据至关重要。</li>
+<li><strong>为实时事件提供高可用性</strong>：实时更改的传播有高可用性要求。如果事件流长时间中断（例如几分钟或更长时间），这是不可取的。即使在进行修复时也需要满足这个要求，以防止修复过程阻碍实时事件。我们希望将实时事件与<code>dump</code>事件交错处理，以便两者都能进展。</li>
+<li><strong>最小化数据库影响</strong>：在连接到数据库时，必须确保其带宽和服务读取与写入的能力受到最小的影响。因此，最好避免使用可能阻止写入流量的 API，如表锁。此外，还必须设置控制措施，允许对日志和<code>dump</code>处理进行节流，或在需要时暂停处理。</li>
+<li><strong>将事件写入任何输出</strong>：Netflix 使用了多种流技术选项，如 Kafka、SQS、Kinesis，甚至 Netflix 特有的流解决方案 Keystone。尽管将流作为输出是一个不错的选择（例如，当有多个消费者时），但它并不总是理想的选择（例如，当只有一个消费者时）。我们希望提供直接写入目标的能力，而无需通过流。目标可能是数据存储或外部 API。</li>
+<li><strong>支持关系型数据库</strong>：在 Netflix，有些服务使用 RDBMS 类数据库，如通过 AWS RDS 的 MySQL 或 PostgreSQL。我们希望支持这些系统作为数据源，以便它们可以提供数据供进一步消费。</li>
+</ul>
+<h1 id="现有解决方案"><a href="#现有解决方案" class="headerlink" title="现有解决方案"></a>现有解决方案</h1><p>我们评估了多个现有的开源解决方案，包括 Maxwell、SpinalTap、Yelp 的 MySQL Streamer 和 Debezium。这些解决方案在捕获源自事务日志的实时更改方面是相似的，例如通过 MySQL 的 binlog 复制协议或 PostgreSQL 的复制槽。</p>
+<p>在<code>dump</code>处理方面，我们发现现有解决方案至少存在以下限制：</p>
+<ul>
+<li><strong>在处理<code>dump</code>时停止日志事件处理</strong>：如果在<code>dump</code>过程中不处理日志事件，则可能会导致日志事件处理停滞，特别是在<code>dump</code>数据量大的情况下。</li>
+<li><strong>缺乏按需触发<code>dump</code>的能力</strong>：大多数解决方案仅在引导阶段或检测到事务日志数据丢失时执行<code>dump</code>，而按需触发<code>dump</code>对于下游新消费者（如新的 ElasticSearch 索引）或数据丢失后的修复至关重要。</li>
+<li><strong>通过锁定表来阻止写入流量</strong>：一些解决方案通过锁定表来协调<code>dump</code>处理。根据实现和数据库的不同，锁定时间可能很短或持续整个<code>dump</code>过程。这种情况会阻止写入流量，直到<code>dump</code>完成。有时可以配置专用的只读副本，以避免影响主库上的写入。但这种策略并不适用于所有数据库。例如，在 PostgreSQL RDS 中，只能从主库捕获更改。</li>
+<li><strong>使用特定数据库的高级功能</strong>：我们发现一些解决方案使用了通常在其他系统中不可用的高级数据库功能，例如使用 MySQL 的黑洞引擎或通过 PostgreSQL 复制槽创建<code>dump</code>时获取一致性快照。这种做法限制了代码在不同数据库之间的重用性。</li>
+</ul>
+<p>最终，我们决定实施一种不同的方法来处理<code>dump</code>，该方法包括以下特点：</p>
+<ul>
+<li>将日志事件与<code>dump</code>事件交错处理，使两者都能进展</li>
+<li>允许随时触发<code>dump</code></li>
+<li>不使用表锁</li>
+<li>使用常见的数据库功能</li>
+</ul>
+<h1 id="DBLog-框架"><a href="#DBLog-框架" class="headerlink" title="DBLog 框架"></a>DBLog 框架</h1><p>DBLog 是一个基于 Java 的框架，能够实时捕获数据变更并执行<code>dump</code>。<code>dump</code>被分块进行，以便与实时事件交错处理，从而避免长时间阻塞实时事件处理。<code>dump</code>可以通过提供的 API 随时执行，允许下游消费者最初或在后期捕获完整的数据库状态以进行修复。</p>
+<p>我们设计该框架时，重点是尽量减少对数据库的影响。<code>dump</code>可以根据需要暂停和恢复，这对于故障后的恢复以及数据库遇到瓶颈时停止处理非常有用。此外，我们不会对表加锁，以避免影响应用程序的写操作。</p>
+<p>DBLog 允许将捕获的事件写入任何输出，无论是另一个数据库还是 API。我们使用 Zookeeper 来存储与日志和<code>dump</code>处理相关的状态，并进行领导选举。DBLog 的设计考虑了可插拔性，允许根据需要更换实现（例如替换 Zookeeper）。</p>
+<p>以下小节将详细解释日志和<code>dump</code>处理。</p>
+<h2 id="日志处理"><a href="#日志处理" class="headerlink" title="日志处理"></a>日志处理</h2><p>该框架要求数据库对每个更改的行实时发出事件，且事件顺序与提交顺序一致。事务日志通常是这些事件的来源。数据库将事件发送到 DBLog 可消费的传输介质（我们称之为“变更日志”）。每个事件可以是创建、更新或删除类型。每个事件需要包含日志序列号、操作时的列状态和应用的模式。</p>
+<p>每个变更都会序列化为 DBLog 事件格式，并发送到写入器，以便传递到输出。事件发送是非阻塞的，因为写入器在自己的线程中运行，并在内部缓冲区中收集事件。缓冲的事件按顺序写入输出。框架允许插件化的自定义格式化器，将事件序列化为自定义格式。输出是一个简单接口，可以插入任意目的地，如流、数据存储甚至 API。</p>
+<h2 id="dump处理"><a href="#dump处理" class="headerlink" title="dump处理"></a><code>dump</code>处理</h2><p>由于事务日志的保留时间有限，无法用于重构完整的数据集，因此需要<code>dump</code>。<code>dump</code>被分块执行，这样它们可以与日志事件交错处理，允许两者同时进展。每个选择的行块生成一个事件，并以与日志事件相同的格式序列化。这样，下游消费者无需担心事件是来自日志还是<code>dump</code>。日志和<code>dump</code>事件都通过同一个写入器发送到输出。</p>
+<p>可以通过 API 随时为所有表、特定表或特定表的主键安排<code>dump</code>。每个表的<code>dump</code>请求以配置的块大小执行。此外，可以配置延迟来推迟新块的处理，使此时只处理日志事件。块大小和延迟允许在日志和<code>dump</code>事件处理之间进行平衡，并且这两个设置可以在运行时更新。</p>
+<p>块通过按主键升序排序表并包括主键大于上一个块最后主键的行来选择。要求数据库高效执行此查询，通常适用于实现主键范围扫描的系统。</p>
+<p><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*iXvlej2vs4QTJTQ3a5omkg.png" alt="图示"><br>    图中展示了一个包含 4 列（c1-c4）且 c1 为主键的表的分块过程。主键列类型为整数，块大小为 3。选择块 2 的条件是 c1 &gt; 4。</p>
+<p>保持日志事件处理不中断<br><code>dump</code>块需要以不长时间阻塞日志事件处理的方式进行，并保留日志变更的历史记录，确保选择的行不会用旧值覆盖日志事件中的新状态。</p>
+<p>为此，我们在变更日志中创建可识别的水印事件，以便我们可以对块选择进行排序。水印通过源数据库中的表实现。该表存储在一个专用命名空间中，以避免与应用表发生冲突。表中只包含一行，该行存储一个 UUID 字段。通过将此行更新为特定的 UUID 来生成水印。行的更新会导致一个变更事件，该事件最终通过变更日志接收。</p>
+<p>使用水印，<code>dump</code>按以下步骤执行：</p>
+<ol>
+<li><strong>短暂暂停日志事件处理</strong>：暂时停止日志事件的处理。</li>
+<li><strong>生成低水印</strong>：通过更新水印表生成低水印。</li>
+<li><strong>执行 SELECT 查询</strong>：为下一个块执行 SELECT 查询，并将结果集按主键索引存储在内存中。</li>
+<li><strong>生成高水印</strong>：通过更新水印表生成高水印。</li>
+<li><strong>恢复日志事件处理</strong>：恢复日志事件发送，并监控日志中的低水印和高水印事件。</li>
+<li><strong>处理低水印事件</strong>：一旦收到低水印事件，开始删除在低水印之后收到的日志事件的主键条目。</li>
+<li><strong>处理高水印事件</strong>：一旦收到高水印事件，将所有剩余的结果集条目发送到输出，然后再处理新日志事件。</li>
+<li><strong>重复步骤</strong>：如果存在更多的块，则返回步骤 1。</li>
+</ol>
+<p>在这个过程中，<code>SELECT</code> 查询被假定为返回在历史上某个时间点之前提交的更改状态。换句话说，<code>SELECT</code> 是在变更日志的某个特定位置执行的，考虑了在该时间点之前的所有更改。通常，数据库不会公开<code>SELECT</code> 执行的位置（MariaDB 是一个例外）。</p>
+<p>我们的方法的核心思想是确定一个变更日志窗口，这个窗口包含了块的 <code>SELECT</code> 位置。通过写入低水印来打开窗口，运行 <code>SELECT</code> 查询，然后通过写入高水印来关闭窗口。由于确切的 <code>SELECT</code> 位置未知，所有与该窗口内的日志事件冲突的已选行都会被删除。这确保了块选择不会覆盖日志更改的历史记录。</p>
+<p>为了使这个过程有效，<code>SELECT</code> 必须读取从低水印写入时或之后的表状态（包括在低水印写入后到读取之前提交的更改）。更广泛地说，要求 <strong><code>SELECT</code> 能看到在其执行之前提交的更改</strong>。我们将这种能力定义为“非过时读取”。此外，由于高水印是在 <code>SELECT</code> 之后写入的，因此可以保证 <code>SELECT</code> 是在此之前执行的。</p>
+<p>图 2a 和 2b 说明了块选择算法。我们举了一个具有主键 k1 到 k6 的表作为示例。每个变更日志条目表示主键的创建、更新或删除事件。在图 2a 中，我们展示了水印的生成和块选择的过程（步骤 1 到 4）。在步骤 2 和 4 更新水印表会生成两个变更事件（紫色），这些事件最终通过日志接收。在图 2b 中，我们重点关注在水印之间出现的主键对应的已选择块行从结果集中删除的过程（步骤 5 到 7）。<br><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*sC0bY2sjTIYi7mJHsxq3fA.png" alt="image"><br>   Figure 2a — The watermark algorithm for chunk selection (steps 1–4).</p>
+<p><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*ceKYRkgpvB1hBNr4e_HL7Q.png" alt="image"><br>    Figure 2b — The watermark algorithm for chunk selection (steps 5–7).</p>
+<p>需要注意的是，如果在低水印和高水印之间提交了大量行更改的事务，可能会出现大量日志事件。这就是为什么在步骤 2 到 4 中，我们会暂时暂停日志处理，以确保不会错过水印事件。这样，日志事件处理可以在之后逐个恢复，并最终发现这些水印，而不需要缓存日志事件条目。日志处理只会被短暂暂停，因为步骤 2 到 4 的操作速度很快：水印更新是单次写操作，而 SELECT 查询带有限制。</p>
+<p>在步骤 7 接收到高水印后，将没有冲突的块行交给写入器按顺序输出。这是一个非阻塞操作，因为写入器在独立线程中运行，因此日志处理可以在步骤 7 后迅速恢复。之后，日志事件处理继续处理高水印之后发生的事件。</p>
+<p>在图 2c 中，我们展示了块选择过程中写操作的顺序，使用的是与图 2a 和 2b 相同的示例。首先写入高水印之前出现的日志事件，然后写入块结果中的剩余行（紫色），最后写入高水印之后发生的日志事件。<br><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*9tz1L9EvPMCMm4dyeWgM_Q.png" alt="image"></p>
+<h2 id="数据库支持"><a href="#数据库支持" class="headerlink" title="数据库支持"></a>数据库支持</h2><p>为了使用 DBLog，数据库需要提供线性历史的变更日志和非过时读取的能力。这些条件在 MySQL、PostgreSQL、MariaDB 等系统中得到了满足，因此该框架可以在这些数据库中统一使用。</p>
+<p>到目前为止，我们已经支持了 MySQL 和 PostgreSQL。集成日志事件需要使用不同的库，因为每个数据库都使用专有协议。对于 MySQL，我们使用了 <strong><code>shyiko/mysql-binlog-connector</code></strong> 来实现 binlog 复制协议，以接收 MySQL 主机的事件。对于 PostgreSQL，我们使用了带有 <strong><code>wal2json</code></strong> 插件的复制槽，通过 PostgreSQL JDBC 驱动程序实现了流复制协议来接收更改。</p>
+<p>在<code>dump</code>处理方面，我们通过使用 SQL 和 JDBC 进行了集成，只需要实现块选择和水印更新。相同的代码可用于 MySQL 和 PostgreSQL，并且可以适用于其他类似的数据库。dump处理本身不依赖于 SQL 或 JDBC，这使得即使数据库使用不同标准，只要满足 DBLog 框架的要求，也能进行集成。<br><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*2AcwAV_xgUMQlzFPEGEWiQ.png" alt="image"></p>
+<h1 id="高可用性"><a href="#高可用性" class="headerlink" title="高可用性"></a>高可用性</h1><p>DBLog 使用主动-被动架构。一实例为主动，其他为被动备用实例。我们使用 Zookeeper 进行领导者选举，以确定主动实例。领导权是租约，如果未及时刷新将失效，允许另一实例接管。我们通常在每个可用区（AZ）部署一个实例（通常有 3 个 AZ），因此如果一个 AZ 故障，另一个 AZ 的实例可以继续处理，确保总体停机时间最小。跨区域的被动实例也可用，但建议与数据库主机在同一区域运行，以保持低延迟。</p>
+<h1 id="生产使用"><a href="#生产使用" class="headerlink" title="生产使用"></a>生产使用</h1><p>DBLog 是 Netflix 中 MySQL 和 PostgreSQL 连接器的基础，用于 Delta 平台。自 2018 年起，Delta 已在 Netflix 制作应用程序中用于数据存储同步和事件处理。Delta 连接器使用自定义事件序列化器，以确保在写入输出时使用 Delta 事件格式。Netflix 专有的流（如 Keystone）作为输出使用。<br><img src="https://miro.medium.com/v2/resize:fit:1400/format:webp/1*BWid6TxLOWUyKmda9f0vlQ.png" alt="image"><br>除了 Delta 之外，DBLog 还用于构建其他 Netflix 数据传输平台的连接器，这些平台有各自的数据格式。</p>
+<h1 id="敬请期待"><a href="#敬请期待" class="headerlink" title="敬请期待"></a>敬请期待</h1><p>DBLog 还具备一些本文未涉及的其他功能，例如：</p>
+<ul>
+<li>在不使用锁的情况下捕获表模式的能力。</li>
+<li>模式存储集成。存储每个事件的模式并在事件的有效负载中引用模式存储。</li>
+<li>单调写入模式。确保一旦为特定行写入状态，就不会再写入较旧的状态。这样，下游消费者只会经历前向的状态转换，而不会在时间上来回跳跃。<br>我们计划将 DBLog 开源，并提供更多文档。</li>
+</ul>
+<h1 id="致谢"><a href="#致谢" class="headerlink" title="致谢"></a>致谢</h1><p>我们要感谢以下人员对 DBLog 开发的贡献：Josh Snyder, Raghuram Onti Srinivasan, Tharanga Gamaethige 和 Yun Wang。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p>[1] Das, Shirshanka, et al. “All aboard the Databus!: Linkedin’s scalable consistent change data capture platform.” Proceedings of the Third ACM Symposium on Cloud Computing. ACM, 2012<br>[2] “About Change Data Capture (SQL Server)”, Microsoft SQL docs, 2019<br>[3] Kleppmann, Martin, “Using logs to build a solid data infrastructure (or: why dual writes are a bad idea)“, Confluent, 2015<br>[4] Kleppmann, Martin, Alastair R. Beresford, and Boerge Svingen. “Online event processing.” Communications of the ACM 62.5 (2019): 43–49<br>[5] <a target="_blank" rel="noopener" href="https://debezium.io/documentation/reference/0.10/connectors/mysql.html#snapshots">https://debezium.io/documentation/reference/0.10/connectors/mysql.html#snapshots</a></p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../25/%E6%95%B0%E6%8D%AE%E9%9B%86%E6%88%90/Flink/2024-08-25-flink_cdc_%E6%A6%82%E5%BF%B5%E6%8B%86%E8%A7%A3/">上一篇</a>
+    
+
+    
+    <p>上次更新 2025-10-13</p>
+    
+    
+        <a class="extend next post-next" href="../../../12/%E6%95%B0%E6%8D%AE%E9%9B%86%E6%88%90/flowable/2024-08-12-flowable4/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

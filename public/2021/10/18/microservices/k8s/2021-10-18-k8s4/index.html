@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Kubernetes - kube-proxy 无秘密（iptables） [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Kubernetes - kube-proxy 无秘密（iptables）</h1>
+<article class="post markdown-style">
+  <p>翻译：<a target="_blank" rel="noopener" href="https://ssup2.github.io/theory_analysis/Kubernetes_Service_Proxy/">Kubernetes Service Proxy</a></p>
+<h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><code>kube-proxy</code> 是负责 k8s 集群内通信规则创建的组建，k8s 官方文档解释</p>
+<blockquote>
+<p>Kubernetes 网络代理在每个节点上运行。网络代理反映了每个节点上 Kubernetes API 中定义的服务，<br>并且可以执行简单的 TCP、UDP 和 SCTP 流转发，或者在一组后端进行 循环 TCP、UDP 和 SCTP 转发。</p>
+</blockquote>
+<p>但是 kube-proxy 本身并不负责流量转发等工作。<br>Kubernetes 支持三种 Service Proxy 模式：iptables、IPVS 和 Userspace。根据服务代理方式分析服务请求报文路径。</p>
+<h1 id="Service-和-Pod-信息"><a href="#Service-和-Pod-信息" class="headerlink" title="Service 和 Pod 信息"></a>Service 和 Pod 信息</h1><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">$ kubectl get pod -o wide</span><br><span class="line">NAME                              READY   STATUS    RESTARTS   AGE   IP              NODE     NOMINATED NODE</span><br><span class="line">my-nginx-756f645cd7-gh7sq         1/1     Running   14         15d   192.167.2.231   kube03   &lt;none&gt;</span><br><span class="line">my-nginx-756f645cd7-hm7rg         1/1     Running   17         20d   192.167.2.206   kube03   &lt;none&gt;</span><br><span class="line">my-nginx-756f645cd7-qfqbp         1/1     Running   16         20d   192.167.1.123   kube02   &lt;none&gt;</span><br><span class="line"></span><br><span class="line">$ kubectl get pod -o wide</span><br><span class="line">NAME                    TYPE           CLUSTER-IP       EXTERNAL-IP    PORT(S)                           AGE     SELECTOR</span><br><span class="line">my-nginx-cluster        ClusterIP      10.103.1.234     &lt;none&gt;         80/TCP                            15d     run=my-nginx</span><br><span class="line">my-nginx-loadbalancer   LoadBalancer   10.96.98.173     172.35.0.200   80:30781/TCP                      15d    run=my-nginx</span><br><span class="line">my-nginx-nodeport       NodePort       10.97.229.148    &lt;none&gt;         80:30915/TCP </span><br></pre></td></tr></table></figure>
+<p>这里展示了 <code>Kubernetes Service Proxy</code> 的 <code>Service</code> 和 <code>Pod</code> 信息。可以从上面的信息看出部署了三个 <code>nginx</code> Pod。并添加了<br><code>ClusterIP</code> 类型的 <code>my-nginx-cluster</code> 、<code>NodePort</code> 类型的 <code>nginx-nodeport</code> 和 <code>LoadBalancer</code> 的 <code>my-nginx-loadbalancer</code>。</p>
+<h1 id="Iptables-模式"><a href="#Iptables-模式" class="headerlink" title="Iptables 模式"></a>Iptables 模式</h1><p><img src="/images/k8s/iptables_Mode_Service_Packet_Path.png" alt="iptables模式下的服务请求包路径"></p>
+<p><code>iptables</code> 模式下的 <code>KUBE-SERVICES</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-SERVICES (2 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 KUBE-MARK-MASQ  tcp  --  *      *      !192.167.0.0/16       10.96.98.173         /* default/my-nginx-loadbalancer: cluster IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  tcp  --  *      *       0.0.0.0/0            10.96.98.173         /* default/my-nginx-loadbalancer: cluster IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-FW-TNQCJ2KHUMKABQTD  tcp  --  *      *       0.0.0.0/0            172.35.0.200         /* default/my-nginx-loadbalancer: loadbalancer IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-MARK-MASQ  tcp  --  *      *      !192.167.0.0/16       10.103.1.234         /* default/my-nginx-cluster: cluster IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-SVC-52FY5WPFTOHXARFK  tcp  --  *      *       0.0.0.0/0            10.103.1.234         /* default/my-nginx-cluster: cluster IP */ tcp dpt:80 </span><br><span class="line">    0     0 KUBE-MARK-MASQ  tcp  --  *      *      !192.167.0.0/16       10.97.229.148        /* default/my-nginx-nodeport: cluster IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-SVC-6JXEEPSEELXY3JZG  tcp  --  *      *       0.0.0.0/0            10.97.229.148        /* default/my-nginx-nodeport: cluster IP */ tcp dpt:80</span><br><span class="line">    0     0 KUBE-NODEPORTS  all  --  *      *       0.0.0.0/0            0.0.0.0/0            /* kubernetes service nodeports; NOTE: this must be the last rule <span class="keyword">in</span> this chain */ ADDRTYPE match dst-type LOCAL</span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-NODEPORTS</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-NODEPORTS (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 KUBE-MARK-MASQ  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: */ tcp dpt:30781</span><br><span class="line">    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: */ tcp dpt:30781</span><br><span class="line">    0     0 KUBE-MARK-MASQ  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-nodeport: */ tcp dpt:30915</span><br><span class="line">    0     0 KUBE-SVC-6JXEEPSEELXY3JZG  tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-nodeport: */ tcp dpt:30915 </span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-FW-XXX</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-FW-TNQCJ2KHUMKABQTD (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 KUBE-MARK-MASQ  all  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: loadbalancer IP */</span><br><span class="line">    0     0 KUBE-SVC-TNQCJ2KHUMKABQTD  all  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: loadbalancer IP */</span><br><span class="line">    0     0 KUBE-MARK-DROP  all  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: loadbalancer IP */</span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-SVC-XXX</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-SVC-TNQCJ2KHUMKABQTD (2 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 KUBE-SEP-6HM47TA5RTJFOZFJ  all  --  *      *       0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.33332999982</span><br><span class="line">    0     0 KUBE-SEP-AHRDCNDYGFSFVA64  all  --  *      *       0.0.0.0/0            0.0.0.0/0            statistic mode random probability 0.50000000000</span><br><span class="line">    0     0 KUBE-SEP-BK523K4AX5Y34OZL  all  --  *      *       0.0.0.0/0            0.0.0.0/0      </span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-SEP-XXX</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-SEP-6HM47TA5RTJFOZFJ (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 KUBE-MARK-MASQ  all  --  *      *       192.167.2.231        0.0.0.0/0</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp to:192.167.2.231:80 </span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-POSTROUTING</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-POSTROUTING (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 MASQUERADE  all  --  *      *       0.0.0.0/0            0.0.0.0/0            /* kubernetes service traffic requiring SNAT */ mark match</span><br><span class="line">0x4000/0x4000 </span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-MARK-MASQ</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-MARK-MASQ (23 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 MARK       all  --  *      *       0.0.0.0/0            0.0.0.0/0            MARK or 0x4000 </span><br></pre></td></tr></table></figure>
+
+<p><code>iptables</code> 模式下的 <code>KUBE-MARK-DROP</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-MARK-DROP (10 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 MARK       all  --  *      *       0.0.0.0/0            0.0.0.0/0            MARK or 0x8000</span><br></pre></td></tr></table></figure>
+
+<p>这里的 <code>Service Proxy</code> 使用是 <code>iptables</code> 模式。这是 <code>Kubernetes</code> 当前使用的默认代理模式。<br>在上方图中展示了 <code>iptables</code> 模式下服务请求包的路径。上方的 <code>bash</code> 是展示了主要 <code>NAT</code> 表的内容。</p>
+<p>由于大多数 <code>Pod</code> 传输的请求包是通过 <code>Pod</code> 的 <code>veth</code> 传递到主机的网络命名空间，因此请求包通过 <code>PREROUTING</code> 表传递到 <code>KUBE-SERVICES</code> 表。<br><code>Pod</code> 或者 <code>Host</code>进程 使用 <code>Host</code> 的网络命名空间传输的请求数据包由 <code>OUTPUT</code> 表传递到 <code>KUBE-SERVICES</code> 表。</p>
+<p>如果<code>KUBE-SERVICES</code> 表中请求包的目标<code>IP</code>和目标<code>Port</code>与<code>ClusterIP Service</code>的<code>IP</code>和<code>Port</code>匹配，则请求的包<br>被转发到<code>KUBE-SVC-XXX</code> 表，即<code>ClusterIP Service</code>的<code>NAT</code>表.</p>
+<p>如果 <code>KUBE-SERVICES</code> 表中请求包的目标 <code>IP</code> 是节点自己的 <code>IP</code>，则将请求包转发到 <code>KUBE-NODEPORTS</code> 表。<br>如果 <code>KUBE-NODEPORTS</code> 表中请求报文的目标 <code>Port</code> 与 <code>NodePort Service</code> 的 <code>Port</code>匹配，则将请求报文传送到 <code>KUBE-SVC-XXX</code> 表，<br>即 <code>NodePort Service</code> 的 <code>NAT</code> 表。</p>
+<p>如果<code>KUBE-SERVICES</code> 表中请求包的目标 <code>IP</code>和目标 <code>Port</code>与<code>LoadBalancer Service</code> 的<code>External IP</code>和<code>Port</code>匹配，<br>则将请求包转发到<code>KUBE-FW-XXX</code> 表，<code>LoadBalancer Service</code>的<code>NAT</code>表，然后再将 <code>LoadBalancer Service</code> 传送<br>到 <code>KUBE-SVC-XXX</code> 表，也就是 <code>NAT</code> 表</p>
+<p>在<code>KUBE-SVC-XXX</code> 表中，请求包通过<code>iptables</code>的统计功能，在构成<code>Service</code>的<code>Pod</code>之间起到随机均匀负载均衡的作用。<br>在 <em><code>KUBE-SVC-TNQCJ2KHUMKABQTD</code></em> 中，由于<code>Service</code>由三个<code>pod</code>组成，可以看出请求包设置为随机均衡负载均衡，使用三个<code>KUBE-SEP-XXX</code>表。<br>在 <code>KUBE-SEP-XXX</code> 表中，请求包使用 <code>Pod</code> 的 <code>IP</code> 和 <code>Service</code> 中设置的 <code>Port</code> 进行 <code>DNAT</code>。<br>由<code>Pod</code>的<code>IP</code>发出的<code>DNAT</code>请求包通过<code>CNI Plugin</code>构建的容器网络传递给该<code>Pod</code>。</p>
+<p>由于传递给<code>service</code>的请求包是通过<code>iptables</code>的<code>DNAT</code>传递给<code>Pod</code>的，所以<code>Pod</code>发出的响应包的<code>Src IP</code>应该<code>SNAT</code>到<code>Service IP</code>，<br>而不是<code>Pod IP</code> 。<code>iptables</code> 中未指定 <code>Serivce</code> 的 <code>SNAT</code> 规则。但是，<code>iptables</code>根据<code>Linux Kernel</code> 的<code>Conntrack</code>（连接跟踪）的<br><code>TCP</code> 连接信息对从 <code>Service Pod</code> 收到的响应数据包进行 <code>SNAT</code>。</p>
+<h1 id="Source-IP"><a href="#Source-IP" class="headerlink" title="Source IP"></a>Source IP</h1><p><code>Service</code>请求包的<code>Src IP</code>将被留存，或通过<code>Masquerade</code>作为<code>Host</code>的<code>IP</code>进行<code>SNAT</code>。<br><code>KUBE-MARK-MASQ</code> 是一个表，将使用 <code>Masquerade</code> 对请求包进行标记。<br><code>Marking</code>的<code>Packet</code>在<code>KUBE-POSTROUTING</code> 表中成为<code>Masquerade</code>，<code>Src IP</code>作为<code>Host</code>的<code>IP</code>成为<code>SNAT</code>。<br>在<code>iptables</code> 表中，你会发现<code>KUBE-MARK-MASQ</code> 表会检测出被<code>Masquerade</code>标记过的包。</p>
+<p><img src="/images/k8s/NodePort_Policy.png" alt="根据NodePort、LoadBalancer Service的externalTrafficPolicy的数据包路径"><br><strong>根据NodePort、LoadBalancer Service的externalTrafficPolicy的数据包路径图</strong></p>
+<p><em>图中左侧为<code>externalTrafficPolicy</code>值为<code>Cluster</code>，执行 <code>Masquerade</code>。</em><br><code>LoadBalancer Service</code> 的 <code>NodePort</code> 和 <code>externalTrafficPolicy</code> 的 <code>Cluster</code>。<br>如果<code>externalTrafficPolicy</code>值设置为<code>Cluster</code>，则请求包的<code>Src IP</code>通过<code>Masquerade</code> 被 <code>SNAT</code>到<code>Host</code>的<code>IP</code>。<br>在 <code>KUBE-NODEPORTS</code> 表中，可以通过 <code>KUBE-MARK-MASQ</code> 表检查所有以 <code>NodePort</code> 和 <code>LoadBalancer Service Port</code><br>作为 <code>Dest Port</code> 的数据包。</p>
+<p><em>图右侧是通过将<code>externalTrafficPolicy</code>设置为<code>Local</code>，不执行<code>Masquerade</code></em><br>如果将 <code>externalTrafficPolicy</code> 值设置为 <code>Local</code>，则 <code>KUBE-MARK-MASQ</code> 表中相关规则将不会出现在 <code>KUBE-NODEPORTS</code> 表中，<br>所以就不会执行到 <code>Masquerade</code>。请求数据包的 <code>Src IP</code> 不会被修改。另外，请求包在宿主机中不会被负载均衡，而是将请求包发送<br>到的 <code>Host</code> 中的目标<code>pod</code>。如果请求数据包被发送到主机不存在目标 <code>pod</code>，那么请求数据包将被丢弃。</p>
+<p><code>ExternalTrafficPolicy Local</code>主要用于<code>LoadBalancer Service</code>。因为由 <code>Cloud Provider</code> 的负载均衡器执行负载均衡，<br>所以主机不需要负载均衡，所以可以保留请求包的<code>Src IP</code>。<br>如果<code>externalTrafficPolicy</code>值为<code>Local</code>，云服务提供商的负载均衡器会对目标 Pod 执行健康检查，如果健康检查失败<br>或者目标 Pod 不存在，那么发送到主机上的数据包将会被丢弃删除。</p>
+<p><img src="/images/k8s/iptables_Mode_Hairpinning.png" alt="iptables模式下发夹前&#x2F;后的数据包路径"></p>
+<p>在<code>Pod</code>中向自己所属的<code>Service</code>的<code>IP</code>发送请求数据包，在请求数据包返回时也需要 <code>Masquerade</code>。图中左边就标识这种情况。<br>请求数据包被DNAT, 数据包的<code>Src IP</code>和<code>Dest IP</code>都是<code>Pod</code>本身的<code>IP</code>。<br>因此，<code>Pod</code>返回响应数据包时，响应数据包不通过<code>Host</code>的<code>NAT</code>表，因此不会执行<code>SNAT</code>，直接在 <code>Pod</code> 中处理。</p>
+<p>如果使用 <code>Masquerade</code>，则可以通过将返回 <code>Pod</code> 的请求包强制传递给 Host 来执行 SNAT。这种通过故意绕过数据包来接收数据包的方法称为<code>Hairpinning</code>。<br>图中的右侧显示了使用<code>Masqurade</code>应用<code>Hairpinning</code>的情况。如果<code>KUBE-SEP-XXX</code>表中请求数据包的Src IP与DNAT的IP相同，<br>即<code>Pod</code>发送到<code>Service</code>的数据包由自己接收时，则请求的数据包经过<code>KUBE-MARK-MASQ</code> 表是被 <code>Marking</code>，<br>在<code>KUBE-POSTROUTING</code> 表中被<code>Masquerade</code><br>因为<code>Pod</code>接收到的数据包的<code>Src IP</code>被设置为<code>Host</code>的<code>IP</code>，因此<code>Pod</code>的响应被发送到<code>Host</code>的<code>NAT</code> 表，然后进行<code>SNAT</code>和<code>DNAT</code>传递给<code>Pod</code>。</p>
+<h1 id="用户空间"><a href="#用户空间" class="headerlink" title="用户空间"></a>用户空间</h1><p>Userspace Mode下的服务请求报文路径图：<br><img src="/images/k8s/Userspace_Mode_Service_Packet_Path.png" alt="Userspace_Mode_Service_Packet_Path.png"></p>
+<p>用户空间模式下的 KUBE-PORTALS-CONTAINER：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-PORTALS-CONTAINER (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            10.96.98.173         /* default/my-nginx-loadbalancer: */ tcp dpt:80 redir ports 38023</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            172.35.0.200         /* default/my-nginx-loadbalancer: */ tcp dpt:80 redir ports 38023</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            10.103.1.234         /* default/my-nginx-cluster: */ tcp dpt:80 redir ports 36451</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            10.97.229.148        /* default/my-nginx-nodeport: */ tcp dpt:80 redir ports 44257</span><br></pre></td></tr></table></figure>
+
+<p>用户空间模式下的 KUBE-NODEPORT-CONTAINER：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-NODEPORT-CONTAINER (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: */ tcp dpt:30781 redir ports 38023</span><br><span class="line">    0     0 REDIRECT   tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-nodeport: */ tcp dpt:30915 redir ports 44257</span><br></pre></td></tr></table></figure>
+
+<p>用户空间模式下的 KUBE-PORTALS-HOST：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-PORTALS-HOST (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            10.96.98.173         /* default/my-nginx-loadbalancer: */ tcp dpt:80 to:172.35.0.100:38023</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            172.35.0.200         /* default/my-nginx-loadbalancer: */ tcp dpt:80 to:172.35.0.100:38023</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            10.103.1.234         /* default/my-nginx-cluster: */ tcp dpt:80 to:172.35.0.100:46635</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            10.97.229.148        /* default/my-nginx-nodeport: */ tcp dpt:80 to:172.35.0.100:32847</span><br></pre></td></tr></table></figure>
+
+<p>用户空间模式下的 KUBE-NODEPORT-HOST：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Chain KUBE-NODEPORT-HOST (1 references)</span><br><span class="line"> pkts bytes target     prot opt <span class="keyword">in</span>     out     <span class="built_in">source</span>               destination</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-loadbalancer: */ tcp dpt:30781 to:172.35.0.100:38023</span><br><span class="line">    0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            /* default/my-nginx-nodeport: */ tcp dpt:30915 to:172.35.0.100:44257</span><br></pre></td></tr></table></figure>
+
+<p>Service Proxy 的 iptables 模式是一种运行在用户空间的 kube-proxy 扮演 Service Proxy 角色的模式。<br>这是 Kubernetes 提供的第一个代理模式。目前使用的不是很好，因为与iptables模式相比性能较差。<br>上图中展示了 Userspace 模式下Service 请求包的路径。</p>
+<p>由于大多数 <code>Pod</code> 传输的请求包是通过 <code>Pod</code> 的 <code>veth</code> 传递到 <code>Host</code> 的 <code>Network</code> 命名空间，因此请求包通过 PREROUTING 表传递到<br><code>KUBE-PORTALS-CONTAINER</code> 表。如果 <code>KUBE-PORTALS-CONTAINER</code> 标准中请求包的 目标 <code>IP</code> 和目标 <code>Port</code> 与 <code>ClusterIP</code> 服务<br>的 <code>IP</code> 和 <code>Port</code> 匹配，则请求包被重定向到<code>kube-proxy</code> 。如果请求数据包的目标 <code>IP</code>是节点自己的<code>IP</code>，则将数据包投递到<br><code>KUBE-NODEPORT-CONTAINER</code>表。如果 <code>KUBE-NODEPORT-CONTAINER</code> 表中请求包的 目标 <code>Port</code> 与 <code>NodePort Service</code> 的端<br>口匹配，则请求包被重定向到 <code>kube-proxy</code>。如果请求包的目标 <code>IP</code>和目标 <code>Port</code>与<code>LoadBalancer Service</code>的<code>External IP</code>和<code>Port</code>匹配，<br>请求包也会被重定向到kube-proxy。</p>
+<p><code>Pod</code> 或 <code>Host</code> 进程使用 <code>Host</code> 的 <code>Network Namespace</code> 传输的请求数据包由 <code>OUTPUT</code> 表 传递到 <code>KUBE-PORTALS-HOST</code> 表。<br><code>KUBE-PORTALS-HOST</code> 和 <code>KUBE-NODEPORT-HOST</code> 表中的后续请求包处理类似于 <code>KUBE-PORTALS-CONTAINER</code> 和 <code>KUBE-NODEPORT-CONTAINER</code> 表<br>中的请求包处理。不同之处在于，DNAT是在不重定向请求包的情况下执行的。</p>
+<p><strong>通过 <code>Redirect</code> 和 <code>DNAT</code> 发送到 <code>Service</code> 的所有请求数据包都被传递到 <code>kube-proxy</code></strong>。<code>kube-proxy</code> 收到的请求数据包的<br>每个目标 <code>Port</code> 映射一个服务。因此，<code>kube-proxy</code> 可以通过重定向和 <code>NAT</code> 请求数据包的 目标 <code>Port</code> 确定请求数据包应该传递到哪个服务。<br><code>kube-proxy</code> 通过将接收到的请求数据包均匀地负载均衡到属于请求数据包要传输到的服务的多个 <code>Pod</code> 来重新传输接收到的请求数据包。</p>
+<p>由于 <code>kube-proxy</code> 运行在主机的 <code>Network Namespace</code> 中，因此 <code>kube-proxy</code> 发送的请求包也会经过 <code>Service NAT</code> 表。<br>但是由于<code>kube-proxy</code>发送的请求包的目标 <code>IP</code>是<code>Pod</code>的<code>IP</code>，所以请求包不会被<code>Service NAT</code> 表改变，而是通过<code>CNI Plugin</code>搭建<br>的<code>Container Network</code>传递给<code>Pod</code>。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../28/microservices/istio/2021-10-28-istio1/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-10-18-k8s5/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

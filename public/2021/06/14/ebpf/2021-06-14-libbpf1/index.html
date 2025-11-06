@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>libbpf 学习使用 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">libbpf 学习使用</h1>
+<article class="post markdown-style">
+  <h1 id="BPF-CO-RE"><a href="#BPF-CO-RE" class="headerlink" title="BPF CO-RE"></a>BPF CO-RE</h1><p>参考:<a target="_blank" rel="noopener" href="https://blog.gmem.cc/ebpf">https://blog.gmem.cc/ebpf</a></p>
+<p>BPF CO-RE 与 Java 初始目的一致，一次编译导出运行。<br>产生的原因就是因为内核版本直接存在的差异可能导致某些字段、结构顺序的改变，导致再这个内核上可以运行，但是到另一个内核出现运行是失败的情况。</p>
+<p>初始 BCC 解决方案：<br>BCC 是很好的一款 eBPF 编程工具，再使用 BCC 时 BPF 内核程序的 c 代码被嵌入到前端语言中。而且 BCC 只会在目标机器上编译源码运行不会产生编译好的输出文件。BCC 的确当</p>
+<ol>
+<li>Clang&#x2F;LLVM 再编译时很耗资源，如果再程序启动时编译 BPF 代码，对生产环境不友好</li>
+<li>目标机器可能不包含指定的内核文件</li>
+<li>运行时可能会有编译错误</li>
+<li>读写 BPF Map 时需要编写面向对象的 C 代码。</li>
+</ol>
+<h2 id="CO-BE-原理："><a href="#CO-BE-原理：" class="headerlink" title="CO-BE 原理："></a>CO-BE 原理：</h2><p>将必要的功能数据片整合到一起，降低可以移植 BPF 程序的难度。</p>
+<ol>
+<li>BTF类型信息：允许捕获关于内核、BPF程序的类型&#x2F;代码的关键信息</li>
+<li>Clang为BPF程序C代码提供了express the intent和记录relocation信息的手段</li>
+<li>BPF loader（libbpf）根据内核的BTF和BPF程序，调整编译后的BPF代码，使其适合在目标内核上运行</li>
+<li>对于BPF CO-RE不可知的内核，提供了一些高级的BPF特性，满足高级场景</li>
+</ol>
+<h2 id="BTF"><a href="#BTF" class="headerlink" title="BTF"></a>BTF</h2><p>即BPF Type Format，类似于DWARF调试信息，但是没有那么generic和verbose。BTF能够用来增强BPF verifier的能力，能够允许BPF代码直接访问内核内存。<br>对于CO-RE来说，更重要的是，内核通过 &#x2F;sys&#x2F;kernel&#x2F;btf&#x2F;vmlinux暴露了权威的、自描述的BTF信息。执行下面的命令，你可以得到一个可编译的C头文件：</p>
+<p><code>bpftool btf dump file /sys/kernel/btf/vmlinux format c</code></p>
+<h2 id="编译支持"><a href="#编译支持" class="headerlink" title="编译支持"></a>编译支持</h2><p>为了启用CO-RE，并且让BPF loader（libbpf）来为正在运行的（目标）内核调整BPF程序，Clang被扩展，增加了一些built-ins。</p>
+<p>这些built-ins会发出（emit）BTF relocations，BTF relocations是BPF程序需要读取什么信息的高层描述。假设程序需要访问task_struct-&gt;pid，Clang会将其记录：<br>需要访问pid_t类型的、名为pid、位于task_struct结构中的字段。这样，即使字段顺序调整，甚至pid字段被放入一个内嵌的匿名结构体&#x2F;联合体中，BPF程序仍然能够正确访问到pid字段。<br>提高了内核之间的兼容性。</p>
+<p>能不捕获（进而重定位）的信息不单单是字段偏移量，还包括字段是否存在、字段的size。甚至对于位域（bitfield）字段，也能够捕获足够多的信息，让对它的访问能够被重定位。</p>
+<h2 id="BPF-loader"><a href="#BPF-loader" class="headerlink" title="BPF loader"></a>BPF loader</h2><p>BPF loader在加载程序时，会利用前述的（构建机的）内核BTF信息、Clang重定位信息，并读取当前内核的BTF信息，对BPF程序（ELF object文件）进行裁减（custom tailored） —— 解析和匹配所有类型、字段，更新字段偏移量，以及其它可重定位数据 —— 确保程序在当前内核上能够正确运行。</p>
+<p>描述：CO-RE 通过编译成类似中间代码的 BTF 文件，在 BPF Loader 加载的时候根据当前内核信息对程序进行裁剪。也就是说想要弄懂 libbpf 底层可能需要一些编译原理的实操能力。</p>
+<h1 id="内核"><a href="#内核" class="headerlink" title="内核"></a>内核</h1><p>要支持CO-RE，内核不需要更多的改变（除了开启CONFIG_DEBUG_INFO_BTF）。被BPF loader（libbpf）处理过的BPF程序，对于内核来说，和在本机编译的BPF程序是完全等价的。</p>
+<h2 id="可移植性演示："><a href="#可移植性演示：" class="headerlink" title="可移植性演示："></a>可移植性演示：</h2><p>假设我们期望读取task_struct结构体的pid字段。使用BCC时，你可以直接访问：<br>pid_t pid &#x3D; task-&gt;pid;<br>BCC会自动将其重写为对 bpf_probe_read()的调用。</p>
+<p>1.<br>如果添加了 <strong><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/project/netdev/list/?series=139747&state=*">BTF_PROG_TYPE_TRACING</a></strong> 程序<br>使用CO-RE的时候，由于没有BCC这种代码重写机制，为了打成同样效果，你可能需要：<br>libbpf + BPF_PROG_TYPE_TRACING：如果编写的是这类程序，你可以直接写：<br><code>pid_t pid = task-&gt;pid;</code><br>而不需要bpf_probe_read()调用。要实现可移植性，则需要将上述代码包围到 __builtin_preserve_access_index中：<br><code>pid_t pid = __builtin_preserve_access_index(({ task-&gt;pid; }));</code></p>
+<p><strong><code>但是</code></strong><br><strong><a target="_blank" rel="noopener" href="https://patchwork.ozlabs.org/project/netdev/list/?series=139747&state=*">BTF_PROG_TYPE_TRACING</a></strong> 程序 过于超前，对于低版本的内核<br>还是需要显式地调用 <code>bpf_probe_read()</code><br>现在，使用CO-RE+libbpf，我们有两种方式来实现访问pid字段的值。一种是直接使用 <code>bpf_core_read()</code>替换 <code>bpf_probe_read()</code>:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">pid_t</span> pid;</span><br><span class="line">bpf_core_read(&amp;pid, <span class="keyword">sizeof</span>(pid), &amp;task-&gt;pid);</span><br></pre></td></tr></table></figure>
+
+<p>原因：bpf_core_read()是一个简单的宏，它会将所有的参数直接传递给bpf_probe_read()，<strong>但也会使Clang通过__builtin_preserve_access_index()记录第三个参数(&amp;task-&gt;pid)的字段的偏移量。</strong><br>所以最终翻译之后的调用代码：<code>bpf_probe_read(&amp;pid, **sizeof**(pid), __builtin_preserve_access_index(&amp;task-&gt;pid));</code></p>
+<p>但是 进行pointer chasing时，使用bpf_probe_read()&#x2F;bpf_core_read()会变得痛苦。 幸运的是，CO-RE提供了*<code>助手宏</code>*，使用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">u64 inode = BPF_CORE_READ(task, mm, exe_file, f_inode, i_ino);</span><br><span class="line"> </span><br><span class="line"><span class="comment">// 或者</span></span><br><span class="line">u64 inode;</span><br><span class="line">BPF_CORE_READ_INTO(&amp;inode, task, mm, exe_file, f_inode, i_ino);</span><br></pre></td></tr></table></figure>
+
+<p>类似的，和 bpf_probe_read_str()对应的CO-RE函数是 bpf_core_read_str()，以及助手宏 BPF_CORE_READ_STR_INTO()。</p>
+<p>当然可以避免上面的情况，可以通过检查字段是否在目标内核存在，可以使用 bpf_core_field_exists()宏：</p>
+<p><code>pid_t pid = bpf_core_field_exists(task-&gt;pid) ? BPF_CORE_READ(task, pid) : -1;</code></p>
+<p>此外，可以通过bpf_core_field_size()宏捕获任意字段的大小，以此来保证不同内核版本间的字段大小没有发生变化。</p>
+<p><code>u32 comm_sz = bpf_core_field_size(task-&gt;comm);</code></p>
+<p>位域字段的读取，可以使用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">tcp_sock</span> *<span class="title">s</span> =</span> ...;</span><br><span class="line"> </span><br><span class="line"><span class="comment">// 读取s-&gt;is_cwnd_limited对应的位域字段</span></span><br><span class="line"><span class="type">bool</span> is_cwnd_limited = BPF_CORE_READ_BITFIELD(s, is_cwnd_limited);</span><br><span class="line"> </span><br><span class="line"><span class="comment">// 或者</span></span><br><span class="line">u64 is_cwnd_limited;</span><br><span class="line">BPF_CORE_READ_BITFIELD_PROBED(s, is_cwnd_limited, &amp;is_cwnd_limited);</span><br></pre></td></tr></table></figure>
+
+<h1 id="内核版本和配置差异-根据用户配置修改行为-这两种一般遇不到，先跳过"><a href="#内核版本和配置差异-根据用户配置修改行为-这两种一般遇不到，先跳过" class="headerlink" title="内核版本和配置差异 根据用户配置修改行为 这两种一般遇不到，先跳过"></a>内核版本和配置差异 根据用户配置修改行为 这两种一般遇不到，先跳过</h1><h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>libbpf 通过以下几种方式帮组用户实现 CO-RE 的：</p>
+<ul>
+<li><code>vmlinux.h</code> 消除了对内核头文件的依赖</li>
+<li>字段重定位(字段偏移，存在性，大小等)使得可以从内核中抽取数据；</li>
+<li>libbpf提供的Kconfig外部变量允许BPF程序适应各种内核版本以及特定配置的更改；</li>
+<li>当上述都不适合时，app提供了只读的配置和struct flavors，作为解决任何应用程序必须处理的复杂场景的最终大锤。</li>
+</ul>
+<h1 id="libbpf-bootstrap"><a href="#libbpf-bootstrap" class="headerlink" title="libbpf-bootstrap"></a>libbpf-bootstrap</h1><p>libbpf-bootstrap 提供了 使用 libbpf 抽象出来的开发 bpf 的手脚架工具。<br>libbpf-bootstrap 目前有两个演示 BPF 应用程序可用：minimal 和bootstrap. minimal就是这样——编译、加载和运行一个简单的 BPF 等价物的最小 BPF 应用程序printf(“Hello, World!”)。作为最小的一个，它也没有对 Linux 内核的最新性强加太多要求，并且应该在相当旧的内核版本上运行良好。</p>
+<p>此外，bootstrap演示了 BPF 全局变量的使用（Linux 5.5+）和BPF 环形缓冲区的使用（Linux 5.8+）。这些特性都不是构建有用的 BPF 应用程序所必需的，但它们带来了巨大的可用性改进，并且是构建现代 BPF 应用程序的方式，因此我在基本bootstrap示例中添加了使用它们的示例。</p>
+<p>libbpf-bootstrap 与 libbpf（作为 Git 子模块）和 bpftool（仅适用于 x86-64 架构）捆绑在一起，以避免依赖 Linux 发行版中可用的任何特定（并且可能已过时）版本。您的系统还应安装zlib(libz-dev或zlib-devel包) 和libelf (libelf-dev或elfutils-libelf-devel包) 。这些是libbpf正确编译和运行它所必需的依赖项。</p>
+<h1 id="Libbpf-bootstrap-概述"><a href="#Libbpf-bootstrap-概述" class="headerlink" title="Libbpf-bootstrap 概述"></a>Libbpf-bootstrap 概述</h1><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">$ tree</span><br><span class="line">.</span><br><span class="line">├── libbpf</span><br><span class="line">│   ├── ...</span><br><span class="line">│   ... </span><br><span class="line">├── LICENSE</span><br><span class="line">├── README.md</span><br><span class="line">├── src</span><br><span class="line">│   ├── bootstrap.bpf.c</span><br><span class="line">│   ├── bootstrap.c</span><br><span class="line">│   ├── bootstrap.h</span><br><span class="line">│   ├── Makefile</span><br><span class="line">│   ├── minimal.bpf.c</span><br><span class="line">│   ├── minimal.c</span><br><span class="line">│   ├── vmlinux_508.h</span><br><span class="line">│   └── vmlinux.h -&gt; vmlinux_508.h</span><br><span class="line">└── tools</span><br><span class="line">    ├── bpftool</span><br><span class="line">    └── gen_vmlinux_h.sh</span><br><span class="line"></span><br><span class="line">16 directories, 85 files</span><br></pre></td></tr></table></figure>
+<p>tools&#x2F;包含bpftool二进制文件，用于构建 BPF 代码的BPF 骨架。与 libbpf 类似，它被捆绑以避免依赖于系统范围的 bpftool 可用性及其版本是否足够最新。</p>
+<p>bpftool 可用于生成您自己的vmlinux.h包含所有 Linux 内核类型定义的头文件。<br>BPF CO-RE，vmlinux.h不必完全匹配您的内核配置和版本。<br><strong>但是</strong>，如果您确实需要生成自定义vmlinux.h，请随时检查 tools&#x2F;gen_vmlinux_h.sh 脚本以了解如何完成。</p>
+<p>Makefile 定义了必要的构建规则来编译所有提供的（和你自定义的）BPF 应用程序。它遵循一个简单的文件命名约定：</p>
+<ul>
+<li><code>&lt;app&gt;.bpf.c</code> 文件是包含要在内核上下文中执行的逻辑的 BPF C 代码；</li>
+<li><code>&lt;app&gt;.c</code> 是用户空间的 C 代码，它在应用程序的整个生命周期中加载 BPF 代码并与之交互；</li>
+<li><code>&lt;app&gt;.h</code> 是可选具有通用类型定义的头文件，由应用程序的 BPF 和用户空间代码共享。</li>
+</ul>
+<p>minimal.c并minimal.bpf.c形成minimalBPF 演示应用程序。<br>bootstrap.c、bootstrap.bpf.c和bootstrap.h是bootstrap-bpf应用程序。很简单。</p>
+<h1 id="minimal-应用程序"><a href="#minimal-应用程序" class="headerlink" title="minimal 应用程序"></a>minimal 应用程序</h1><p>minimal是一个很好的例子。这不是构建生产就绪应用程序和工具的最佳方法，但对于本地实验来说已经足够了。<br>BPF 代码：</p>
+<p>minimum.bpf.c</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause</span></span><br><span class="line"><span class="comment">/* Copyright (c) 2020 Facebook */</span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;linux/bpf.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/bpf_helpers.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">char</span> LICENSE[] SEC(<span class="string">&quot;license&quot;</span>) = <span class="string">&quot;Dual BSD/GPL&quot;</span>;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> my_pid = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">SEC(<span class="string">&quot;tp/syscalls/sys_enter_write&quot;</span>)</span><br><span class="line"><span class="type">int</span> <span class="title function_">handle_tp</span><span class="params">(<span class="type">void</span> *ctx)</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="type">int</span> pid = bpf_get_current_pid_tgid() &gt;&gt; <span class="number">32</span>;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> (pid != my_pid)</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">  bpf_printk(<span class="string">&quot;BPF triggered from PID %d.\n&quot;</span>, pid);</span><br><span class="line"></span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><code>#include &lt;linux/bpf.h&gt;</code> 引入了一些基本的BPF 相关类型和使用内核端 BPF API 所需要的长了（例如，BPF 辅助函数标志）。<br><code>#include &lt;bpf/bpf_helpers.h&gt;</code> 是 libbpf 最常用的宏、常量和 BPF 辅助函数，基本现有的 BPF 应用程序都会使用他们。<br><code>bpf_get_current_pid_tgid()</code> 就是上面 BPF 辅助函数的一个 Demo。</p>
+<p><code>LICENSE</code> 变量定义了 BPF 代码的许可。</p>
+<p><code>int my_pid = 0;</code> 是全局变量，BPF 代码可以读取和修改这个变量，就像用户空间的代码修改全局变量一样。而且 Linux 5.5 及以上版本可以从用户空间<br>程序直接读取。也就是说  <strong><code>它还可以用于在内核 BPF 代码和用户空间控制代码之间来回传递数据</code></strong></p>
+<p><code>SEC(&quot;tp/syscalls/sys_enter_write&quot;) int handle_tp(void *ctx) { ... }</code> 定义将加载内核中的 BPF 程序。它的 <code>SEC</code> 定义了应该创建什么类型的 BPF 程序<br>以及告诉 libbpf 应该将该程序 attach 到内核中的那个位置。</p>
+<p>当前定义的是一个 BPF 跟踪程序，每次 <code>write()</code> 从任何用户空间应用程序调用系统调用时都会调用该程序。</p>
+<p>现在让我们看看 <code>handle_tp</code> BPF 程序在做什么：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> pid = bpf_get_current_pid_tgid() &gt;&gt; <span class="number">32</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (pid != my_pid)</span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span>;</span><br></pre></td></tr></table></figure>
+
+<p>这部分获取以bpf_get_current_pid_tgid()的返回值的高 32 位编码的 PID（或内部内核术语中的“TGID”）。然后它检查触发 <code>write()</code>系统调用的minimal进程是否是我们的进程。<br>但是按照这种方式一般查看不到效果，所以输出到控制台最清楚。</p>
+<p><code> bpf_printk(&quot;BPF triggered from PID %d.\n&quot;, pid);</code></p>
+<p>这是 BPF 等价 <code>printf(&quot;Hello, world!\n&quot;)</code> 它将格式化的字符串发送到位于 的特殊文件中 <code>/sys/kernel/debug/tracing/trace_pipe</code> 可以通过 cat 命令从控制台查看其内容（确保您sudo在 root 下使用或运行）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ <span class="built_in">sudo</span> <span class="built_in">cat</span> /sys/kernel/debug/tracing/trace_pipe</span><br><span class="line">  &lt;...&gt;-3840345 [010] d... 3220701.101143: bpf_trace_printk: BPF triggered from PID 3840345.</span><br><span class="line">  &lt;...&gt;-3840345 [010] d... 3220702.101265: bpf_trace_printk: BPF triggered from PID 3840345.</span><br></pre></td></tr></table></figure>
+
+<h1 id="include-vmlinux-h、libbpf-和-应用-headers-文件"><a href="#include-vmlinux-h、libbpf-和-应用-headers-文件" class="headerlink" title="include: vmlinux.h、libbpf 和 应用 headers 文件"></a>include: vmlinux.h、libbpf 和 应用 headers 文件</h1><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;vmlinux.h&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/bpf_helpers.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/bpf_tracing.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/bpf_core_read.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;bootstrap.h&quot;</span></span></span><br></pre></td></tr></table></figure>
+
+<p>这里使用 <code>vmlinux.h</code> 与普通引入 <code>linux/bpf.h</code> 不同，<code>vmlinux.h</code> 将内核中所有类型抖包含在一个文件汇总。可以使用 <code>libbpf-bootstrap</code> 生产，也可以使用 <code>bpftool</code> 生成。</p>
+<p><strong><code>vmlinux.h它不能与其他系统范围的内核头文件结合使用，因为您将不可避免地遇到类型重新定义和冲突</code></strong></p>
+<p><strong><code>bpf_tracing.h和bpf_core_read.h，它们为编写基于BPF CO-RE的追踪BPF应用程序提供了一些额外的宏文件</code></strong></p>
+<h1 id="libbpf-BPF-Map-操作"><a href="#libbpf-BPF-Map-操作" class="headerlink" title="libbpf  BPF Map  操作"></a>libbpf  BPF Map  操作</h1><p>定义一个名为 <code>exec_start</code> 的 BPF Map： <code> struct { ... }exec_start SEC(&quot;.maps&quot;);</code><br>类型为 <code>BPF_MAP_TYPE_HASH</code> （HashMap）：<code>__uint(type, BPF_MAP_TYPE_HASH);</code><br>容量最大为：8192 个条目 <code>__uint(max_entries, 8192);</code><br>Key 为 <code>pid_t</code> 类型： <code>__type(key, pid_t);</code>  (<code>pid_t</code> 为 64 位无符号数字)<br>Value 为 <code>u64</code> 类型： <code>__type(value, u64);</code> 用于存储纳秒级时间戳</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">        __uint(type, BPF_MAP_TYPE_HASH);</span><br><span class="line">        __uint(max_entries, <span class="number">8192</span>);</span><br><span class="line">        __type(key, <span class="type">pid_t</span>);</span><br><span class="line">        __type(value, u64);</span><br><span class="line">&#125; exec_start <span class="title function_">SEC</span><span class="params">(<span class="string">&quot;.maps&quot;</span>)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>更新或着添加一个记录：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">pid_t</span> pid;</span><br><span class="line">u64 ts;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* remember time exec() was executed for this PID */</span></span><br><span class="line">pid = bpf_get_current_pid_tgid() &gt;&gt; <span class="number">32</span>;</span><br><span class="line">ts = bpf_ktime_get_ns();</span><br><span class="line">bpf_map_update_elem(&amp;exec_start, &amp;pid, &amp;ts, BPF_ANY);</span><br></pre></td></tr></table></figure>
+
+<p>获取一个记录并删除:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">pid_t</span> pid;</span><br><span class="line">u64 *start_ts;</span><br><span class="line">...</span><br><span class="line">start_ts = bpf_map_lookup_elem(&amp;exec_start, &amp;pid);</span><br><span class="line"><span class="keyword">if</span> (start_ts)</span><br><span class="line">  duration_ns = bpf_ktime_get_ns() - *start_ts;</span><br><span class="line">...</span><br><span class="line">bpf_map_delete_elem(&amp;exec_start, &amp;pid);</span><br></pre></td></tr></table></figure>
+
+<h1 id="用户态只读-BPF-变量"><a href="#用户态只读-BPF-变量" class="headerlink" title="用户态只读 BPF 变量"></a>用户态只读 BPF 变量</h1><p>libbpf 可以i当以只读变量</p>
+<p><code>const volatile unsigned long long min_duration_ns = 0;</code></p>
+<p>关键点就在于前面的 <code>const volatile</code> ，将变量标记为 BPF 代码和用户空间代码的只读。<br>所以在 BPF 验证就知道了 min_duration_ns 的具体数值。而且保证了 clang 在优化代码时这个不会优化掉这个变量名。</p>
+<p><strong><code>只读</code></strong> 变量在用户空间被初始化于 BPF 中初始化有点不一样，选哦在加载之前 <code>完成初始化</code> 。而且在初始化的时候打开<br>BPF 和 加载 BPF 需要区分开不能再使用单个方法了，代码如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 加载和验证 BPF 应用 */</span></span><br><span class="line">skel = bootstrap_bpf__open();</span><br><span class="line"><span class="keyword">if</span> (!skel) &#123;</span><br><span class="line">  <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Failed to open and load BPF skeleton\n&quot;</span>);</span><br><span class="line">  <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 用最小持续时间参数参数化BPF代码 */</span></span><br><span class="line">skel-&gt;rodata-&gt;min_duration_ns = env.min_duration_ms * <span class="number">1000000ULL</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 加载验证BPF程序 */</span></span><br><span class="line">err = bootstrap_bpf__load(skel);</span><br><span class="line"><span class="keyword">if</span> (err) &#123;</span><br><span class="line">  <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Failed to load and verify BPF skeleton\n&quot;</span>);</span><br><span class="line">  <span class="keyword">goto</span> cleanup;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong><code>只读变量是框架中rodata部分的一部分(而不是data或bss)：skel-&gt;rodata-&gt;min_uration_ns</code></strong></p>
+<h1 id="用户态侧-认识-skel-h"><a href="#用户态侧-认识-skel-h" class="headerlink" title="用户态侧 认识 *.skel.h"></a>用户态侧 认识 <code>*.skel.h</code></h1><p><code>*.skel.h</code> 是调用 <code>make</code> 命令后生成的 libbpf-bootstrap BPF 骨架。是由 bpftool 根据 <code>*.bpf.c</code> 文件自动生成的。<br>并且已经将 BPF 程序编译成目标代码嵌入到了 <code>*.skel.h</code> 中。简化了用户程序部署，不在需要额外的二进制文件，只需要包含这个 <code>*.skel.h</code> 头文件就可以了。</p>
+<p>查看 <code>minimal.skel.h</code> 文件：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">ifndef</span> __MINIMAL_BPF_SKEL_H__</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> __MINIMAL_BPF_SKEL_H__</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;bpf/libbpf.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">minimal_bpf</span> &#123;</span></span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">bpf_object_skeleton</span> *<span class="title">skeleton</span>;</span></span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">bpf_object</span> *<span class="title">obj</span>;</span>    <span class="comment">// 传递给 libbpf API 函数。</span></span><br><span class="line">  <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">bpf_map</span> *<span class="title">bss</span>;</span></span><br><span class="line">  &#125; maps;</span><br><span class="line">  <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">bpf_program</span> *<span class="title">handle_tp</span>;</span>   <span class="comment">// 提供对 BPF Map 和 BPF 代码的直接方法</span></span><br><span class="line">  &#125; progs;</span><br><span class="line">  <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">bpf_link</span> *<span class="title">handle_tp</span>;</span></span><br><span class="line">  &#125; links;</span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">minimal_bpf__bss</span> &#123;</span></span><br><span class="line">    <span class="type">int</span> my_pid;   <span class="comment">// 全局变量</span></span><br><span class="line">  &#125; *bss;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="title function_">minimal_bpf__destroy</span><span class="params">(<span class="keyword">struct</span> minimal_bpf *obj)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="keyword">struct</span> minimal_bpf *<span class="title function_">minimal_bpf__open_opts</span><span class="params">(<span class="type">const</span> <span class="keyword">struct</span> bpf_object_open_opts *opts)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="keyword">struct</span> minimal_bpf *<span class="title function_">minimal_bpf__open</span><span class="params">(<span class="type">void</span>)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">int</span> <span class="title function_">minimal_bpf__load</span><span class="params">(<span class="keyword">struct</span> minimal_bpf *obj)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="keyword">struct</span> minimal_bpf *<span class="title function_">minimal_bpf__open_and_load</span><span class="params">(<span class="type">void</span>)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">int</span> <span class="title function_">minimal_bpf__attach</span><span class="params">(<span class="keyword">struct</span> minimal_bpf *obj)</span> &#123; ... &#125;</span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">void</span> <span class="title function_">minimal_bpf__detach</span><span class="params">(<span class="keyword">struct</span> minimal_bpf *obj)</span> &#123; ... &#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">endif</span> <span class="comment">/* __MINIMAL_BPF_SKEL_H__ */</span></span></span><br></pre></td></tr></table></figure>
+
+
+
+<p><code>main</code> 函数执行过程：</p>
+<ol>
+<li>首先声明一个 <code>minimal_bpf</code> 结构</li>
+<li>设置 <code>libbpf_set_print</code> 日志打印回掉函数。</li>
+<li>释放内核对 BPF 程序内存的限制</li>
+<li>调用 <code>minimal_bpf__open</code> 打开 BPF 程序的方法，将返回值赋值给 <code>minimal_bpf</code> 结构</li>
+<li>这里可以修改和设置全局变量</li>
+<li>调用 <code>minimal_bpf__load</code> 加载并验证 BPF 程序</li>
+<li>调用 <code>minimal_bpf__attach</code> 将 BPF 程序附加到 <code>SEC</code> 指定的 tracepoints、kprobes  位置</li>
+</ol>
+<p>大概代码如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span></span><br><span class="line">&#123;</span><br><span class="line">        <span class="class"><span class="keyword">struct</span> <span class="title">minimal_bpf</span> *<span class="title">skel</span>;</span></span><br><span class="line">        libbpf_set_print(libbpf_print_fn);</span><br><span class="line">        bump_memlock_rlimit();</span><br><span class="line">        skel = minimal_bpf__open();</span><br><span class="line">        <span class="comment">/* 设置全局变量 */</span></span><br><span class="line">        skel-&gt;bss-&gt;my_pid = getpid();</span><br><span class="line">        minimal_bpf__load(skel);</span><br><span class="line">        minimal_bpf__attach(skel);</span><br><span class="line">        minimal_bpf__destroy(skel);</span><br><span class="line">        <span class="keyword">return</span> -err;</span><br><span class="line">&#125;        </span><br></pre></td></tr></table></figure>
+
+<p><code>main</code> 函数比较简单，主要的还是看 <code>*.skel.h</code> 文件。接下来看下：Makefile</p>
+<p><code>.output</code> 下文件：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">.output$ tree</span><br><span class="line">.</span><br><span class="line">├── bpf</span><br><span class="line">│      ├── bpf_core_read.h</span><br><span class="line">│      ├── bpf_endian.h</span><br><span class="line">│      ├── bpf.h</span><br><span class="line">│      ├── bpf_helper_defs.h</span><br><span class="line">│      ├── bpf_helpers.h</span><br><span class="line">│      ├── bpf_tracing.h</span><br><span class="line">│      ├── btf.h</span><br><span class="line">│      ├── libbpf_common.h</span><br><span class="line">│      ├── libbpf.h</span><br><span class="line">│      ├── libbpf_legacy.h</span><br><span class="line">│      ├── skel_internal.h</span><br><span class="line">│      └── xsk.h</span><br><span class="line">├── libbpf</span><br><span class="line">│      ├── libbpf.a</span><br><span class="line">│      ├── libbpf.pc</span><br><span class="line">│      └── staticobjs</span><br><span class="line">│          ├── bpf.o</span><br><span class="line">│          ├── bpf_prog_linfo.o</span><br><span class="line">│          ├── btf_dump.o</span><br><span class="line">│          ├── btf.o</span><br><span class="line">│          ├── gen_loader.o</span><br><span class="line">│          ├── hashmap.o</span><br><span class="line">│          ├── libbpf_errno.o</span><br><span class="line">│          ├── libbpf.o</span><br><span class="line">│          ├── libbpf_probes.o</span><br><span class="line">│          ├── linker.o</span><br><span class="line">│          ├── netlink.o</span><br><span class="line">│          ├── nlattr.o</span><br><span class="line">│          ├── ringbuf.o</span><br><span class="line">│          ├── str_error.o</span><br><span class="line">│          ├── strset.o</span><br><span class="line">│          └── xsk.o</span><br><span class="line">├── libbpf.a</span><br><span class="line">├── minimal.bpf.o</span><br><span class="line">├── minimal.o</span><br><span class="line">├── minimal.skel.h</span><br><span class="line">└── pkgconfig</span><br><span class="line">    └── libbpf.pc</span><br></pre></td></tr></table></figure>
+<p>查看 Makefile：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 定义所有中间文件写到 .outpt 文件夹下</span></span><br><span class="line">INCLUDES := -I$(OUTPUT)</span><br><span class="line"><span class="comment"># 定义使用 -g 调试信息编译</span></span><br><span class="line">CFLAGS := -g -Wall</span><br><span class="line"><span class="comment"># 定义目标架构</span></span><br><span class="line">ARCH := $(shell <span class="built_in">uname</span> -m | sed <span class="string">&#x27;s/x86_64/x86/&#x27;</span>)</span><br><span class="line"></span><br><span class="line">APPS = minimal bootstrap</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将 libbpf 构建为静态库，将 API 头文件安装到 .output 下。可以使用共享库跳过该步骤</span></span><br><span class="line">$(LIBBPF_OBJ): $(wildcard $(LIBBPF_SRC)/*.[ch] $(LIBBPF_SRC)/Makefile) | $(OUTPUT)/libbpf</span><br><span class="line">        $(call msg,LIB,<span class="variable">$@</span>)</span><br><span class="line">        $(Q)$(MAKE) -C $(LIBBPF_SRC) BUILD_STATIC_ONLY=1                      \</span><br><span class="line">                    OBJDIR=$(<span class="built_in">dir</span> <span class="variable">$@</span>)/libbpf DESTDIR=$(<span class="built_in">dir</span> <span class="variable">$@</span>)                 \</span><br><span class="line">                    INCLUDEDIR= LIBDIR= UAPIDIR=                              \</span><br><span class="line">                    install</span><br><span class="line"><span class="comment"># 编译 bpf 文件，-D__TARGET_ARCH_$(ARCH) 用户处理低级 struct pt_regs 宏定义</span></span><br><span class="line">$(OUTPUT)/%.bpf.o: %.bpf.c $(LIBBPF_OBJ) $(wildcard %.h) $(VMLINUX) | $(OUTPUT)</span><br><span class="line">        $(call msg,BPF,<span class="variable">$@</span>)</span><br><span class="line">        $(Q)$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) $(INCLUDES) $(CLANG_BPF_SYS_INCLUDES) -c $(filter %.c,$^) -o <span class="variable">$@</span></span><br><span class="line">        $(Q)$(LLVM_STRIP) -g <span class="variable">$@</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 使用 bpftool 工具生成 skel.h 头文件</span></span><br><span class="line">$(OUTPUT)/%.skel.h: $(OUTPUT)/%.bpf.o | $(OUTPUT)</span><br><span class="line">        $(call msg,GEN-SKEL,<span class="variable">$@</span>)</span><br><span class="line">        $(Q)$(BPFTOOL) gen skeleton $&lt; &gt; <span class="variable">$@</span> </span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+
+
+<p>执行 make minimal 后将 Makefile 命令拆开看就清楚了。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建 .output下 文件夹</span></span><br><span class="line"><span class="built_in">mkdir</span> -p .output</span><br><span class="line"></span><br><span class="line"><span class="built_in">mkdir</span> -p .output/libbpf</span><br><span class="line"></span><br><span class="line">make -C /home/vagrant/ebpf/libbpf-bootstrap/libbpf/src BUILD_STATIC_ONLY=1                    \</span><br><span class="line">            OBJDIR=/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf DESTDIR=/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output/                     \</span><br><span class="line">            INCLUDEDIR= LIBDIR= UAPIDIR=                              \</span><br><span class="line">            install</span><br><span class="line"></span><br><span class="line">make[1]: Entering directory <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/libbpf/src&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">mkdir</span> -p /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将 libbpf 下的文件编译为目标文件</span></span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c bpf.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/bpf.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c btf.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/btf.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c libbpf.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c libbpf_errno.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf_errno.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c netlink.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/netlink.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c nlattr.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/nlattr.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c str_error.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/str_error.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c libbpf_probes.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf_probes.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c bpf_prog_linfo.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/bpf_prog_linfo.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c xsk.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/xsk.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c btf_dump.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/btf_dump.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c hashmap.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/hashmap.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c ringbuf.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/ringbuf.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c strset.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/strset.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c linker.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/linker.o</span><br><span class="line">cc -I. -I../include -I../include/uapi -g -O2 -Werror -Wall -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64   -c gen_loader.c -o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/gen_loader.o</span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建静态库文件，将目标文件压缩到一个文件中并添加所欲</span></span><br><span class="line">ar rcs /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/libbpf.a /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/bpf.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/btf.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf_errno.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/netlink.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/nlattr.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/str_error.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/libbpf_probes.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/bpf_prog_linfo.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/xsk.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/btf_dump.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/hashmap.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/ringbuf.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/strset.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/linker.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/staticobjs/gen_loader.o</span><br><span class="line"></span><br><span class="line"><span class="comment"># cat libbpf.pc.template </span></span><br><span class="line"><span class="comment"># # SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)</span></span><br><span class="line"><span class="comment"># </span></span><br><span class="line"><span class="comment"># prefix=@PREFIX@</span></span><br><span class="line"><span class="comment"># libdir=@LIBDIR@</span></span><br><span class="line"><span class="comment"># includedir=$&#123;prefix&#125;/include</span></span><br><span class="line"><span class="comment"># </span></span><br><span class="line"><span class="comment"># Name: libbpf</span></span><br><span class="line"><span class="comment"># Description: BPF library</span></span><br><span class="line"><span class="comment"># Version: @VERSION@</span></span><br><span class="line"><span class="comment"># Libs: -L$&#123;libdir&#125; -lbpf</span></span><br><span class="line"><span class="comment"># Requires.private: libelf zlib</span></span><br><span class="line"><span class="comment"># Cflags: -I$&#123;includedir&#125;</span></span><br><span class="line"></span><br><span class="line">sed -e <span class="string">&quot;s|@PREFIX@|/usr|&quot;</span> \</span><br><span class="line">        -e <span class="string">&quot;s|@LIBDIR@|$\&#123;prefix\&#125;/lib64|&quot;</span> \</span><br><span class="line">        -e <span class="string">&quot;s|@VERSION@|0.5.0|&quot;</span> \</span><br><span class="line">        &lt; libbpf.pc.template &gt; /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/libbpf.pc</span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建文件夹</span></span><br><span class="line"><span class="keyword">if</span> [ ! -d <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//bpf&#x27;</span> ]; <span class="keyword">then</span> </span><br><span class="line">  install -d -m 755 <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//bpf&#x27;</span>; </span><br><span class="line"><span class="keyword">fi</span>;</span><br><span class="line"><span class="comment"># 安装所有头文件</span></span><br><span class="line">install -m 644 bpf.h libbpf.h btf.h libbpf_common.h libbpf_legacy.h xsk.h bpf_helpers.h bpf_helper_defs.h bpf_tracing.h bpf_endian.h bpf_core_read.h skel_internal.h <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//bpf&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建文件夹</span></span><br><span class="line"><span class="keyword">if</span> [ ! -d <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//pkgconfig&#x27;</span> ]; <span class="keyword">then</span> </span><br><span class="line">  install -d -m 755 <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//pkgconfig&#x27;</span>; </span><br><span class="line"><span class="keyword">fi</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 安装库文件</span></span><br><span class="line">install -m 644 /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/libbpf.pc <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//pkgconfig&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 创建文件夹</span></span><br><span class="line"><span class="keyword">if</span> [ ! -d <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output/&#x27;</span> ]; <span class="keyword">then</span> </span><br><span class="line">  install -d -m 755 <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output/&#x27;</span>; </span><br><span class="line"><span class="keyword">fi</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将静态库添加到文件夹下</span></span><br><span class="line"><span class="built_in">cp</span> -fR /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output//libbpf/libbpf.a  <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output/&#x27;</span></span><br><span class="line"></span><br><span class="line">make[1]: Leaving directory <span class="string">&#x27;/home/vagrant/ebpf/libbpf-bootstrap/libbpf/src&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 编译 bpf  程序</span></span><br><span class="line">clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -I.output -I../../libbpf/include/uapi -I../../vmlinux/ \</span><br><span class="line">-idirafter /usr/local/include \</span><br><span class="line">-idirafter /usr/lib/llvm-11/lib/clang/11.1.0/include \</span><br><span class="line">-idirafter /usr/include/x86_64-linux-gnu \</span><br><span class="line">-idirafter /usr/include \</span><br><span class="line">-c minimal.bpf.c \</span><br><span class="line">-o .output/minimal.bpf.o</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除所有调试部分</span></span><br><span class="line">llvm-strip -g .output/minimal.bpf.o <span class="comment"># strip useless DWARF info</span></span><br><span class="line"><span class="comment"># 通过 BPF 文件提取为头文件，这个可以大概研究下</span></span><br><span class="line">/home/vagrant/ebpf/libbpf-bootstrap/tools/bpftool gen skeleton .output/minimal.bpf.o &gt; .output/minimal.skel.h</span><br><span class="line"></span><br><span class="line">libbpf: elf: skipping unrecognized data section(5) .rodata.str1.1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 编译用户程序</span></span><br><span class="line">cc -g -Wall -I.output -I../../libbpf/include/uapi -I../../vmlinux/ -c minimal.c -o .output/minimal.o</span><br><span class="line"><span class="comment"># 连接目标文件组成可执行文件</span></span><br><span class="line">cc -g -Wall .output/minimal.o /home/vagrant/ebpf/libbpf-bootstrap/examples/c/.output/libbpf.a -lelf -lz -o minimal</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+
+<h1 id="bootstrap-演示-BPF-Map-使用"><a href="#bootstrap-演示-BPF-Map-使用" class="headerlink" title="bootstrap.* 演示 BPF Map 使用"></a><code>bootstrap.*</code> 演示 BPF Map 使用</h1><p>内核态定义 Map 结构：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">        __uint(type, BPF_MAP_TYPE_HASH);</span><br><span class="line">        __uint(max_entries, <span class="number">8192</span>);</span><br><span class="line">        __type(key, <span class="type">pid_t</span>);</span><br><span class="line">        __type(value, u64);</span><br><span class="line">&#125; exec_start <span class="title function_">SEC</span><span class="params">(<span class="string">&quot;.maps&quot;</span>)</span>;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">        __uint(type, BPF_MAP_TYPE_RINGBUF);</span><br><span class="line">        __uint(max_entries, <span class="number">256</span> * <span class="number">1024</span>);</span><br><span class="line">&#125; rb <span class="title function_">SEC</span><span class="params">(<span class="string">&quot;.maps&quot;</span>)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>解释：<br>map 名称：<code>exec_start</code>，map 类型：<code>BPF_MAP_TYPE_HASH</code>，最大条目：<code>8192</code>，key 类型：<code>pid_t</code>，value 类型：<code>u64</code><br>map 名称：<code>rb</code>，map 类型：<code>BPF_MAP_TYPE_RINGBUF</code>，最大条目：<code>8192</code></p>
+<p>#NOTE<br>访问全局变量：只读变量是 skel 中rodata部分的一部分</p>
+<h1 id="问题：分别什么时候使用-bss、rodata、links-访问全局变量"><a href="#问题：分别什么时候使用-bss、rodata、links-访问全局变量" class="headerlink" title="问题：分别什么时候使用 bss、rodata、links 访问全局变量"></a>问题：分别什么时候使用 bss、rodata、links 访问全局变量</h1><p>答：<br>  skel-&gt;rodata 用于只读变量；<br>  skel-&gt;bss 用于可变的零初始化变量；<br>  skel-&gt;data 用于非零初始化的可变变量。</p>
+<h1 id="问题：SEC-范围怎么找"><a href="#问题：SEC-范围怎么找" class="headerlink" title="问题：SEC 范围怎么找"></a>问题：SEC 范围怎么找</h1><h1 id="辅助函数的帮助文档阅读"><a href="#辅助函数的帮助文档阅读" class="headerlink" title="辅助函数的帮助文档阅读"></a>辅助函数的帮助文档阅读</h1><h1 id="是否还存在尾调用"><a href="#是否还存在尾调用" class="headerlink" title="是否还存在尾调用"></a>是否还存在尾调用</h1>
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-06-14-libbpf5/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-06-14-xdp1/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

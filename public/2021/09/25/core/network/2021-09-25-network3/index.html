@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>设备初始化的流程 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">设备初始化的流程</h1>
+<article class="post markdown-style">
+  <p>Linux 作为一个宏内核把模块化玩的贼溜，这个得赞叹一下。</p>
+<p>关于模块初始化与设备注册在 <code>《Linux 设备与驱动程序》</code><br><code>subsys_initcall</code> 子模块初始化调用的接口方法，主要了解 <code>net_dev_init</code>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 代码有删减</span></span><br><span class="line"><span class="type">static</span> <span class="type">int</span> __init <span class="title function_">net_dev_init</span><span class="params">(<span class="type">void</span>)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="type">int</span> i, rc = -ENOMEM;</span><br><span class="line"></span><br><span class="line">	BUG_ON(!dev_boot_phase);</span><br><span class="line">	<span class="comment">// 初始化统计信息的 proc 文件</span></span><br><span class="line">	<span class="keyword">if</span> (dev_proc_init())</span><br><span class="line">		<span class="keyword">goto</span> out;</span><br><span class="line">	<span class="comment">// 初始化 kobject</span></span><br><span class="line">	<span class="keyword">if</span> (netdev_kobject_init())</span><br><span class="line">		<span class="keyword">goto</span> out;</span><br><span class="line">	<span class="comment">// 初始化协议类型链表</span></span><br><span class="line">	INIT_LIST_HEAD(&amp;ptype_all);</span><br><span class="line">	<span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; PTYPE_HASH_SIZE; i++) <span class="comment">//初始化协议类型hash表</span></span><br><span class="line">		INIT_LIST_HEAD(&amp;ptype_base[i]);</span><br><span class="line">	<span class="comment">//初始化offload列表</span></span><br><span class="line">	INIT_LIST_HEAD(&amp;offload_base);</span><br><span class="line">	<span class="comment">//注册网络命名空间子系统</span></span><br><span class="line">	<span class="keyword">if</span> (register_pernet_subsys(&amp;netdev_net_ops))</span><br><span class="line">		<span class="keyword">goto</span> out;</span><br><span class="line">	<span class="comment">//初始化数据包接收队列</span></span><br><span class="line">	for_each_possible_cpu(i) &#123;</span><br><span class="line">		<span class="class"><span class="keyword">struct</span> <span class="title">work_struct</span> *<span class="title">flush</span> =</span> per_cpu_ptr(&amp;flush_works, i);</span><br><span class="line">		<span class="class"><span class="keyword">struct</span> <span class="title">softnet_data</span> *<span class="title">sd</span> =</span> &amp;per_cpu(softnet_data, i);</span><br><span class="line">		<span class="comment">//初始化清理backlog队列</span></span><br><span class="line">		INIT_WORK(flush, flush_backlog);</span><br><span class="line">		<span class="comment">//初始化非napi接口层的缓存队列</span></span><br><span class="line">		skb_queue_head_init(&amp;sd-&gt;input_pkt_queue);</span><br><span class="line">		<span class="comment">//初始化数据包处理队列  </span></span><br><span class="line">		skb_queue_head_init(&amp;sd-&gt;process_queue);</span><br><span class="line">		<span class="comment">//初始化网络设备轮询队列</span></span><br><span class="line">		INIT_LIST_HEAD(&amp;sd-&gt;poll_list);</span><br><span class="line">		<span class="comment">//初始化输出队列尾部</span></span><br><span class="line">		sd-&gt;output_queue_tailp = &amp;sd-&gt;output_queue;</span><br><span class="line">		<span class="comment">//若支持RPS</span></span><br><span class="line"><span class="meta">#<span class="keyword">ifdef</span> CONFIG_RPS</span></span><br><span class="line">		INIT_CSD(&amp;sd-&gt;csd, rps_trigger_softirq, sd);</span><br><span class="line">		sd-&gt;cpu = i;</span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br><span class="line">		<span class="comment">//初始化 gro hash</span></span><br><span class="line">		init_gro_hash(&amp;sd-&gt;backlog);</span><br><span class="line">		<span class="comment">//支持非napi虚拟设备的回调和配额设置</span></span><br><span class="line">		sd-&gt;backlog.poll = process_backlog;</span><br><span class="line">		sd-&gt;backlog.weight = weight_p;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	dev_boot_phase = <span class="number">0</span>;</span><br><span class="line">	<span class="comment">// 注册回环设备</span></span><br><span class="line">	<span class="keyword">if</span> (register_pernet_device(&amp;loopback_net_ops))</span><br><span class="line">		<span class="keyword">goto</span> out;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (register_pernet_device(&amp;default_device_ops))</span><br><span class="line">		<span class="keyword">goto</span> out;</span><br><span class="line">	<span class="comment">// 注册发送软中断</span></span><br><span class="line">	open_softirq(NET_TX_SOFTIRQ, net_tx_action);</span><br><span class="line">	<span class="comment">// 注册接收软中断</span></span><br><span class="line">	open_softirq(NET_RX_SOFTIRQ, net_rx_action);</span><br><span class="line">	<span class="comment">//注册响应cpu状态变化的回调</span></span><br><span class="line">	rc = cpuhp_setup_state_nocalls(CPUHP_NET_DEV_DEAD, <span class="string">&quot;net/dev:dead&quot;</span>,</span><br><span class="line">				       <span class="literal">NULL</span>, dev_cpu_dead);</span><br><span class="line">	WARN_ON(rc &lt; <span class="number">0</span>);</span><br><span class="line">	rc = <span class="number">0</span>;</span><br><span class="line">out:</span><br><span class="line">	<span class="keyword">return</span> rc;</span><br><span class="line">&#125;</span><br><span class="line">subsys_initcall(net_dev_init);</span><br></pre></td></tr></table></figure>
+
+<p>关于 <code>softnet_data</code> 每个 CPU 都注册了一个自己的数据结构用于处理入口流量和出口流量。<br>每个 CPU 都有自己的处理队列也就没有锁竞争的问题。</p>
+<h1 id="接收帧"><a href="#接收帧" class="headerlink" title="接收帧"></a>接收帧</h1><p>设备初始化完成之后会，网卡设备将开始工作。<br>目前接收包的方式共有两种 NAPI 与 非 NAPI 方式。</p>
+<h2 id="NAPI-方式"><a href="#NAPI-方式" class="headerlink" title="NAPI 方式"></a>NAPI 方式</h2><p>第一个数据包到来是，将会产生硬中断，中断处理程序<strong>将设备</strong>的 <code>napi_struct</code> 结构挂在当前 <code>cpu</code><br>的待接收设备 <code>softnet_data-&gt;poll_list</code> 列表中。并触发软中断，软中断会便利 <code>softnet_data-&gt;poll_list</code><br>中的所有设备，依次调用 <code>napi_struct-&gt;poll</code> 虚拟函数处理收包。</p>
+<p>以 <a target="_blank" rel="noopener" href="https://elixir.bootlin.com/linux/v5.14/source/drivers/net/ethernet/intel/e100.c#L2195">e100</a> 为例：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">irqreturn_t</span> <span class="title function_">e100_intr</span><span class="params">(<span class="type">int</span> irq, <span class="type">void</span> *dev_id)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">net_device</span> *<span class="title">netdev</span> =</span> dev_id;</span><br><span class="line">	...</span><br><span class="line">	<span class="keyword">if</span> (likely(napi_schedule_prep(&amp;nic-&gt;napi))) &#123;</span><br><span class="line">		<span class="comment">// 禁用中断</span></span><br><span class="line">		e100_disable_irq(nic);</span><br><span class="line">		<span class="comment">//将该网络设备加入到sd的poll_list中</span></span><br><span class="line">		__napi_schedule(&amp;nic-&gt;napi);</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> IRQ_HANDLED;</span><br><span class="line">&#125;</span><br><span class="line"><span class="type">void</span> __napi_schedule(<span class="keyword">struct</span> napi_struct *n)</span><br><span class="line">&#123;</span><br><span class="line">	<span class="type">unsigned</span> <span class="type">long</span> flags;</span><br><span class="line"></span><br><span class="line">	local_irq_save(flags);</span><br><span class="line">	____napi_schedule(this_cpu_ptr(&amp;softnet_data), n);</span><br><span class="line">	local_irq_restore(flags);</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 调用时 IRQ 被禁用</span></span><br><span class="line"><span class="type">static</span> <span class="keyword">inline</span> <span class="type">void</span> ____napi_schedule(<span class="keyword">struct</span> softnet_data *sd,</span><br><span class="line">				     <span class="keyword">struct</span> napi_struct *napi)</span><br><span class="line">&#123;</span><br><span class="line">	...</span><br><span class="line">	<span class="comment">// 添加设备到 poll_list</span></span><br><span class="line">	list_add_tail(&amp;napi-&gt;poll_list, &amp;sd-&gt;poll_list);</span><br><span class="line">	<span class="comment">// 激活软中断，即：net_rx_action</span></span><br><span class="line">	__raise_softirq_irqoff(NET_RX_SOFTIRQ);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="net-rx-action"><a href="#net-rx-action" class="headerlink" title="net_rx_action"></a>net_rx_action</h2><p><code>net_rx_action</code> 负责处理收包程序，当该函数被触发调用时，说明有设备的数据包到达，此时本处理程序便利<br><code>softnet_data-&gt;poll_list</code> 中的收包设备，并执行 <code>napi</code> 中的 <code>poll</code> 调度，</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> __latent_entropy <span class="type">void</span> <span class="title function_">net_rx_action</span><span class="params">(<span class="keyword">struct</span> softirq_action *h)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="comment">// 指向当前 CPU 的数据结构</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">softnet_data</span> *<span class="title">sd</span> =</span> this_cpu_ptr(&amp;softnet_data);</span><br><span class="line">	<span class="type">unsigned</span> <span class="type">long</span> time_limit = jiffies +</span><br><span class="line">		usecs_to_jiffies(netdev_budget_usecs);</span><br><span class="line">	<span class="type">int</span> budget = netdev_budget;</span><br><span class="line">	LIST_HEAD(<span class="built_in">list</span>);</span><br><span class="line">	<span class="comment">// 需要重新 poll 的设备列表</span></span><br><span class="line">	LIST_HEAD(repoll);</span><br><span class="line">	<span class="comment">// 待处理设备列表 poll_list 统一合并到 list，处理过程不允许中断，</span></span><br><span class="line">	<span class="comment">// 并且重新初始化 poll_ist</span></span><br><span class="line">	<span class="comment">// 合并方式，改变了一下链表的头节点和尾节点</span></span><br><span class="line">	local_irq_disable();</span><br><span class="line">	list_splice_init(&amp;sd-&gt;poll_list, &amp;<span class="built_in">list</span>);</span><br><span class="line">	local_irq_enable();</span><br><span class="line">	<span class="comment">// 遍历列表</span></span><br><span class="line">	<span class="keyword">for</span> (;;) &#123;</span><br><span class="line">		<span class="class"><span class="keyword">struct</span> <span class="title">napi_struct</span> *<span class="title">n</span>;</span></span><br><span class="line">		<span class="comment">// 如果待处理设备列表为空，就直接跳出</span></span><br><span class="line">		<span class="keyword">if</span> (list_empty(&amp;<span class="built_in">list</span>)) &#123;</span><br><span class="line">			<span class="keyword">if</span> (!sd_has_rps_ipi_waiting(sd) &amp;&amp; list_empty(&amp;repoll))</span><br><span class="line">				<span class="comment">// 如果重新 poll 的设备链表也为空，就没必要继续执行了直接结束</span></span><br><span class="line">				<span class="keyword">return</span>;</span><br><span class="line">			<span class="keyword">break</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 每次都取出 头节点</span></span><br><span class="line">		n = list_first_entry(&amp;<span class="built_in">list</span>, <span class="keyword">struct</span> napi_struct, poll_list);</span><br><span class="line">		<span class="comment">// 调用该设备结构 poll 虚拟函数</span></span><br><span class="line">		<span class="comment">// 如果没有处理结束，就挂到 repoll 上</span></span><br><span class="line">		budget -= napi_poll(n, &amp;repoll);</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 如果公平的中断时间结束就结束处理</span></span><br><span class="line">		<span class="keyword">if</span> (unlikely(budget &lt;= <span class="number">0</span> ||</span><br><span class="line">			     time_after_eq(jiffies, time_limit))) &#123;</span><br><span class="line">			sd-&gt;time_squeeze++;</span><br><span class="line">			<span class="keyword">break</span>;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 下面操作不可中断</span></span><br><span class="line">	local_irq_disable();</span><br><span class="line">	<span class="comment">// 将未处理完的设备列表，重新拼接到 poll_list 等待下次处理</span></span><br><span class="line">	list_splice_tail_init(&amp;sd-&gt;poll_list, &amp;<span class="built_in">list</span>);</span><br><span class="line">	list_splice_tail(&amp;repoll, &amp;<span class="built_in">list</span>);</span><br><span class="line">	<span class="comment">// FIFO 的顺序，当前没有完成的放到前面</span></span><br><span class="line">	list_splice(&amp;<span class="built_in">list</span>, &amp;sd-&gt;poll_list);</span><br><span class="line">	<span class="comment">// 如果 poll_list 不为空，触发下一次收包中断</span></span><br><span class="line">	<span class="keyword">if</span> (!list_empty(&amp;sd-&gt;poll_list))</span><br><span class="line">		<span class="comment">// 当前过程就是为了方式 CPU 占用时间过长，重新中断</span></span><br><span class="line">		__raise_softirq_irqoff(NET_RX_SOFTIRQ);</span><br><span class="line">	<span class="comment">// 启用中断</span></span><br><span class="line">	net_rps_action_and_irq_enable(sd);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>为了防止处理数据包时 CPU 占用过高，设置了公平原则，当占用时间达到一定额度的时候就会跳出循环释放 CPU<br>重新触发中断流程。</p>
+<p><strong>napi_poll</strong> 就是调用设备对应的 <code>napi_struct-&gt;poll</code> 回调接收数据包，接收<strong>数量根据配额</strong>进行**<code>限制</code>**。<br>关键代码为 <code>work = __napi_poll(n, &amp;do_repoll);</code></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">napi_poll</span><span class="params">(<span class="keyword">struct</span> napi_struct *n, <span class="keyword">struct</span> list_head *repoll)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="type">bool</span> do_repoll = <span class="literal">false</span>;</span><br><span class="line">	<span class="type">void</span> *have;</span><br><span class="line">	<span class="type">int</span> work;</span><br><span class="line">	<span class="comment">// 链表去除 napi 关联</span></span><br><span class="line">	list_del_init(&amp;n-&gt;poll_list);</span><br><span class="line"></span><br><span class="line">	have = netpoll_poll_lock(n);</span><br><span class="line"></span><br><span class="line">	work = __napi_poll(n, &amp;do_repoll);</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (do_repoll)</span><br><span class="line">		list_add_tail(&amp;n-&gt;poll_list, repoll);</span><br><span class="line"></span><br><span class="line">	netpoll_poll_unlock(have);</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> work;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>在处理数据包的过程中全程上锁的，那么这里可能会被多线程调用，说明除了驱动之外还有别的地方调用</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> __napi_poll(<span class="keyword">struct</span> napi_struct *n, <span class="type">bool</span> *repoll)</span><br><span class="line">&#123;</span><br><span class="line">	<span class="type">int</span> work, weight;</span><br><span class="line">	<span class="comment">// 获取配额，可处理数据包的最高数量</span></span><br><span class="line">	weight = n-&gt;weight;</span><br><span class="line"></span><br><span class="line">	work = <span class="number">0</span>;</span><br><span class="line">	<span class="comment">// 检查 NAPI 是否在调度状态</span></span><br><span class="line">	<span class="keyword">if</span> (test_bit(NAPI_STATE_SCHED, &amp;n-&gt;state)) &#123;</span><br><span class="line">		work = n-&gt;poll(n, weight);</span><br><span class="line">		trace_napi_poll(n, work, weight);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 收包数量大于配额，说明出现了异常，打印出异常信息</span></span><br><span class="line">	<span class="keyword">if</span> (unlikely(work &gt; weight))</span><br><span class="line">		pr_err_once(<span class="string">&quot;NAPI poll function %pS returned %d, exceeding its budget of %d.\n&quot;</span>,</span><br><span class="line">			    n-&gt;poll, work, weight);</span><br><span class="line">	<span class="comment">// 收包数量小于配置，返回真正处理收包数量</span></span><br><span class="line">	<span class="keyword">if</span> (likely(work &lt; weight))</span><br><span class="line">		<span class="keyword">return</span> work;</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 如果 napi 用完了整个配额，那么久强制修改 NAPI</span></span><br><span class="line">	<span class="comment">// 为完成状态态，并返回实际处理数据包数量</span></span><br><span class="line">	<span class="keyword">if</span> (unlikely(napi_disable_pending(n))) &#123;</span><br><span class="line">		napi_complete(n);</span><br><span class="line">		<span class="keyword">return</span> work;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="comment">/* 检查 napi 当前状态，如果外部强制中断那么应该尽早推出</span></span><br><span class="line"><span class="comment">	 */</span></span><br><span class="line">	<span class="keyword">if</span> (napi_prefer_busy_poll(n)) &#123;</span><br><span class="line">		<span class="keyword">if</span> (napi_complete_done(n, work)) &#123;</span><br><span class="line">			<span class="comment">/* 如果没有设置超时，我们需要确保NAPI被重新排定。</span></span><br><span class="line"><span class="comment">			 */</span></span><br><span class="line">			napi_schedule(n);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">return</span> work;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (n-&gt;gro_bitmask) &#123;</span><br><span class="line">		<span class="comment">/* flush too old packets</span></span><br><span class="line"><span class="comment">		 * If HZ &lt; 1000, flush all packets.</span></span><br><span class="line"><span class="comment">		 */</span></span><br><span class="line">		napi_gro_flush(n, HZ &gt;= <span class="number">1000</span>);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">// 通过 gro 合并到 skb</span></span><br><span class="line">	gro_normal_list(n);</span><br><span class="line"></span><br><span class="line">	<span class="comment">/* Some drivers may have called napi_schedule</span></span><br><span class="line"><span class="comment">	 * prior to exhausting their budget.</span></span><br><span class="line"><span class="comment">	 */</span></span><br><span class="line">	<span class="keyword">if</span> (unlikely(!list_empty(&amp;n-&gt;poll_list))) &#123;</span><br><span class="line">		pr_warn_once(<span class="string">&quot;%s: Budget exhausted after napi rescheduled\n&quot;</span>,</span><br><span class="line">			     n-&gt;dev ? n-&gt;dev-&gt;name : <span class="string">&quot;backlog&quot;</span>);</span><br><span class="line">		<span class="keyword">return</span> work;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	*repoll = <span class="literal">true</span>;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> work;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+<h2 id="非-NAPI-方式"><a href="#非-NAPI-方式" class="headerlink" title="非 NAPI 方式"></a>非 NAPI 方式</h2><p>每个数据包到来都会产生硬件中断，中断处理程序将<strong>收到的包</strong>放入到当前 CPU 的收包队列中 <code>softnet_data-&gt;input_pkg_queue</code><br>中，并且将非 <code>napi</code> 设备对应的虚拟设备 	<code>napi</code> 结构<code>softnet-&gt;backlog</code> 结构挂在当前 <code>cpu</code> 的待收包设备链表<br><code>softnet-&gt;poll_list</code> 中，并触发软中断，软中断处理过程中，会调用 <code>backlog</code> 的回调处理函数 <code>process_backlog</code> </p>
+<p>以 <code>3c509</code> 为例：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span></span><br><span class="line"><span class="title function_">el3_rx</span><span class="params">(<span class="keyword">struct</span> net_device *dev)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="keyword">while</span> ((rx_status = inw(ioaddr + RX_STATUS)) &gt; <span class="number">0</span>) &#123;</span><br><span class="line">		<span class="keyword">if</span> (rx_status &amp; <span class="number">0x4000</span>) &#123; </span><br><span class="line">			...</span><br><span class="line">		&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="type">short</span> pkt_len = rx_status &amp; <span class="number">0x7ff</span>;</span><br><span class="line">			<span class="class"><span class="keyword">struct</span> <span class="title">sk_buff</span> *<span class="title">skb</span>;</span></span><br><span class="line">			skb = netdev_alloc_skb(dev, pkt_len + <span class="number">5</span>);</span><br><span class="line">			<span class="keyword">if</span> (skb != <span class="literal">NULL</span>) &#123;</span><br><span class="line">				skb_reserve(skb, <span class="number">2</span>);     <span class="comment">/* 16 字节对齐 */</span></span><br><span class="line"></span><br><span class="line">				insl(ioaddr + RX_FIFO, skb_put(skb,pkt_len),</span><br><span class="line">					 (pkt_len + <span class="number">3</span>) &gt;&gt; <span class="number">2</span>);</span><br><span class="line">				skb-&gt;protocol = eth_type_trans(skb,dev);</span><br><span class="line">				netif_rx(skb);</span><br><span class="line">				dev-&gt;stats.rx_bytes += pkt_len;</span><br><span class="line">				dev-&gt;stats.rx_packets++;</span><br><span class="line">				<span class="keyword">continue</span>;</span><br><span class="line">			&#125;</span><br><span class="line">			dev-&gt;stats.rx_dropped++;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;	</span><br></pre></td></tr></table></figure>
+
+<p><code>netif_rx-&gt;netif_rx_internal-&gt;enqueue_to_backlog</code> 中断处理程序最终调用函数处理收到的包，<code>enqueue_to_backlog</code><br>将收到的包加入到当前的 <code>CPU</code> 的 <code>softnet-&gt;input_pkt_queue</code> 宏，并将默认设备 <code>backlog</code> 加入到 <code>softnet_data</code><br>结构的 <code>poll_list</code> 链表。</p>
+<p>中断处理程序会调用 <code>netif_rx</code> 来讲数据包加入到收包对重：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">netif_rx</span><span class="params">(<span class="keyword">struct</span> sk_buff *skb)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="keyword">return</span> netif_rx_internal(skb);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">netif_rx_internal</span><span class="params">(<span class="keyword">struct</span> sk_buff *skb)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="type">int</span> ret;</span><br><span class="line"></span><br><span class="line">	net_timestamp_check(netdev_tstamp_prequeue, skb);</span><br><span class="line">	&#123;</span><br><span class="line">		<span class="type">unsigned</span> <span class="type">int</span> qtail;</span><br><span class="line"></span><br><span class="line">		ret = enqueue_to_backlog(skb, get_cpu(), &amp;qtail);</span><br><span class="line">		put_cpu();</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><code>enqueue_to_backlog</code> 将 <code>skb</code> 加入到当前的 <code>cpu</code> 的 <code>softnet_data-&gt;input_pkt_queue</code> 中，<br>并将 <code>softnet_data-&gt;backlog</code> 结构加入到 <code>softnet_data-&gt;poll_list</code> 链表中，并触发收包软中断：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">enqueue_to_backlog</span><span class="params">(<span class="keyword">struct</span> sk_buff *skb, <span class="type">int</span> cpu,</span></span><br><span class="line"><span class="params">			      <span class="type">unsigned</span> <span class="type">int</span> *qtail)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">softnet_data</span> *<span class="title">sd</span>;</span></span><br><span class="line">	<span class="type">unsigned</span> <span class="type">long</span> flags;</span><br><span class="line">	<span class="type">unsigned</span> <span class="type">int</span> qlen;</span><br><span class="line"></span><br><span class="line">	sd = &amp;per_cpu(softnet_data, cpu);</span><br><span class="line"></span><br><span class="line">	local_irq_save(flags);</span><br><span class="line"></span><br><span class="line">	rps_lock(sd);</span><br><span class="line">	<span class="comment">// 检查设备状态</span></span><br><span class="line">	<span class="keyword">if</span> (!netif_running(skb-&gt;dev))</span><br><span class="line">		<span class="keyword">goto</span> drop;</span><br><span class="line">	<span class="comment">// 获取队列长度</span></span><br><span class="line">	qlen = skb_queue_len(&amp;sd-&gt;input_pkt_queue);</span><br><span class="line">	<span class="comment">// 如果队列未满 &amp;&amp; 未达到 skb 限制</span></span><br><span class="line">	<span class="keyword">if</span> (qlen &lt;= netdev_max_backlog &amp;&amp; !skb_flow_limit(skb, qlen)) &#123;</span><br><span class="line">		<span class="comment">// 长度不为空，设备已经得到了调度</span></span><br><span class="line">		<span class="keyword">if</span> (qlen) &#123;</span><br><span class="line">enqueue:</span><br><span class="line">			<span class="comment">// skb 队列</span></span><br><span class="line">			__skb_queue_tail(&amp;sd-&gt;input_pkt_queue, skb);</span><br><span class="line">			input_queue_tail_incr_save(sd, qtail);</span><br><span class="line">			rps_unlock(sd);</span><br><span class="line">			local_irq_restore(flags);</span><br><span class="line">			<span class="keyword">return</span> NET_RX_SUCCESS;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 检测当前 NAPI 状态</span></span><br><span class="line">		<span class="keyword">if</span> (!__test_and_set_bit(NAPI_STATE_SCHED, &amp;sd-&gt;backlog.state)) &#123;</span><br><span class="line">			<span class="keyword">if</span> (!rps_ipi_queued(sd))</span><br><span class="line">				<span class="comment">// 调用 NAPI 处理包</span></span><br><span class="line">				____napi_schedule(sd, &amp;sd-&gt;backlog);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="comment">// 设置调度之后，入队</span></span><br><span class="line">		<span class="keyword">goto</span> enqueue;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">drop:</span><br><span class="line">	sd-&gt;dropped++;</span><br><span class="line">	rps_unlock(sd);</span><br><span class="line"></span><br><span class="line">	local_irq_restore(flags);</span><br><span class="line"></span><br><span class="line">	atomic_long_inc(&amp;skb-&gt;dev-&gt;rx_dropped);</span><br><span class="line">	kfree_skb(skb);</span><br><span class="line">	<span class="keyword">return</span> NET_RX_DROP;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>net_rx_action-&gt;napi_poll 实际上执行的是 <code>process_backlog</code> 。<code>net_rx_action</code> 与 <code>napi</code> 方式<br>相同，这里略过，主要看 <code>poll</code> 回调函数。</p>
+<p>符合一次中断多次处理的想法</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">static</span> <span class="type">int</span> <span class="title function_">process_backlog</span><span class="params">(<span class="keyword">struct</span> napi_struct *napi, <span class="type">int</span> quota)</span></span><br><span class="line">&#123;</span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">softnet_data</span> *<span class="title">sd</span> =</span> container_of(napi, <span class="keyword">struct</span> softnet_data, backlog);</span><br><span class="line">	<span class="type">bool</span> again = <span class="literal">true</span>;</span><br><span class="line">	<span class="type">int</span> work = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (sd_has_rps_ipi_waiting(sd)) &#123;</span><br><span class="line">		local_irq_disable();</span><br><span class="line">		net_rps_action_and_irq_enable(sd);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">//设置设备接收配额</span></span><br><span class="line">	napi-&gt;weight = dev_rx_weight;</span><br><span class="line">	<span class="keyword">while</span> (again) &#123;</span><br><span class="line">		<span class="class"><span class="keyword">struct</span> <span class="title">sk_buff</span> *<span class="title">skb</span>;</span></span><br><span class="line">		<span class="comment">//从队列中取skb向上层输入</span></span><br><span class="line">		<span class="keyword">while</span> ((skb = __skb_dequeue(&amp;sd-&gt;process_queue))) &#123;</span><br><span class="line">			rcu_read_lock();</span><br><span class="line">			__netif_receive_skb(skb);</span><br><span class="line">			rcu_read_unlock();</span><br><span class="line">			input_queue_head_incr(sd);</span><br><span class="line">			<span class="comment">//如果达到配额，则完成</span></span><br><span class="line">			<span class="keyword">if</span> (++work &gt;= quota)</span><br><span class="line">				<span class="keyword">return</span> work;</span><br><span class="line"></span><br><span class="line">		&#125;</span><br><span class="line"></span><br><span class="line">		local_irq_disable();</span><br><span class="line">		rps_lock(sd);</span><br><span class="line">		<span class="comment">//如果输入队列为空，没有需要处理</span></span><br><span class="line">		<span class="keyword">if</span> (skb_queue_empty(&amp;sd-&gt;input_pkt_queue)) &#123;</span><br><span class="line">			<span class="comment">//重置状态，处理完毕</span></span><br><span class="line">			napi-&gt;state = <span class="number">0</span>;</span><br><span class="line">			again = <span class="literal">false</span>;</span><br><span class="line">		&#125; <span class="keyword">else</span> &#123;</span><br><span class="line">			<span class="comment">//合并输入队列到处理队列，继续走循环处理</span></span><br><span class="line">			skb_queue_splice_tail_init(&amp;sd-&gt;input_pkt_queue,</span><br><span class="line">						   &amp;sd-&gt;process_queue);</span><br><span class="line">		&#125;</span><br><span class="line">		rps_unlock(sd);</span><br><span class="line">		local_irq_enable();</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="comment">//返回实际处理的包数</span></span><br><span class="line">	<span class="keyword">return</span> work;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../27/microservices/k8s/2021-09-27-k8s2/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../../13/microservices/grpc/2021-09-13-quic1/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

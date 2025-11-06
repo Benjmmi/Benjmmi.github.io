@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Kubernetes-内部信息 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Kubernetes-内部信息</h1>
+<article class="post markdown-style">
+  <h1 id="资源信息"><a href="#资源信息" class="headerlink" title="资源信息"></a>资源信息</h1><p>Kubernetes 总体以资源为中心做系统，资源是 Kubernetes 中最重要的概念。<br>Kubernetes 将资源再次分组和版本化，形成 Group、Version、Resource。</p>
+<ul>
+<li>Group 被称为资源组，在 Kubernetes API Server 中也称其为 APIGroup。</li>
+<li>Version 被称为资源版本，在 Kubernetes API Server 中也可以被称为 APIVersions。</li>
+<li>Resource 被称为资源，在 Kubernetes API Server 中也可称其为 APIResource。</li>
+<li>Kind 被称为资源种类，描述 Resource 的种类，与 Resource 为同一个级别。</li>
+</ul>
+<p>资源组、资源版本、资源、子资源的完整表现形式为 <code>&lt;group&gt;/&lt;version&gt;/&lt;resource&gt;/&lt;subresource&gt;</code>。常用的<br> Deployment 资源的完整表现形式就是 <code>apps/v1/deployments/status</code>。</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> TypeMeta <span class="keyword">struct</span> &#123;</span><br><span class="line">  Kind <span class="type">string</span> <span class="string">`json:&quot;kind,omitempty&quot; protobuf:&quot;bytes,1,opt,name=kind&quot;`</span></span><br><span class="line">  APIVersion <span class="type">string</span> <span class="string">`json:&quot;apiVersion,omitempty&quot; protobuf:&quot;bytes,2,opt,name=apiVersion&quot;`</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>TypeMeta</code> 大部分的资源类型都继承了当前类型，<code>TypeMeta</code> 主要作用就定义类型的属性。</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> ObjectMeta <span class="keyword">struct</span> &#123;</span><br><span class="line">  <span class="comment">// 资源对象的名称</span></span><br><span class="line">  Name <span class="type">string</span> <span class="string">`json:&quot;name,omitempty&quot; protobuf:&quot;bytes,1,opt,name=name&quot;`</span></span><br><span class="line">  <span class="comment">// 如果Name为空，系统这为该对象生成一个唯一的名字</span></span><br><span class="line">  GenerateName <span class="type">string</span> <span class="string">`json:&quot;generateName,omitempty&quot; protobuf:&quot;bytes,2,opt,name=generateName&quot;`</span></span><br><span class="line">  Namespace <span class="type">string</span> <span class="string">`json:&quot;namespace,omitempty&quot; protobuf:&quot;bytes,3,opt,name=namespace&quot;`</span></span><br><span class="line">  <span class="comment">// 对象的URL，由系统生成</span></span><br><span class="line">  SelfLink <span class="type">string</span> <span class="string">`json:&quot;selfLink,omitempty&quot; protobuf:&quot;bytes,4,opt,name=selfLink&quot;`</span></span><br><span class="line">  <span class="comment">// 对象的唯一ID，由系统生成</span></span><br><span class="line">  UID types.UID <span class="string">`json:&quot;uid,omitempty&quot; protobuf:&quot;bytes,5,opt,name=uid,casttype=k8s.io/kubernetes/pkg/types.UID&quot;`</span></span><br><span class="line">  <span class="comment">// 见下文</span></span><br><span class="line">  ResourceVersion <span class="type">string</span> <span class="string">`json:&quot;resourceVersion,omitempty&quot; protobuf:&quot;bytes,6,opt,name=resourceVersion&quot;`</span></span><br><span class="line">  Generation <span class="type">int64</span> <span class="string">`json:&quot;generation,omitempty&quot; protobuf:&quot;varint,7,opt,name=generation&quot;`</span></span><br><span class="line">  <span class="comment">// 对象创建时间，由系统生成</span></span><br><span class="line">  CreationTimestamp Time <span class="string">`json:&quot;creationTimestamp,omitempty&quot; protobuf:&quot;bytes,8,opt,name=creationTimestamp&quot;`</span></span><br><span class="line">  <span class="comment">// 对象删除时间，指针类型说明是可选的，当指针不为空的时候说明对象被删除了，也是由系统生成</span></span><br><span class="line">  DeletionTimestamp *Time <span class="string">`json:&quot;deletionTimestamp,omitempty&quot; protobuf:&quot;bytes,9,opt,name=deletionTimestamp&quot;`</span></span><br><span class="line">  <span class="comment">// 对象被删除前允许优雅结束的时间，单位为秒</span></span><br><span class="line">  DeletionGracePeriodSeconds *<span class="type">int64</span> <span class="string">`json:&quot;deletionGracePeriodSeconds,omitempty&quot; protobuf:&quot;varint,10,opt,name=deletionGracePeriodSeconds&quot;`</span></span><br><span class="line">  <span class="comment">// 对象标签，这个是我们经常用的，不用多解释了</span></span><br><span class="line">  Labels <span class="keyword">map</span>[<span class="type">string</span>]<span class="type">string</span> <span class="string">`json:&quot;labels,omitempty&quot; protobuf:&quot;bytes,11,rep,name=labels&quot;`</span></span><br><span class="line">  <span class="comment">// 批注，这个和标签很像，但是用法不同，比如可以用来做配置</span></span><br><span class="line">  Annotations <span class="keyword">map</span>[<span class="type">string</span>]<span class="type">string</span> <span class="string">`json:&quot;annotations,omitempty&quot; protobuf:&quot;bytes,12,rep,name=annotations&quot;`</span></span><br><span class="line">  <span class="comment">// 该对象依赖的对象类表，如果这些依赖对象全部被删除了，那么该对象也会被回收</span></span><br><span class="line">  OwnerReferences []OwnerReference <span class="string">`json:&quot;ownerReferences,omitempty&quot; patchStrategy:&quot;merge&quot; patchMergeKey:&quot;uid&quot; protobuf:&quot;bytes,13,rep,name=ownerReferences&quot;`</span></span><br><span class="line">  Finalizers []<span class="type">string</span> <span class="string">`json:&quot;finalizers,omitempty&quot; patchStrategy:&quot;merge&quot; protobuf:&quot;bytes,14,rep,name=finalizers&quot;`</span></span><br><span class="line">  ClusterName <span class="type">string</span> <span class="string">`json:&quot;clusterName,omitempty&quot; protobuf:&quot;bytes,15,opt,name=clusterName&quot;`</span></span><br><span class="line">  ManagedFields []ManagedFieldsEntry <span class="string">`json:&quot;managedFields,omitempty&quot; protobuf:&quot;bytes,17,rep,name=managedFields&quot;`</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong><code>ResourceVersion</code>: 资源版本，版本可以理解为对象在时间轴上的一个时间节点，代表着对象最后一次更新的时刻。如果说<code>Name</code><br>是在 <code>Namespace</code> 空间下唯一，那么ResourceVersion则是同名、同类型对象时间下唯一。因为同名对象在不同时间可能会更新、删<br>除再添加，在比较两个对象谁比较新的情况非常有用，比如Watch。</strong></p>
+<p>同样 <code>ObjectMeta</code> 大部分 API 对象都继承了他，<code>ObjectMeta</code> 主要定了一些公共的属性，即所有对象都应该具备的属性。<br>使用过 <code>kubectl describe</code> 就可以看到熟悉的字段</p>
+<blockquote>
+<p><strong>总结：相同类型的所有对象的 TypeMeta 都是相同的，ObjectMeta 属于公共属性，相同类型对象之间可能是不同的</strong></p>
+</blockquote>
+<p><code>ObjectMeta</code> 展现的是单数形式，而对象资源总会复数形式出现，那么对于复数形式的元数据信息查找使用 <code>ListMeta</code>：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> ListMeta <span class="keyword">struct</span> &#123;</span><br><span class="line">  SelfLink <span class="type">string</span> <span class="string">`json:&quot;selfLink,omitempty&quot; protobuf:&quot;bytes,1,opt,name=selfLink&quot;`</span></span><br><span class="line">  ResourceVersion <span class="type">string</span> <span class="string">`json:&quot;resourceVersion,omitempty&quot; protobuf:&quot;bytes,2,opt,name=resourceVersion&quot;`</span></span><br><span class="line">  <span class="comment">// 下次获取时的起始位置，类似于 limit 分页标记</span></span><br><span class="line">  Continue <span class="type">string</span> <span class="string">`json:&quot;continue,omitempty&quot; protobuf:&quot;bytes,3,opt,name=continue&quot;`</span></span><br><span class="line">  <span class="comment">// 根据Continue 计算还剩多少对象</span></span><br><span class="line">  RemainingItemCount *<span class="type">int64</span> <span class="string">`json:&quot;remainingItemCount,omitempty&quot; protobuf:&quot;bytes,4,opt,name=remainingItemCount&quot;`</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>总结：在metav1包中，为API单体对象和对象列表的公共属性(meta)做了抽象，分别为metav1.Object和 metav1.ListInterface<br>metav1包为这两个抽象做了实现，他们分别为metav1.ObjectMeta和metav.listMeta<br>API对象类型可以通过继承这些类实现抽象</p>
+</blockquote>
+<p>根据代码显示 <strong>TypeMeta</strong> 实现了 <code>schema.ObjectKind</code> 接口，<code>schema.ObjectKind</code> 的主要作用就是对所有 API 对象类型的 <code>meta</code> 的抽象。<br>代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> ObjectKind <span class="keyword">interface</span> &#123;</span><br><span class="line">  SetGroupVersionKind(kind GroupVersionKind)</span><br><span class="line">  GroupVersionKind() GroupVersionKind</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(obj *TypeMeta)</span></span> GroupVersionKind() schema.GroupVersionKind &#123;</span><br><span class="line">  <span class="keyword">return</span> schema.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(obj *TypeMeta)</span></span> GroupVersionKind() schema.GroupVersionKind &#123;</span><br><span class="line">  <span class="keyword">return</span> schema.FromAPIVersionAndKind(obj.APIVersion, obj.Kind)</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 这个方法在 TypeMeta 实现 GroupVersionKind 的时候被调用</span></span><br><span class="line"><span class="comment">// 主要通过 ParseGroupVersion 实现从 apiVersino 获取 Group 和 Version 信息 </span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">FromAPIVersionAndKind</span><span class="params">(apiVersion, kind <span class="type">string</span>)</span></span> GroupVersionKind &#123;</span><br><span class="line">  <span class="keyword">if</span> gv, err := ParseGroupVersion(apiVersion); err == <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> GroupVersionKind&#123;Group: gv.Group, Version: gv.Version, Kind: kind&#125;</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> GroupVersionKind&#123;Kind: kind&#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// GVK 比较好理解核心类型</span></span><br><span class="line"><span class="keyword">type</span> GroupVersionKind <span class="keyword">struct</span> &#123;</span><br><span class="line">  Group   <span class="type">string</span></span><br><span class="line">  Version <span class="type">string</span></span><br><span class="line">  Kind    <span class="type">string</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 从 apiVersion 解析 Group 和 Version 信息</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">ParseGroupVersion</span><span class="params">(gv <span class="type">string</span>)</span></span> (GroupVersion, <span class="type">error</span>) &#123;</span><br><span class="line">  <span class="keyword">if</span> (<span class="built_in">len</span>(gv) == <span class="number">0</span>) || (gv == <span class="string">&quot;/&quot;</span>) &#123;</span><br><span class="line">    <span class="keyword">return</span> GroupVersion&#123;&#125;, <span class="literal">nil</span></span><br><span class="line">  &#125;</span><br><span class="line">  <span class="comment">// 统计 / 出现的次数</span></span><br><span class="line">  <span class="keyword">switch</span> strings.Count(gv, <span class="string">&quot;/&quot;</span>) &#123;</span><br><span class="line">  <span class="keyword">case</span> <span class="number">0</span>:</span><br><span class="line">    <span class="comment">// 未出现说明Group就是空字符串，系统默认会把空字符串归为core</span></span><br><span class="line">    <span class="keyword">return</span> GroupVersion&#123;<span class="string">&quot;&quot;</span>, gv&#125;, <span class="literal">nil</span></span><br><span class="line">  <span class="keyword">case</span> <span class="number">1</span>:</span><br><span class="line">    <span class="comment">// 出现一个 就以 Group/Version 的形式</span></span><br><span class="line">    i := strings.Index(gv, <span class="string">&quot;/&quot;</span>)</span><br><span class="line">    <span class="keyword">return</span> GroupVersion&#123;gv[:i], gv[i+<span class="number">1</span>:]&#125;, <span class="literal">nil</span></span><br><span class="line">  <span class="keyword">default</span>:</span><br><span class="line">    <span class="keyword">return</span> GroupVersion&#123;&#125;, fmt.Errorf(<span class="string">&quot;unexpected GroupVersion string: %v&quot;</span>, gv)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>总结：</p>
+<ol>
+<li><code>ObjectKind</code> 是所有API 对象类型的抽象</li>
+<li><code>TypeMeta</code> 是 <code>ObjectKind</code> 的一个实现。其 API 对象通过基础 TypeMeta 自动实现 <code>ObjectKind</code></li>
+</ol>
+<p><code>schema.ObjecKind</code> 是所有<code>API对象类型</code>的抽象，<a href="pkg/apis/meta/v1/meta.go"><code>metav1.Object</code></a> 是所有 API 单体对象的公共属性，<br>如果有个方法需要访问 <code>API对象类型</code> 同时还要访问 API 单体对象的公共属性，代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Unstructured <span class="keyword">struct</span> &#123;</span><br><span class="line">  Object <span class="keyword">map</span>[<span class="type">string</span>]<span class="keyword">interface</span>&#123;&#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 来自于 schema.ObjecKind</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(u *Unstructured)</span></span> GroupVersionKind() schema.GroupVersionKind &#123;</span><br><span class="line">  gv, err := schema.ParseGroupVersion(u.GetAPIVersion())</span><br><span class="line">  <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> schema.GroupVersionKind&#123;&#125;</span><br><span class="line">  &#125;</span><br><span class="line">  gvk := gv.WithKind(u.GetKind())</span><br><span class="line">  <span class="keyword">return</span> gvk</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 来自于 metav1.Object</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(u *Unstructured)</span></span> GetNamespace() <span class="type">string</span> &#123;</span><br><span class="line">  <span class="keyword">return</span> getNestedString(u.Object, <span class="string">&quot;metadata&quot;</span>, <span class="string">&quot;namespace&quot;</span>)</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<p>访问方式：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(resourceAccessor)</span></span> GenerateName(obj runtime.Object) (<span class="type">string</span>, <span class="type">error</span>) &#123;</span><br><span class="line">  accessor, err := Accessor(obj)</span><br><span class="line">  <span class="keyword">if</span> err != <span class="literal">nil</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="string">&quot;&quot;</span>, err</span><br><span class="line">  &#125;</span><br><span class="line">  <span class="keyword">return</span> accessor.GetGenerateName(), <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>一般传入的类型都是面向所有 API 对象类型的抽象。<code>schema.ObjecKind</code> （<code>runtime.Object</code> 实现了 ObjectKind） 为了<br>访问公共属性通过 <code>Accessor</code> 方法类控制强制转换类型。代码如下：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Accessor</span><span class="params">(obj <span class="keyword">interface</span>&#123;&#125;)</span></span> (metav1.Object, <span class="type">error</span>) &#123;</span><br><span class="line">  <span class="comment">// golang 获取 type 类型</span></span><br><span class="line">  <span class="keyword">switch</span> t := obj.(<span class="keyword">type</span>) &#123;</span><br><span class="line">    <span class="comment">//如果继承了metav1.ObjectMeta，也就自然实现了metav1.Object</span></span><br><span class="line">  <span class="keyword">case</span> metav1.Object:</span><br><span class="line">    <span class="keyword">return</span> t, <span class="literal">nil</span></span><br><span class="line">  <span class="keyword">case</span> metav1.ObjectMetaAccessor:</span><br><span class="line">    <span class="keyword">if</span> m := t.GetObjectMeta(); m != <span class="literal">nil</span> &#123;</span><br><span class="line">      <span class="keyword">return</span> m, <span class="literal">nil</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">nil</span>, errNotObject</span><br><span class="line">  <span class="keyword">default</span>:</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">nil</span>, errNotObject</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+<ol>
+<li>runtime.Object是所有API单体对象的根类(interface)；</li>
+<li>schema.ObjectKind是对API对象类型的抽象(interface)；</li>
+<li>metav1.Object是对API对象公共属性的抽象(interface)；</li>
+<li>metav1.ListInterface是对API对象列表公共属性的抽象(interface)；</li>
+<li>metav1.TypeMeta是schema.ObjectKind的一个实现，API对象类型继承之；</li>
+<li>metav1.ObjectMeta是metav1.Object的一个实现，API对象类型继承之；</li>
+<li>metav1.ListMeta是metav1.ListInterface的一个实现，API对象列表继承之；</li>
+</ol>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../../10/18/microservices/k8s/2021-10-18-k8s5/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../../25/core/network/2021-09-25-network3/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>liburing 实现 cat 命令 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">liburing 实现 cat 命令</h1>
+<article class="post markdown-style">
+  <h1 id="cat-使用-liburing-实现"><a href="#cat-使用-liburing-实现" class="headerlink" title="cat 使用 liburing 实现"></a>cat 使用 liburing 实现</h1><p>我们看到，用io_uring构建一个读取文件的程序这么简单的东西，可能并不那么简单。事实证明，与读取同步 i&#x2F;o 文件的程序相比，它的代码更多。但是，如果你分析使用<a target="_blank" rel="noopener" href="https://unixism.net/loti/low_level.html#low-level">底层 io _ uring 接口的 cat 实用程序</a>的代码，你会发现大部分代码都是重复代码，可以很容易地隐藏在一个单独的文件中，它应该不会出现在应用逻辑。无论如何，无论如何，我们学习底层的io_uring细节是为了更好地理解它的工作原理。现在，让我们看看如何使用 liburing 实现功能类似的程序。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;string.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/stat.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/ioctl.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;liburing.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> QUEUE_DEPTH 1</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> BLOCK_SZ    1024</span></span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">file_info</span> &#123;</span></span><br><span class="line">    <span class="type">off_t</span> file_sz;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">iovec</span> <span class="title">iovecs</span>[];</span>      <span class="comment">/* Referred by readv/writev */</span></span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment">* 返回传入打开文件描述符的文件的大小。 </span></span><br><span class="line"><span class="comment">* 正确处理常规文件和块设备。</span></span><br><span class="line"><span class="comment">* */</span></span><br><span class="line"></span><br><span class="line"><span class="type">off_t</span> <span class="title function_">get_file_size</span><span class="params">(<span class="type">int</span> fd)</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">stat</span> <span class="title">st</span>;</span></span><br><span class="line">    <span class="comment">// 判断文件是否存在</span></span><br><span class="line">    <span class="keyword">if</span>(fstat(fd, &amp;st) &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        perror(<span class="string">&quot;fstat&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (S_ISBLK(st.st_mode)) &#123;</span><br><span class="line">        <span class="type">unsigned</span> <span class="type">long</span> <span class="type">long</span> bytes;</span><br><span class="line">        <span class="comment">// 获取文件字节大小64位</span></span><br><span class="line">        <span class="keyword">if</span> (ioctl(fd, BLKGETSIZE64, &amp;bytes) != <span class="number">0</span>) &#123;</span><br><span class="line">            perror(<span class="string">&quot;ioctl&quot;</span>);</span><br><span class="line">            <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> bytes;</span><br><span class="line">    &#125; <span class="keyword">else</span> <span class="keyword">if</span> (S_ISREG(st.st_mode))</span><br><span class="line">        <span class="keyword">return</span> st.st_size;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * 输出一串长度为len的字符到stdout。</span></span><br><span class="line"><span class="comment"> * 我们在这里使用缓冲输出是有效的，因为我们需要逐字符输出。</span></span><br><span class="line"><span class="comment"> * */</span></span><br><span class="line"><span class="type">void</span> <span class="title function_">output_to_console</span><span class="params">(<span class="type">char</span> *buf, <span class="type">int</span> len)</span> &#123;</span><br><span class="line">    <span class="keyword">while</span> (len--) &#123;</span><br><span class="line">        fputc(*buf++, <span class="built_in">stdout</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * 等待完成可用，从readv操作中获取数据并打印到控制台。</span></span><br><span class="line"><span class="comment"> * */</span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">get_completion_and_print</span><span class="params">(<span class="keyword">struct</span> io_uring *ring)</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cqe</span> *<span class="title">cqe</span>;</span></span><br><span class="line">    <span class="comment">// 等待完成队列</span></span><br><span class="line">    <span class="type">int</span> ret = io_uring_wait_cqe(ring, &amp;cqe);</span><br><span class="line">    <span class="keyword">if</span> (ret &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        perror(<span class="string">&quot;io_uring_wait_cqe&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 如果完成队列的事件代码小于0</span></span><br><span class="line">    <span class="keyword">if</span> (cqe-&gt;res &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Async readv failed.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 获取完成队列的数据返回</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">file_info</span> *<span class="title">fi</span> =</span> io_uring_cqe_get_data(cqe);</span><br><span class="line">    <span class="comment">// 文件字节大小初一数据块大小，按照 1024 字节切割</span></span><br><span class="line">    <span class="type">int</span> blocks = (<span class="type">int</span>) fi-&gt;file_sz / BLOCK_SZ;</span><br><span class="line">    <span class="keyword">if</span> (fi-&gt;file_sz % BLOCK_SZ) blocks++;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; blocks; i ++)</span><br><span class="line">        output_to_console(fi-&gt;iovecs[i].iov_base, fi-&gt;iovecs[i].iov_len);</span><br><span class="line"></span><br><span class="line">    io_uring_cqe_seen(ring, cqe);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * 通过liburing提交readv请求</span></span><br><span class="line"><span class="comment"> * */</span></span><br><span class="line"><span class="type">int</span> <span class="title function_">submit_read_request</span><span class="params">(<span class="type">char</span> *file_path, <span class="keyword">struct</span> io_uring *ring)</span> &#123;</span><br><span class="line">	<span class="comment">// 打开文件</span></span><br><span class="line">    <span class="type">int</span> file_fd = open(file_path, O_RDONLY);</span><br><span class="line">    <span class="keyword">if</span> (file_fd &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        perror(<span class="string">&quot;open&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 获取文件大小</span></span><br><span class="line">    <span class="type">off_t</span> file_sz = get_file_size(file_fd);</span><br><span class="line">    <span class="comment">// 文件剩余字节数</span></span><br><span class="line">    <span class="type">off_t</span> bytes_remaining = file_sz;</span><br><span class="line">    <span class="comment">// 偏移值</span></span><br><span class="line">    <span class="type">off_t</span> offset = <span class="number">0</span>;</span><br><span class="line">    <span class="comment">// 当前块大小</span></span><br><span class="line">    <span class="type">int</span> current_block = <span class="number">0</span>;</span><br><span class="line">    <span class="comment">// 计算文件可以切割多少快</span></span><br><span class="line">    <span class="type">int</span> blocks = (<span class="type">int</span>) file_sz / BLOCK_SZ;</span><br><span class="line">    <span class="keyword">if</span> (file_sz % BLOCK_SZ) blocks++;</span><br><span class="line">    <span class="comment">// 分配文件大小信息</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">file_info</span> *<span class="title">fi</span> =</span> <span class="built_in">malloc</span>(<span class="keyword">sizeof</span>(*fi) + (<span class="keyword">sizeof</span>(<span class="keyword">struct</span> iovec) * blocks));</span><br><span class="line">    <span class="comment">// 分配空间</span></span><br><span class="line">    <span class="type">char</span> *buff = <span class="built_in">malloc</span>(file_sz);</span><br><span class="line">    <span class="keyword">if</span> (!buff) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Unable to allocate memory.\n&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * 对于我们需要读取的文件的每个块，</span></span><br><span class="line"><span class="comment">     * 我们分配一个iovec结构，它被索引到iovecs数组中。 </span></span><br><span class="line"><span class="comment">     * 此数组作为提交的一部分传入。 如果您不明白这一点，</span></span><br><span class="line"><span class="comment">     * 那么您需要查找readv()和writev()系统调用是如何工作的。</span></span><br><span class="line"><span class="comment">     * */</span></span><br><span class="line">    <span class="keyword">while</span> (bytes_remaining) &#123;</span><br><span class="line">        <span class="type">off_t</span> bytes_to_read = bytes_remaining;</span><br><span class="line">        <span class="comment">// 每次最多读 1024 字节</span></span><br><span class="line">        <span class="keyword">if</span> (bytes_to_read &gt; BLOCK_SZ)</span><br><span class="line">            bytes_to_read = BLOCK_SZ;</span><br><span class="line">        <span class="comment">// 偏移值</span></span><br><span class="line">        offset += bytes_to_read;</span><br><span class="line"></span><br><span class="line">        fi-&gt;iovecs[current_block].iov_len = bytes_to_read;</span><br><span class="line">        <span class="type">void</span> *buf;</span><br><span class="line">        <span class="comment">// posix_memalign:https://blog.csdn.net/wallwind/article/details/7461701</span></span><br><span class="line">        <span class="comment">// 动态分配内存，1024 字节对齐</span></span><br><span class="line">        <span class="keyword">if</span>( posix_memalign(&amp;buf, BLOCK_SZ, BLOCK_SZ)) &#123;</span><br><span class="line">            perror(<span class="string">&quot;posix_memalign&quot;</span>);</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="comment">// 数据的基地地址</span></span><br><span class="line">        fi-&gt;iovecs[current_block].iov_base = buf;</span><br><span class="line">        <span class="comment">// 当前块大小加一</span></span><br><span class="line">        current_block++;</span><br><span class="line">        <span class="comment">// 剩余字节数减一</span></span><br><span class="line">        bytes_remaining -= bytes_to_read;</span><br><span class="line">    &#125;</span><br><span class="line">    fi-&gt;file_sz = file_sz;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/* 获取一个 SQE */</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sqe</span> *<span class="title">sqe</span> =</span> io_uring_get_sqe(ring);</span><br><span class="line">    <span class="comment">/* 设置读操作n */</span></span><br><span class="line">    io_uring_prep_readv(sqe, file_fd, fi-&gt;iovecs, blocks, <span class="number">0</span>);</span><br><span class="line">    <span class="comment">/* 设置用户数据 */</span></span><br><span class="line">    io_uring_sqe_set_data(sqe, fi);</span><br><span class="line">    <span class="comment">/* 最后提交请求 */</span></span><br><span class="line">    io_uring_submit(ring);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> *argv[])</span> &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring</span> <span class="title">ring</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (argc &lt; <span class="number">2</span>) &#123;</span><br><span class="line">        <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Usage: %s [file name] &lt;[file name] ...&gt;\n&quot;</span>,</span><br><span class="line">                argv[<span class="number">0</span>]);</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/* Initialize io_uring */</span></span><br><span class="line">    io_uring_queue_init(QUEUE_DEPTH, &amp;ring, <span class="number">0</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">1</span>; i &lt; argc; i++) &#123;</span><br><span class="line">        <span class="type">int</span> ret = submit_read_request(argv[i], &amp;ring);</span><br><span class="line">        <span class="keyword">if</span> (ret) &#123;</span><br><span class="line">            <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;Error reading file: %s\n&quot;</span>, argv[i]);</span><br><span class="line">            <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        get_completion_and_print(&amp;ring);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/* Call the clean-up function. */</span></span><br><span class="line">    io_uring_queue_exit(&amp;ring);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>重复的代码被提取后。让我们快速浏览一下。我们像这样初始化 io_uring:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">io_uring_queue_init(QUEUE_DEPTH, &amp;ring, <span class="number">0</span>);</span><br></pre></td></tr></table></figure>
+<p>在方法 submit_read_request()中，我们得到一个 SQE，准备执行 readv 操作并提交它。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 获取一个 SQE */</span></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sqe</span> *<span class="title">sqe</span> =</span> io_uring_get_sqe(ring);</span><br><span class="line"><span class="comment">/* 设置一个 readv 操作 */</span></span><br><span class="line">io_uring_prep_readv(sqe, file_fd, fi-&gt;iovecs, blocks, <span class="number">0</span>);</span><br><span class="line"><span class="comment">/* 设置 user_data */</span></span><br><span class="line">io_uring_sqe_set_data(sqe, fi);</span><br><span class="line"><span class="comment">/* 最后提交请求 */</span></span><br><span class="line">io_uring_submit(ring);</span><br></pre></td></tr></table></figure>
+
+<p>我们等待一个完成事件，然后得到我们在提交端设置的用户数据，如下所示:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cqe</span> *<span class="title">cqe</span>;</span></span><br><span class="line"><span class="type">int</span> ret = io_uring_wait_cqe(ring, &amp;cqe);</span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">file_info</span> *<span class="title">fi</span> =</span> io_uring_cqe_get_data(cqe);</span><br></pre></td></tr></table></figure>
+
+<p>当然，与使用原始界面相比，使用这个界面要简单得多。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init">io_uring_queue_init()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_get_sqe">io_uring_get_sqe()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_prep_readv">io_uring_prep_readv()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_sqe_set_data">io_uring_sqe_set_data()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/submission.html#c.io_uring_submit">io_uring_submit()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/completion.html#c.io_uring_wait_cqe">io_uring_wait_cqe()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/completion.html#c.io_uring_cqe_get_data">io_uring_cqe_get_data()</a></li>
+<li><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_exit">io_uring_queue_exit()</a></li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-02-07-cp_liburing/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../2021-02-07-low_level/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

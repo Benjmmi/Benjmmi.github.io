@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>用ebpf编写XDP网络过滤器 译 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">用ebpf编写XDP网络过滤器 译</h1>
+<article class="post markdown-style">
+  <h1 id="用ebpf编写XDP网络过滤器"><a href="#用ebpf编写XDP网络过滤器" class="headerlink" title="用ebpf编写XDP网络过滤器"></a>用ebpf编写XDP网络过滤器</h1><p>原文:<a target="_blank" rel="noopener" href="https://duo.com/labs/tech-notes/writing-an-xdp-network-filter-with-ebpf">https://duo.com/labs/tech-notes/writing-an-xdp-network-filter-with-ebpf</a></p>
+<p>在2019年Kubecon大会上，有很多很棒的演讲提到eBPF是一种非常强大的工具，用于监控、创建审计跟踪，甚至高性能网络。Cilium的一个演讲描述了eBPF和XDP如何将Kubernetes从iptables中解放出来，这个演讲非常有趣，因为我们当时正在探索Kubernetes和Istio。仅仅因为这听起来像是一种非常棒的技术，我们便花了一些侧循环去提升我们对于eBPF如何工作以及它可以在何处使用的理解。<br>在本文中，我将更多地关注XDP，而不是通用的eBPF。与可以监视系统的大多数eBPF使用相比，使用XDP实际上可以在包进入系统的早期时刻修改原始网络流量，甚至在内核有机会处理它们之前。支持“Offloaded”XDP的网卡甚至可以在网卡硬件本身上运行XDP应用程序并处理数据包，而CPU甚至看不到它!太酷了!</p>
+<p>XDP是eXpress Data Path的缩写，它在Linux内核中提供了一个高性能的数据路径，用于在网络数据包到达网卡时进行处理。本质上，<br>您可以将XDP程序附加到一个网络接口上，然后每当在该接口上看到一个新包时，这些程序就会得到回调。就是这样。真正的简单。</p>
+<h1 id="案例"><a href="#案例" class="headerlink" title="案例"></a>案例</h1><p>从小处着手总是好的。对于这个实验，我想从一个可以改变一些东西的程序开始，但是要小，容易测试和可视化。为此，我选择了将UDP数据包的dest端口从7999更改为7998的简单问题。</p>
+<p>这很容易可视化和测试。打开3台终端，分别执行如下2条命令:</p>
+<p><code>nc -kul 127.0.0.1 7999</code></p>
+<p><code>nc -kul 127.0.0.1 7998</code></p>
+<p>这些终端就是我们的监听过程。我们正在使用nc netcat打开一个套接字，侦听udp数据包进入端口7999和7998的127.0.0.1地址。<br>参数-k只是告诉netcat在收到一个数据包后继续监听，这样它就可以从其他客户端接收更多的数据包。</p>
+<p>在第三个终端中，运行:</p>
+<p>然后在下一行中，键入一些文本，后跟 <code>&lt;Enter&gt;</code>。您应该会看到在第一个终端，监听端口7999中回响的文本。一旦我们将XDP应用程序安装到位，<br>    连接到lo环回设备，数据包将在路由中被修改，并转移到监听端口7998的另一个终端。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-06-14-libbpf1/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../03/ebpf/2021-06-03-cni0/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

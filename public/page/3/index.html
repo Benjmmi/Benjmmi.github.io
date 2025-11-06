@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title> [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        
+
+
+
+  <div class="article">
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network7/">
+            Linux 网络技术内幕 - 数据结构的认识和反思
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>ne_device1234567enum &amp;#123; NETREG_UNINITIALIZED=0, // 数据结构已经分配，且内容已经请 0       NETREG_REGISTERED,	/* 设备已经完成注册 */       NETREG_UNREGISTERING,	/* called...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/04/ebpf/2021-09-04-katran1/">
+            负载均衡 katran： BPF 代码解析
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>主要功能
+连接维护和删除
+流量转发，ip-in-ip 模式
+MAP 读写和配置
+
+主要解析文件：balancer_kern.c
+XDP 复习工作模式
+Native XDP：最长使用的工作模式，在网络驱动的早期接受路径上。10G 或更高速的网卡基本都支持
+Offloaded XDP：XDP 直接工作 ...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-04
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/04/ebpf/2021-09-04-katran0/">
+            负载均衡 katran： 了解学习和思考
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>术语
+NUMA: (Non-uniform memory access) 非统一内存访问架构,是一种为多处理器的电脑设计的内存架构，内存访问时间取决于内存相对于处理器的位置。
+
+RSS: 接收端扩展（RSS）是网卡中的一个重要的优化，指在通过每个数据链路的数据包转发到单独的 CPU从而在CPU 之间...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-04
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/20/ebpf/2021-08-20-lvs4/">
+            LVS  学习： netfilter 与 ipvs 源码理解修改
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>参考文档：深入Linux网络核心堆栈–netfilter详解(整理)LVS原理与实现 - 实现篇Linux服务器集群系统Linux 源码Netfilter机制
+此文章较长
+介绍Netfilter是Linux 2.4内核的一个子系统，Netfiler使得诸如数据包过滤、网络地址转换(NAT)以及网络连...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-20
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/16/ebpf/2021-08-16-softroce1/">
+            高性能网络
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>调研结果高性能网络平台，根据最近几天的调研结果，共了解到一下几种解决方案。将抽离几种了解的相对于比较
+
+ebpf
+netmap
+RDMA
+DPDK
+TOE
+
+以上几种应该囊括了大部分的高性能应用网络场景。
+ebpf ：ebpf 是最近几年新出现的技术，在没有脱离原有的 TCP&amp;#x2F;IP 协议栈...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-16
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/16/ebpf/2021-08-16-lvs3/">
+            LVS  学习： 源码理解修改
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Hook 点理解这5个阶段分为：
+
+PER_ROUTING：路由前阶段，发生在内核对数据包进行路由判决前。
+LOCAL_IN：本地上送阶段，发生在内核通过路由判决后。如果数据包是发送给本机的，那么就把数据包上送到上层协议栈。
+FORWARD：转发阶段，发生在内核通过路由判决后。如果数据包不是发送给本...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-16
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/10/ebpf/2021-08-10-lvs0/">
+            LVS  学习： 操作实践
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>LVS 常用的分为三个模式：NAT、Tunnel、DR。
+在参考 负载均衡 LVS 入门教程详解 - 操作实践 进行 DR 模式实操时，文档缺少了对 VIP 的绑定导致 VIP 对外一直无法访问，最后添加了对 VIP 的绑定 eth 可以访问通过。
+DR 模式DR 模式通过只修改目标 MAC 地址来...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-10
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/10/ebpf/2021-08-10-lvs_read_source/">
+            LVS  学习： 源码阅读-iptables 整篇文档不行可以不看
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>netfilter HOOKnetfilter 提供了 5 个 hook 点。包经过协议栈时就会触发内核模块注册在这里的处理函数。触发哪个 hook 取决于包的方向、包的目的地址、以及包在上一个 hook 点时丢弃还是拒绝等。
+
+NF_IP_PRE_ROUTING: 接收到的包进入协议栈后立即触发此...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-10
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/05/ebpf/2021-08-05-lvs1/">
+            LVS  学习： 学习和思考
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>简单认识LVS 是 Linux 平台开发的负载均衡器全称 Linux Virtural Server 。负载均衡器的收益主要体现在：
+
+提高系统性能
+提高系统可扩展性
+提高系统的可用性
+
+传统上均在均衡器分为三种：
+
+DNS 实现负载均衡
+硬件实现负载均衡
+软件实现负载均衡
+
+DNS 负载均衡DNS...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-05
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/08/05/ebpf/2021-08-05-lvs2/">
+            LVS  学习： Ct 深入理解
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>连接跟踪表连接跟踪也是最近学习下来的最关心、最有疑问的的一个问题了，但是应该属于一劳永逸的问题。
+问题如下：lvs 是个四层负载均衡转发器，负责将数据包转给后端的服务器。根据调度规则将数据包转发给正确的后端 Server。因为每个 TCP 连接需要包含若干的数据包进行交互，如果每个 Packet 都...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-08-05
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/07/13/ebpf/2021-07-13-bpf-helpers/">
+            libbpf 学习使用
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>long bpf_skb_load_bytes(const void *skb, u32 offset, void *to,u32 len)描述这个辅助函数是作为一种从数据包中加载数据的简单方法提供的。它可用于将 len 字节从与 skb 关联的数据包的偏移量加载到指向的缓冲区中。
+自Linux 4...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-07-13
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/07/09/ebpf/2021-07-09-libbpf6/">
+            eBPF的编程艺术:入门 译
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>用ebpf编写XDP网络过滤器原文:The art of writing eBPF programs: a primer.
+对编写eBPF程序感兴趣吗?在这个博客中，这将是我们的重点-编写eBPF程序的过程。现在，我们将深入研究验证过程和eBPF虚拟机——这两个都是eBPF提供的运行时安全特性的关键...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-07-09
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/07/07/ebpf/2021-07-07-libbpf4/">
+            用ebpf编写网络监控
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>用ebpf 编写网络监控网络流量将空应该在 raw_tracepoint 监控。参考文档：bpf: revolutionize bpf tracing、bpf, tracing: introduce bpf raw tracepoints
+SO  网络流量监控并不一定要在入口和出口才可以去监控，这里...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-07-07
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/07/05/ebpf/2021-07-05-libbpf3/">
+            用 ebpf 监控 URL
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>用 ebpf 监控 URL了解 ebpf 监控 URL 之前，我们需要先知道如何将 map 读写分离，所谓的读写分离规则就是，腿在这人走了。
+之前的所有程序都是通过加载器加载之后返回一个 bpf_object 然后通过 bpf_object 去查找 bpf_map_fd 。在程序内部读取但是程序内部...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-07-05
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/28/ebpf/2021-06-28-libbpf2/">
+            理解 libbpf 译
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>libbpf CO-RE 原理libbpf CO-RE 原理将软件栈所有层次 – 内核、用户空间 BPF Loader库、编译器 进行了抽象将必要的功能、数据段整合到了一起，来降低编写可移植性 BPF 程序的难度。
+
+内核层：将 BPF 程序编译成 BTF 字节码允许捕获关于内核、BPF 程序的类型...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-28
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/20/ebpf/2021-06-20-cilium5/">
+            Cilium 源码阅读：如何制定和执行 L3 策略 续续
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Cilium 源码阅读：如何制定和执行 L3 策略macVlan所有的资料显示 ipvlan 都会与 macvlan 放在一起比较研究。也就是表示 macvlan 出生早于 ipvlan ，那么 ipvlan 应该弥补了很多 macvlan 的不足和不好解决的问题。
+macvlan 就是允许在一个物...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-20
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/16/ebpf/2021-06-16-cilium5.1/">
+            Cilium 源码阅读：cilium-agent eBPF
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Cilium 源码阅读： 功能解析关于 eBPF 代码解析本次代码基于 cilium v1.8 代码版本解析。
+123456789101112131415161718192021222324252627__section(&amp;quot;from-network&amp;quot;)__section(&amp;quo...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-16
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/15/ebpf/2021-06-15-cilium4/">
+            Cilium 源码阅读：如何制定和执行 L3 策略 续
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Cilium 源码阅读： 如何制定和执行 L3 策略 续debug 了那么久大概知道了整个过程，但是不知道详细操纵。所以比较关心 regenerateBPF 生成了什么样的文件，注释上写到//regenerateBPF 重写所有标头并更新所有BPF Map以反映指定的端点。 ReloadDatapa...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-15
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/14/ebpf/2021-06-14-cilium2/">
+            Cilium 源码阅读：cilium-docker
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Cilium 源码阅读：cilium-docker 工作流程cilium-docker实现网络和IPAM API的Docker插件。该插件处理来自本地Docker运行时的请求，以提供容器的网络连接和IP地址管理的请求。连接到 “cilium “类型的Docker网络。
+运行：
+docker netw...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-14
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/06/14/ebpf/2021-06-14-cilium3/">
+            Cilium 解析阅读：如何制定和执行 L3 策略
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Cilium 源码阅读：如何制定和执行 L3 策略#NOTE： 在 docker 部署下 debug
+我认为理解 eBPF 代码还比较简单，多看看内核代码就行了，但配置和编写 eBPF 就要难多了。
+Cilium 提供了 CNI 和 kube-proxy replacement 功能，相比 ipta...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-06-14
+            </span>
+          
+        </div>
+      </div>
+    
+  </div>
+
+
+
+    <div class="pagenator">
+    
+    
+        <a class="extend prev" href="page/2">上一页</a>
+    
+
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="/">1</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/2">2</a>
+        
+    
+        
+            <span class="extend page-item page-item-select">3</span>
+        
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/4">4</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/5">5</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/6">6</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/7">7</a>
+        
+    
+    
+    
+    
+        <a class="extend next" href="page/4">下一页</a>
+    
+</div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title> [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        
+
+
+
+  <div class="article">
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2022/07/11/go/2022-07-11-go-interface{}-类型理解---iface/">
+            go interface{} 类型理解 - iface
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>
+
+ifaceiface: 用来表示非空的 interface&amp;#123;&amp;#125; 表示继承的接口。示例：
+1234type studenter interface &amp;#123;    GetName() string    GetAge()  int&amp;#125;
+
+
+1234567891011...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2022-07-11
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2022/07/09/go/2022-07-09-go-interface{}-类型理解---eface/">
+            go interface{} 类型理解 - eface
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>efaceeface：var a interface{}代表了 go 中的任意类型
+12345678910111213141516171819202122232425262728293031type nameOff int32type typeOff int32type textOff int32t...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2022-07-09
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2022/05/28/core/性能优化/2022-05-28-1/">
+            性能优化
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2022-05-28
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2022/01/11/core/net/2022-01-11-dev_queue_xmit/">
+            dev_queue_xmit
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>net_rx_actionsoftnet_data.poll_list 作为接收队列的设备列表。softnet_data.output_queue 作出传输队列的设备列表
+入口处理函数为:netif_rx出口处理函数为:dev_queue_xmit、net_tx_action
+dev_queue_x...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2022-01-11
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2022/01/08/core/net/2022-01-08-net_rx_action/">
+            net_rx_action
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>net_rx_action软中断触发，开始接收处理帧队列
+1234567891011121314151617181920212223242526272829303132333435363738394041424344454647484950515253545556575859606162636465...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2022-01-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/11/29/microservices/raft/2021-11-29-raft/">
+            Raft 实现
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Raft 实现的三个核心模块
+
+通信
+共识算法
+持久化存储
+
+持久化存储可以暂时方式。满足一般通信即可，主要还是一致性算法。一致性算法涉及到数据结构的定义。
+介绍这个课程包括一系列实验，目标是开发一个容错的KV系统，本实验是其中的第一个。在这个实验里，要求你实现Raft，它是一个复制状态机。在后续的...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-11-29
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/11/17/microservices/istio/2021-11-17-istio2/">
+            Kubernetes - ISTIO2
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>梅开二度主要搞清上下文边界
+Pilot 的代码主要分为两部分:
+
+pilot-agent 负责数据面 Sidecar 实例的生命周期管理
+pilot-discovery 负责控制面流量管理配置及路由规则的生成和下发
+
+pilot-discovery 的主服务，包含了三个比较重要的组件：
+
+Confi...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-11-17
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/11/17/microservices/istio/2021-11-17-istio3/">
+            Kubernetes - ISTIO2
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>12345678910111213141516171819202122232425262728293031323334353637383940414243444546474849Usage:  pilot-discovery discovery [flags]Flags:      --caCert...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-11-17
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/10/28/microservices/istio/2021-10-28-istio1/">
+            Kubernetes - ISTIO
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>理解服务网格采用 sidecar 的运行模式，将 client-server 连接起来，形成格子的效果。而这个 sidecar 系统就是 envoy。至于 envoy 需要如何运行就需要 istio之类的系统。所以服务网格大致分为两个部分组成执行和命令下发，即：数据面（Envoy）和控制面板（Ist...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-10-28
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/10/18/microservices/k8s/2021-10-18-k8s4/">
+            Kubernetes - kube-proxy 无秘密（iptables）
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>翻译：Kubernetes Service Proxy
+背景kube-proxy 是负责 k8s 集群内通信规则创建的组建，k8s 官方文档解释
+
+Kubernetes 网络代理在每个节点上运行。网络代理反映了每个节点上 Kubernetes API 中定义的服务，并且可以执行简单的 TCP、UDP...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-10-18
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/10/18/microservices/k8s/2021-10-18-k8s5/">
+            Kubernetes - 网络专题 - CNI
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>CNICNI Container Network Interface 的缩写。就是标准的、通用接口。应用于 Kubernetes、docker、contained。还有其他网络解决方案。
+CNI 的主要工作是从容器管理系统处获取运行信息。包括 network namespace的路径、容器 ID 和...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-10-18
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/27/microservices/k8s/2021-09-27-k8s2/">
+            Kubernetes-内部信息
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>资源信息Kubernetes 总体以资源为中心做系统，资源是 Kubernetes 中最重要的概念。Kubernetes 将资源再次分组和版本化，形成 Group、Version、Resource。
+
+Group 被称为资源组，在 Kubernetes API Server 中也称其为 APIGro...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-27
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/25/core/network/2021-09-25-network3/">
+            设备初始化的流程
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Linux 作为一个宏内核把模块化玩的贼溜，这个得赞叹一下。
+关于模块初始化与设备注册在 《Linux 设备与驱动程序》subsys_initcall 子模块初始化调用的接口方法，主要了解 net_dev_init：
+12345678910111213141516171819202122232425...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-25
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/13/microservices/grpc/2021-09-13-quic1/">
+            Kubernetes
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>概述QUIC 是一种安全的通用传输协议。QUIC 是一种面向连接的协议，它可以创建有状态的交互在客户端和服务器之间。QUIC中使用的所有整型值，包括长度、版本号和类型，都是小尾端字节序，而不是网络字节序。QUIC不强制动态大小的帧中的类型对齐。
+QUIC将加密和传输握手结合在一起，减少了建立一条安全...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-13
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/cncf/2021-09-08-kube-proxy1/">
+            Kubernetes 调研
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>kubernetes 的服务发现k8s 默认情况下是使用 kube-proxy 来负责节点与节点之前的通信，使用 service 绑定到 Pod IP。这里面有几个问题需要打通：
+
+就是关于 kube-proxy 之间的通信方式
+Kuberntes service 绑定到 Pod IP 是如何进行动...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network1/">
+            Linux-内核网络 1
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>Linux-内核网络-理论篇-设备模型初衷设备模型诞生的初衷：为了解决越来越复杂的设备拓扑结构问题。问题描述：最早的内核中没有独立的数据结构来让内核获得整体系统的配合信息。虽然一开始可以正常的工作，但是随着拓扑结构越来越复杂，以及要支持更多的新特性内核就优点力不从心了，陷入无法维护的情况。总结来说设...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network4/">
+            帧的接收：net_rx_action
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>NIC 接收帧基本就是最常用的就是两种方式：中断和轮询。中断的方式就是 NIC 接收到帧之后，通过 DMA 的方式将帧放到 poll_list 中，然后发起一个中断信号引起 CPU 注意触发中断处理流程。轮询就是隔一段时间自动查询poll_list ，间隔时间大概在 100ms，两种方式各有优缺点。...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network5/">
+            Linux 网络技术内幕 - 数据结构的认识和反思
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>ne_device1234567enum &amp;#123; NETREG_UNINITIALIZED=0, // 数据结构已经分配，且内容已经请 0       NETREG_REGISTERED,	/* 设备已经完成注册 */       NETREG_UNREGISTERING,	/* called...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network2/">
+            
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>ne_device1234567enum &amp;#123; NETREG_UNINITIALIZED=0, // 数据结构已经分配，且内容已经请 0       NETREG_REGISTERED,	/* 设备已经完成注册 */       NETREG_UNREGISTERING,	/* called...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+      <div class="article-item">
+        <h2 class="article-item-header">
+          <a href="/2021/09/08/core/network/2021-09-08-network6/">
+            Linux 网络技术内幕 - 数据结构的认识和反思
+          </a>
+        </h2>
+        <div class="article-item-content">
+          
+            <p>ne_device1234567enum &amp;#123; NETREG_UNINITIALIZED=0, // 数据结构已经分配，且内容已经请 0       NETREG_REGISTERED,	/* 设备已经完成注册 */       NETREG_UNREGISTERING,	/* called...</p>
+          
+        </div>
+        <div class="atricle-item-time">
+          
+            <span>
+              2021-09-08
+            </span>
+          
+        </div>
+      </div>
+    
+  </div>
+
+
+
+    <div class="pagenator">
+    
+    
+        <a class="extend prev" href="/">上一页</a>
+    
+
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="/">1</a>
+        
+    
+        
+            <span class="extend page-item page-item-select">2</span>
+        
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/3">3</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/4">4</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/5">5</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/6">6</a>
+        
+    
+        
+        
+            <a class="extend page-item page-item-normal" href="page/7">7</a>
+        
+    
+    
+    
+    
+        <a class="extend next" href="page/3">下一页</a>
+    
+</div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

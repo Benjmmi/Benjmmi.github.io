@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>支持的功能 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">支持的功能</h1>
+<article class="post markdown-style">
+  <p>允许您检查支持的操作和功能的函数。</p>
+<p><em>struct</em> <em><strong>io_uring_probe</strong></em></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_probe</span> &#123;</span></span><br><span class="line">    __u8 last_op;   <span class="comment">/* last opcode supported */</span></span><br><span class="line">    __u8 ops_len;   <span class="comment">/* length of ops[] array below */</span></span><br><span class="line">    __u16 resv;</span><br><span class="line">    __u32 resv2[<span class="number">3</span>];</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_probe_op</span> <span class="title">ops</span>[0];</span></span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>struct io_uring_probe_op</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_probe_op</span> &#123;</span></span><br><span class="line">__u8 op;</span><br><span class="line">__u8 resv;</span><br><span class="line">__u16 flags;        <span class="comment">/* IO_URING_OP_* flags */</span></span><br><span class="line">__u32 resv2;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p><em>struct</em> <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> *<em><strong>io_uring_get_probe_ring</strong></em>(<em>struct</em> <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> *<em>ring</em>)</p>
+<blockquote>
+<p><strong>参数</strong></p>
+</blockquote>
+<blockquote>
+<ul>
+<li>ring: uring 结构通过 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init">io_uring_queue_init()</a> 设置</li>
+</ul>
+</blockquote>
+<blockquote>
+<p><strong>返回值</strong>：成功时，返回指向 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a>的指针，该指针用于探测正在运行的内核的<code>io_uring</code>子系统的能力。<a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a>包含了支持的操作列表。如果失败，则返回NULL。</p>
+</blockquote>
+<pre><code>&gt; # 注意
+&gt; 这个函数分配内存来保存io_uring_probe结构。一旦你完成了任务，你在安全的时刻需要释放它。
+</code></pre>
+<p>struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> <em><strong>*io_uring_get_probe</strong></em>(void)</p>
+<blockquote>
+<p>返回指向 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> 的指针，该指针用于探测运行中内核的io_uring子系统的能力。<a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> 包含支持的操作列表。</p>
+</blockquote>
+<blockquote>
+<p>这个函数和 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_get_probe_ring">io_uring_get_probe_ring()</a> 差不多，除了不需要你设置一个 ring 或者有一个 ring 的引用。它设置了一个临时的 ring ，这样它就可以为你获取支持的操作的细节。然后它在返回之前销毁了这个 ring 。</p>
+</blockquote>
+<blockquote>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p>在运行中的内核中打印支持的io_uring操作的<a target="_blank" rel="noopener" href="https://unixism.net/loti/tutorial/probe_liburing.html#probing-liburing">示例程序</a>。</p>
+</blockquote>
+<hr>
+<p>int <strong>io_uring_opcode_supported</strong>(struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> *p, int op)</p>
+<blockquote>
+<p>用于确定内核是否支持io_uring操作的函数。如果不支持该操作，则返回0，如果支持则返回非零值。请看一下支持的操作示例程序来了解这个函数的作用。</p>
+<p><strong>参数</strong><br> p: 指向 io_uring_probe 结构体<br>op: 要检查支持的操作。一个IO_URING_OP_*宏。<br><strong>返回值</strong><br>如果不支持，则为0，否则为1。</p>
+</blockquote>
+<hr>
+<p>int <strong>io_uring_register_probe</strong>(struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> *ring, struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/supported_caps.html#c.io_uring_probe">io_uring_probe</a> *p, unsigned nr)</p>
+<blockquote>
+<p>让你获得 <code>io_uring</code> 功能的底层接口。<br><strong>参数</strong><br>ring: <strong><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init">io_uring_queue_init()</a></strong> 设置的 <strong><a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a></strong> 结构<br>   p: 指向 <code>io_uring_probe</code> 结构的指针<br>  nr: 指向的<code>p</code>数组结构的数目<br><strong>返回值</strong>: 成功时返回0，失败时返回 <code>-errono</code> 。你可以使用 <a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man3/strerror.3.html">strerror(3)</a> 来获得一个可读的失败原因版本。</p>
+</blockquote>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-02-08-setup_teardown/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-02-08-cqe/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

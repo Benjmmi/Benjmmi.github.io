@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Kubernetes [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Kubernetes</h1>
+<article class="post markdown-style">
+  <h1 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h1><p>QUIC 是一种安全的通用传输协议。QUIC 是一种面向连接的协议，它可以创建有状态的交互在客户端和服务器之间。<br>QUIC中使用的所有整型值，包括长度、版本号和类型，都是小尾端字节序，而不是网络字节序。QUIC不强制动态大小的帧中的类型对齐。</p>
+<p>QUIC将加密和传输握手结合在一起，减少了建立一条安全连接所需的往返。 QUIC 连接通常是 0-RTT，意味着相比于 TCP + TLS 中发送应用数据<br>前需要 1-3 个往返的情况， 在大多数 QUIC 连接中，数据可以被立即发送而无需等待服务器的响应。</p>
+<p>端点通过交换 QUIC 数据包在 QUIC 中进行通信。大多数数据包包含帧，它们在端点之间<strong>传输控制信息和应用程序数据</strong>。<br>QUIC 验证每个数据包的整体，并尽可能多地加密每个数据包。QUIC 数据包承载在 UDP 数据报中，以更好地促进在现有系统和网络中的部署。</p>
+<p>应用程序协议通过 QUIC 连接通过流交换信息，流是有序的字节序列。可以创建两种类型的流: 双向流，允许两个端点发送数据; 单向流，允许单个端点发送数据。</p>
+<p>QUIC连接并不是严格地绑定到一个单一的网络路径。连接迁移使用连接标识符来允许连接转移到新的网络路径。在此版本的QUIC中，只有客户端能够迁移。<br>这个设计还允许在网络拓扑或地址映射，例如可能由NAT重新绑定引起的。</p>
+<p>“客户端”：初始化 QUIC 连接的端点。<br>“服务器”：接受进入的 QUIC 连接的端点。<br>“端点”：连接的客户端或服务器端。<br>“流”：QUIC 连接中穿过一个逻辑通道的双向字节流。<br>“连接”：两个 QUIC 端点之间的会话，它具有一个单独的加密上下文且包含多路复用流。<br>“连接ID”：QUIC 连接的标识符。<br>“QUIC包”：经过良好格式化的 UDP 载荷，可由 QUIC 接收者解析。本文档中的 QUIC 包大小指 UDP 载荷大小。<br>“Ack-eliciting 包”：包含除 ACK、 PADDING 和 connection_close 以外的帧的 QUIC 数据包，这会使收件人发送一个确认信息;<br>“Frame”：结构化协议信息的一个单位。有多种帧类型，每种类型携带不同的信息。帧包含在 QUIC 数据包中。<br>”Address“：在没有限定的情况下使用时，表示网络路径一端的 IP 版本、 IP 地址和 UDP 端口号的元组。<br>”Application“：使用 QUIC 发送和接收数据的实体。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../25/core/network/2021-09-25-network3/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../../08/cncf/2021-09-08-kube-proxy1/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

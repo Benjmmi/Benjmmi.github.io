@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>设置和删除 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">设置和删除</h1>
+<article class="post markdown-style">
+  <p>本节将介绍一些函数，帮助您在程序中设置和删除io_uring。</p>
+<p><em>struct</em> <strong>io_uring</strong></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring</span> &#123;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sq</span> <span class="title">sq</span>;</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cq</span> <span class="title">cq</span>;</span></span><br><span class="line">    <span class="type">unsigned</span> flags;</span><br><span class="line">    <span class="type">int</span> ring_fd;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>TODO：下面两个结构真的是必需的吗?如果它们只在内部使用，请删除它们。</p>
+<p><em>struct</em> <strong>io_uring_sq</strong></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sq</span> &#123;</span></span><br><span class="line">    <span class="type">unsigned</span> *khead;</span><br><span class="line">    <span class="type">unsigned</span> *ktail;</span><br><span class="line">    <span class="type">unsigned</span> *kring_mask;</span><br><span class="line">    <span class="type">unsigned</span> *kring_entries;</span><br><span class="line">    <span class="type">unsigned</span> *kflags;</span><br><span class="line">    <span class="type">unsigned</span> *kdropped;</span><br><span class="line">    <span class="type">unsigned</span> *<span class="built_in">array</span>;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_sqe</span> *<span class="title">sqes</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="type">unsigned</span> sqe_head;</span><br><span class="line">    <span class="type">unsigned</span> sqe_tail;</span><br><span class="line"></span><br><span class="line">    <span class="type">size_t</span> ring_sz;</span><br><span class="line">    <span class="type">void</span> *ring_ptr;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<hr>
+<p><em>struct</em> <strong>io_uring_cq</strong></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cq</span> &#123;</span></span><br><span class="line">    <span class="type">unsigned</span> *khead;</span><br><span class="line">    <span class="type">unsigned</span> *ktail;</span><br><span class="line">    <span class="type">unsigned</span> *kring_mask;</span><br><span class="line">    <span class="type">unsigned</span> *kring_entries;</span><br><span class="line">    <span class="type">unsigned</span> *koverflow;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">io_uring_cqe</span> *<span class="title">cqes</span>;</span></span><br><span class="line"></span><br><span class="line">    <span class="type">size_t</span> ring_sz;</span><br><span class="line">    <span class="type">void</span> *ring_ptr;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<hr>
+<p>int <strong>io_uring_queue_init</strong>(unsigned <em>entries</em>, struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> *ring, unsigned <em>flags</em>)</p>
+<blockquote>
+<p>初始化 io_uring 以便在你的程序中使用. 在你使用 io_uring 做任何事情之前，你应该先调用这个函数。<br><strong>参数</strong><br>entries：您要为提交队列请求的条目数。每一个请求包含一个I&#x2F;O操作的细节。<br>ring：指向将由内核填充的 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> 结构的指针。<br><em>flags</em>： 您要传递的 flags 。有关详细信息，请参阅 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-iouring/io_uring_setup.html#io-uring-setup">io_uring_setup</a>。</p>
+</blockquote>
+<p><strong>返回值</strong>:成功返回0，失败返回<code>-errono</code>。您可以使用<a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man3/strerror.3.html">strerror(3)</a>来获得可读的失败原因版本。</p>
+<pre><code># 参考
+[cat 使用 liburing 实现的Demo](https://unixism.net/loti/tutorial/cat_liburing.html#eg-cat-uring)
+</code></pre>
+<hr>
+<p>int <strong>io_uring_queue_init_params</strong>(unsigned entries, struct <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> *ring, struct io_uring_params *p)<br>      在功能上等同于io_uring_queue_init()，但另外还带有指向io_uring_params结构的指针，允许您指定自己的io_uring_params结构。</p>
+<pre><code>  在 **io_uring_params** 结构中，您只能指定可以用于设置[各种 flags](https://unixism.net/loti/ref-iouring/io_uring_setup.html#io-uring-setup)和 `sq_thread_cpu` 和 `sq_thread_idle` 字段的 flags，这些字段用于设置CPU的亲和性和提交队列空闲时间。结构的其他字段在返回时由内核填充。当使用[io_uring_queue_init()](https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init)时，不需要指定这些值。这个函数的存在为你解决了这个问题。
+</code></pre>
+<hr>
+<p>int <strong>io_uring_queue_mmap</strong>(int <em>fd</em>, struct io_uring_params *p, struct io_uring *ring)</p>
+<blockquote>
+<p>这是一个底层函数，只有当你想控制<code>io_uring</code>初始化的很多方面时才会用到。在调用这个函数之前，你应该已经调用了底层的<a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-iouring/io_uring_setup.html#c.io_uring_setup">io_uring_setup()</a>。然后，你可以使用这个函数来为你<a target="_blank" rel="noopener" href="http://man7.org/linux/man-pages/man2/mmap.2.html">mmap(2)</a> 映射到 ring。</p>
+<h1 id="参数"><a href="#参数" class="headerlink" title="参数"></a>参数</h1><ul>
+<li>fd: <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-iouring/io_uring_setup.html#c.io_uring_setup">io_uring_setup()</a>返回的文件描述符<ul>
+<li>p: 指向 io_uring_params 的指针</li>
+<li>ring: 指向 <a target="_blank" rel="noopener" href="https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring">io_uring</a> 的指针</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+<pre><code>#  参考
+[底层 io_uring 接口使用](https://unixism.net/loti/low_level.html#low-level)
+</code></pre>
+<hr>
+<p>int <strong>io_uring_ring_dontfork</strong>(struct io_uring *ring)<br>	如果你不想让你的进程的子进程继承环形映射，请使用此调用。</p>
+<pre><code># 参数
+- ring: 由**[io_uring_queue_init()](https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring_queue_init)**设置的 **[io_uring](https://unixism.net/loti/ref-liburing/setup_teardown.html#c.io_uring)** 结构
+
+返回值：成功返回0，失败返回-errono。您可以使用strerror(3)来获得人类可读的失败原因版本。
+
+# 参考
+[madvice(2)](http://man7.org/linux/man-pages/man2/madvice.2.html),尤其是MADV_DONTFORK。
+</code></pre>
+<p>void io_uring_queue_exit(struct io_uring *ring)</p>
+<pre><code>io_uring的删除函数。删除所有设置共享环缓冲区的映射，并关闭内核返回的低级io_uring文件描述符。
+
+# 参数
+- ring: 由io_uring_queue_init()设置的io_uring结构。
+</code></pre>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-02-08-submission/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-02-08-supported_caps/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

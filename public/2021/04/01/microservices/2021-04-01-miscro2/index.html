@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Other - 认识微服务架构 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Other - 认识微服务架构</h1>
+<article class="post markdown-style">
+  <h1 id="软件架构"><a href="#软件架构" class="headerlink" title="软件架构"></a>软件架构</h1><p>个人理解：软件架构是一种方法论，架构师乃是方法论、经验论的产出者，却是能够<br>在项目中发挥重要作用。总结出通用的方法论的人本就是稀有的存在。</p>
+<p>软件架构（卡梅隆大学）：计算机系统的软件架构是构建这个系统所需要的一组结构，包括软件<br>元素、它们之间的关系以及两者的属性。</p>
+<p><strong>实质是应用程序的架构是将软件分解为元素和这些元素之间的关系</strong></p>
+<p>架构的重要性在于 <strong><code>非功能需求</code></strong> 也可以称为质量属性或者能力。非功能性需求决定应用<br>程序运行时的质量，比如可扩展性和可靠性。它们也决定了开发阶段的质量，包括可维护性、可<br>预测性、可扩展性和可维护性。</p>
+<h2 id="架构风格"><a href="#架构风格" class="headerlink" title="架构风格"></a>架构风格</h2><p>建筑架构中架构风格限制了建筑的特征和建筑的材料。软件架构中架构风格决定了实例中使用的<br>组件和连接器的词汇表，以及如何组合它们的一种约束。</p>
+<p>应用程序架构通常使用多种架构风格的组合。</p>
+<p><strong>微服务架构是将应用程序构造为一组松散耦合的服务</strong></p>
+<h3 id="微服务架构风格"><a href="#微服务架构风格" class="headerlink" title="微服务架构风格"></a>微服务架构风格</h3><p>微服务的实现视图是由多个组件构成：一组可执行文件<br><strong>组件</strong>即服务，每个组件可以有自己的架构风格<br>什么是服务？怎么理解松散耦合</p>
+<blockquote>
+<p>服务：是一个单一的、可独立部署的软件组件，它实现了一些有用的功能<br>服务具有封装实现的 API 。API 定义了由客户端调用的操作。当服务的数据发生更改时，服务<br>会发布可供客户端订阅的事件。<br><strong>松散耦合</strong> 是微服务最核心的特性。松散耦合服务是改善开发效率、提升可维护性和可测试性<br>例如：服务之间通信采用 API 完成，这样做的封装了服务的实现细节，允许在不影响客户端的情<br>况下，对实现修改、发布、部署。而且容易被理解</p>
+</blockquote>
+<p>共享类库最好不要引入耦合。</p>
+<p><strong>连接器</strong>是指这些服务能够协作的通信协议</p>
+<p>微服务的大小并不重要</p>
+<p><strong><code>如果因为其他服务的变更而不断需要更新自己负责的服务时，或者你所负责的服务变更触发其他服</code></strong><br><strong><code>务的同步更新，那么这表明服务没有实现松耦合。你构建的可能是一个分布式的单体</code></strong></p>
+<p>微服务的障碍</p>
+<ul>
+<li>网络延迟，进程间通信严重依赖网络</li>
+<li>通信降低了可用性</li>
+<li>需要维护跨服务之间的数据一致性</li>
+</ul>
+<h1 id="进程间通信"><a href="#进程间通信" class="headerlink" title="进程间通信"></a>进程间通信</h1><p>预防故障扩散</p>
+<ul>
+<li>正确的处理无响应服务</li>
+<li>需要决定如何从失败的远程服务中回复</li>
+</ul>
+<p>服务发现</p>
+<ul>
+<li>服务实例的网络位置<br>服务实例是动态分配的。自动扩展、故障和升级，服务集群实例就会更改</li>
+</ul>
+<p><strong>应用层服务发现模式</strong></p>
+<p>应用层实例服务发现的一种方式是应用程序的服务及其客户端与服务注册表进行交互<br>应用层多平台部署的方式好处就是可以处理多平台部署的问题。比如：Kubernetes<br>上只部署了一些服务其余的服务在 Kubernetes 之外，这种情况下注册中心就服务<br>发现机制就可以适用于这种环境。<br>弊端：为每个编程语言提供服务发现库</p>
+<p>通常情况下可能需要负责设置和管理服务注册表，会分散一定的精力。所以最好的方<br>式是基础架构部部署基础设置提供服务发现机制。</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-04-01-miscro3/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-04-01-miscro4/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

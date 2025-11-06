@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Cilium 源码阅读：cilium-docker [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Cilium 源码阅读：cilium-docker</h1>
+<article class="post markdown-style">
+  <h1 id="Cilium-源码阅读：cilium-docker-工作流程"><a href="#Cilium-源码阅读：cilium-docker-工作流程" class="headerlink" title="Cilium 源码阅读：cilium-docker 工作流程"></a>Cilium 源码阅读：cilium-docker 工作流程</h1><h1 id="cilium-docker"><a href="#cilium-docker" class="headerlink" title="cilium-docker"></a>cilium-docker</h1><p>实现网络和IPAM API的Docker插件。该插件处理来自本地Docker运行时的请求，以提供容器的网络连接和IP地址管理的请求。连接到 “cilium “类型的Docker网络。</p>
+<p>运行：</p>
+<p><code>docker network create --driver cilium --ipam-driver cilium cilium-net</code></p>
+<p>当请求代理创建网络时，远程进程将收到一个发送到URL <code>/NetworkDriver.CreateNetwork</code> 的POST表单</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">POST /NetworkDriver.CreateNetwork HTTP/1.1</span><br><span class="line">Host: </span><br><span class="line">User-Agent: Go-http-client/1.1</span><br><span class="line">Content-Length: 269</span><br><span class="line">Accept: application/vnd.docker.plugins.v1.2+json</span><br><span class="line"></span><br><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;NetworkID&quot;</span>: <span class="string">&quot;501239d1d45a2eafb1874ad440e92397f6a154acea93af636aec4a57d9547b25&quot;</span>, // NetworkID值由LibNetwork生成，代表一个唯一的网络。</span><br><span class="line">	<span class="string">&quot;Options&quot;</span>: &#123; // Options值是LibNetwork给代理的任意映射。</span><br><span class="line">		<span class="string">&quot;com.docker.network.enable_ipv6&quot;</span>: <span class="literal">false</span>, </span><br><span class="line">		<span class="string">&quot;com.docker.network.generic&quot;</span>: &#123;&#125;</span><br><span class="line">	&#125;,</span><br><span class="line">	<span class="string">&quot;IPv4Data&quot;</span>: [&#123; // IPv4Data和IPv6Data是用户配置并由IPAM驱动管理的ip地址数据。网络驱动程序需要支持IPAM驱动程序提供的ip寻址数据。</span><br><span class="line">		<span class="string">&quot;AddressSpace&quot;</span>: <span class="string">&quot;CiliumLocal&quot;</span>, // AddressSpace:一个唯一的字符串表示IP地址的隔离空间</span><br><span class="line">		<span class="string">&quot;Gateway&quot;</span>: <span class="string">&quot;10.11.72.123/32&quot;</span>, // 可选，IPAM驱动程序可以为池所代表的子网提供CIDR格式的网关IP地址。网络驱动程序可以利用这些信息实现网络管道功能。</span><br><span class="line">		<span class="string">&quot;Pool&quot;</span>: <span class="string">&quot;0.0.0.0/0&quot;</span> // 地址池:以CIDR格式表示的地址/掩码。因为IPAM驱动程序负责分配容器ip地址，所以网络驱动程序可以利用这些信息实现网络管道功能。</span><br><span class="line">	&#125;],</span><br><span class="line">	<span class="string">&quot;IPv6Data&quot;</span>: []</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>看到请求进来的时候已经分配好了 IP ，这个 IP 是从哪分配的呢？</p>
+<p>libnetwork 创建网络工作流程：</p>
+<ul>
+<li>先请求 IPAM drive 获取 ippool，cilium：</li>
+</ul>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">	<span class="attr">&quot;PoolID&quot;</span><span class="punctuation">:</span><span class="string">&quot;CiliumPoolv4&quot;</span><span class="punctuation">,</span></span><br><span class="line">	<span class="attr">&quot;Pool&quot;</span><span class="punctuation">:</span><span class="string">&quot;0.0.0.0/0&quot;</span><span class="punctuation">,</span></span><br><span class="line">	<span class="attr">&quot;Data&quot;</span><span class="punctuation">:</span><span class="punctuation">[</span><span class="punctuation">&#123;</span><span class="attr">&quot;com.docker.network.gateway&quot;</span><span class="punctuation">:</span><span class="string">&quot;10.11.72.123/32&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>返回后首先确定len(ipV4Data)不为0</li>
+<li>调用config, err :&#x3D; parseNetworkOptions(id, option)确认配置不和当前的networks的配置矛盾</li>
+<li>调用err &#x3D; config.processIPAM(id, ipV4Data, ipV6Data)</li>
+<li>调用err &#x3D; d.createNetwork(config)进行具体的网络创建</li>
+<li>最后调用return d.storeUpdate(config)</li>
+</ul>
+<p>思考：如果都是用第三方驱动的话那么主要的逻辑应该是查看：网络的配置是否与当前具有的配置矛盾、保存或者更新配置等待下一次比较、分配IP用于校验。也就是使用了第三方插件也只剩下 if…else… 逻辑。在 cilium 里面 ipv4 可变的只有 <code>com.docker.network.gateway</code> 的内容可以通过配置改变，那么 IPv4 通信规则在 Cilium 已经没那么重要了。IPv4 可以大幅度定制地址空间、网关。所以 Cilium 主要面向的 IP 地址是 IPv6。</p>
+<p>思考鉴于代码。直接看代码：</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Init</span><span class="params">(dc driverapi.DriverCallback, config <span class="keyword">map</span>[<span class="type">string</span>]<span class="keyword">interface</span>&#123;&#125;)</span></span> <span class="type">error</span> &#123;</span><br><span class="line">	newPluginHandler := <span class="function"><span class="keyword">func</span><span class="params">(name <span class="type">string</span>, client *plugins.Client)</span></span> &#123;</span><br><span class="line">		<span class="comment">// negotiate driver capability with client</span></span><br><span class="line">		d := newDriver(name, client)</span><br><span class="line">		c, err := d.(*driver).getCapabilities()</span><br><span class="line">		<span class="keyword">if</span> err = dc.RegisterDriver(name, d, *c); err != <span class="literal">nil</span> &#123;</span><br><span class="line">	&#125;</span><br><span class="line">    ...</span><br><span class="line">	handleFunc(driverapi.NetworkPluginEndpointType, newPluginHandler)</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>newDriver 是新建一个驱动类，getCapabilities 就是调用驱动的 getCapabilities 接口，对应接口应该是：<code>NetworkDriver.GetCapabilities</code> 。应该是在初始化的情况才被调用，之上面的命令并没触发。RegisterDriver：在发现网络驱动程序时注册它。看代码就是做一个驱动绑定，可能会使用多个 driver。</p>
+<figure class="highlight golang"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(r *DrvRegistry)</span></span> RegisterDriver(ntype <span class="type">string</span>, driver driverapi.Driver, capability driverapi.Capability) <span class="type">error</span> &#123;</span><br><span class="line">	dData := &amp;driverData&#123;driver, capability&#125;</span><br><span class="line">	r.drivers[ntype] = dData</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>调用命令会调用创建 CreateNetwork 接口，但是在调用之前会调用 IPAM 驱动程序接口，可以参考<a target="_blank" rel="noopener" href="https://github.com/moby/libnetwork/blob/64b7a4574d1426139437d20e81c0b6d391130ec8/controller.go#L709">libnetwork&#x2F;controller.go</a> 整个接口逻辑点，整个流程还是比较清晰简单的。</p>
+<p>大概逻辑：<br>docker 命令执行后：先注册 IPAM 驱动和 network 驱动，然后docker 调用，NewNetwork 接口创建网络，创建网络会优先加载 IPAM 驱动获取基本网络管理IPv4 和 IPv6 分别请求，Gateway 是必填项，如果在请求 IPAM 的 RequestPool 接口没有返回时，会再次请求 IPAM RequestAddress 接口，然后在调用创建  网络驱动 CreateNetwork 接口创建网络。</p>
+<h1 id="创建实例使用网络插件"><a href="#创建实例使用网络插件" class="headerlink" title="创建实例使用网络插件"></a>创建实例使用网络插件</h1><p>接下来看看：创建实例时如果获取 IPAddress、Mac。</p>
+<p><code>docker run -d --name app1 --net cilium-net -l &quot;id=app1&quot; cilium/demo-httpd</code></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">POST /IpamDriver.RequestAddress HTTP/1.1</span><br><span class="line">Host: </span><br><span class="line">User-Agent: Go-http-client/1.1</span><br><span class="line">Content-Length: 54</span><br><span class="line">Accept: application/vnd.docker.plugins.v1.2+json</span><br><span class="line"></span><br><span class="line">&#123;<span class="string">&quot;PoolID&quot;</span>:<span class="string">&quot;CiliumPoolv4&quot;</span>,<span class="string">&quot;Address&quot;</span>:<span class="string">&quot;&quot;</span>,<span class="string">&quot;Options&quot;</span>:null&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>请求 IPAM 分配一个 IPv4 地址，通过 <a target="_blank" rel="noopener" href="https://github.com/moby/libnetwork/blob/64b7a4574d1426139437d20e81c0b6d391130ec8/endpoint.go#L1088">docker 源代码</a> 可以看到创建 Endpoint 的整个过程。</p>
+<p>IPAM 请求将转为：</p>
+<p>cilium-docker </p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">curl -X POST --unix-socket /var/run/cilium/cilium.sock \</span><br><span class="line">  <span class="string">&#x27;http:///var/run/cilium/cilium.sock/v1/ipam?family=ipv4&amp;owner=docker-ipam&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;Accept: application/json&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;Content-Type: application/json&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;Expiration: false&#x27;</span> </span><br></pre></td></tr></table></figure>
+
+
+<p>先请求 IP  地址，然后请求 创建 Endpoint 接口，请求参数如下</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">POST /NetworkDriver.CreateEndpoint HTTP/1.1</span><br><span class="line">Host: </span><br><span class="line">User-Agent: Go-http-client/1.1</span><br><span class="line">Content-Length: 348</span><br><span class="line">Accept: application/vnd.docker.plugins.v1.2+json</span><br><span class="line"></span><br><span class="line">&#123;</span><br><span class="line">	<span class="string">&quot;NetworkID&quot;</span>: <span class="string">&quot;f1e88970d55e632a6f130bcacb4a9e328a3489d88c231b191fcff94e053d30ed&quot;</span>,</span><br><span class="line">	<span class="string">&quot;EndpointID&quot;</span>: <span class="string">&quot;f33feeba0d0ba23ba6abb659f2306f6f393919279842cbf2ed0050641ded5664&quot;</span>,</span><br><span class="line">	<span class="string">&quot;Interface&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;Address&quot;</span>: <span class="string">&quot;10.11.197.102/32&quot;</span>,</span><br><span class="line">		<span class="string">&quot;AddressIPv6&quot;</span>: <span class="string">&quot;&quot;</span>,</span><br><span class="line">		<span class="string">&quot;MacAddress&quot;</span>: <span class="string">&quot;&quot;</span></span><br><span class="line">	&#125;,</span><br><span class="line">	<span class="string">&quot;Options&quot;</span>: &#123;</span><br><span class="line">		<span class="string">&quot;com.docker.network.endpoint.exposedports&quot;</span>: [&#123;</span><br><span class="line">			<span class="string">&quot;Proto&quot;</span>: 6,</span><br><span class="line">			<span class="string">&quot;Port&quot;</span>: 80</span><br><span class="line">		&#125;],</span><br><span class="line">		<span class="string">&quot;com.docker.network.portmap&quot;</span>: []</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果远程driver已经提供了一个非空的Interface那么必须回复一个空的Interface值，因为 如果Libnetwork提供一个非空的值，接收了一个非空值将会被视为错误。所以创建  Endpoint IP 地址就是上面的这样，IP 已经由 IPAM 分配。</p>
+<p>实践操作，这里 Endpoint 并没有 mac 地址，所以 mac 地址是在哪里分配的？<br>经过上面的调用最终请求还是进入了 cilium-agent 程序的 IPAM 模块，这里将 IP 具体分配出来。所以如果要使其拥有 Mac 地址只需要在 Cilium-agent IPAM 模块稍微修改即可。</p>
+<p>这边不是很核心的重点就分析到这。</p>
+<p>参考：<br><a target="_blank" rel="noopener" href="https://segmentfault.com/a/1190000017000822">https://segmentfault.com/a/1190000017000822</a><br><a target="_blank" rel="noopener" href="https://guanjunjian.github.io/2017/10/13/study-6-docker-6-libnetwork-excuting-flow/">DOCKER源码分析6 网络部分执行流分析</a><br><a target="_blank" rel="noopener" href="https://github.com/moby/libnetwork/blob/master/docs/remote.md">Docker驱动规范</a><br><a target="_blank" rel="noopener" href="http://ninjadq.com/2015/09/29/3rd-party-net-plugin-in-docker">Docker驱动规范中文</a><br><a target="_blank" rel="noopener" href="https://github.com/moby/libnetwork/blob/master/drivers/remote/driver.go">Docker远程驱动接口</a></p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../15/ebpf/2021-06-15-cilium4/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-06-14-cilium3/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

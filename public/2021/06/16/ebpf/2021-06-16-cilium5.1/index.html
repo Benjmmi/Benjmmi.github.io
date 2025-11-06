@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Cilium 源码阅读：cilium-agent eBPF [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Cilium 源码阅读：cilium-agent eBPF</h1>
+<article class="post markdown-style">
+  <h1 id="Cilium-源码阅读：-功能解析"><a href="#Cilium-源码阅读：-功能解析" class="headerlink" title="Cilium 源码阅读： 功能解析"></a>Cilium 源码阅读： 功能解析</h1><h1 id="关于-eBPF-代码解析"><a href="#关于-eBPF-代码解析" class="headerlink" title="关于 eBPF 代码解析"></a>关于 eBPF 代码解析</h1><p>本次代码基于 cilium v1.8 代码版本解析。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">__section(<span class="string">&quot;from-network&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;from-netdev&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;from-host&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;to-netdev&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;to-host&quot;</span>)</span><br><span class="line"></span><br><span class="line">__section(<span class="string">&quot;from-container&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;to-container&quot;</span>)</span><br><span class="line"></span><br><span class="line">__section(<span class="string">&quot;from-overlay&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;to-overlay&quot;</span>)</span><br><span class="line"></span><br><span class="line">__section(<span class="string">&quot;connect4&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;post_bind4&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;sendmsg4&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;recvmsg4&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;getpeername4&quot;</span>)</span><br><span class="line"></span><br><span class="line">__section(<span class="string">&quot;post_bind6&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;connect6&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;sendmsg6&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;recvmsg6&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;getpeername6&quot;</span>)</span><br><span class="line"></span><br><span class="line">__section(<span class="string">&quot;from-netdev&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;sk_msg&quot;</span>)</span><br><span class="line">__section(<span class="string">&quot;sockops&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>每个 section 代表一个单独的程序，即使多个 section 放在一个文件中。</p>
+<p>思考：eBPF 工作在什么地方？被加载到哪去？不得不提的具体工作内容？</p>
+<p>据目前了解的 eBPF 程序的加载方式有三种：tc、iproute2、bpfload</p>
+<p>前两种都是网络用到的 eBPF 。所以就从 tc、iproute2 下手。既然主要程序是用来解决进流量的过滤，上层展示是用 label 来管理流量进出权限。但是底层依然使用的是 IP 权限。</p>
+<p><code>docker start demo1</code> -&gt; <code>request cilium-ipam</code> -&gt; <code>request cilium-cni</code> -&gt; <code>load demo1-bpf</code>  -&gt; <code>pin demo1-bpf-map</code><br>制定策略 禁止 demo2 访问 demo1<br><code>docker start demo2 request demo1</code> -&gt; ↑       -&gt;         ↑            -&gt;     ↑             -&gt;      ↑             -&gt;  <code>request demo1-server</code><br>                                      ↓<br>                                      <code>async policy</code> -&gt; <code>demo2-ip to demo1-bpf-map</code><br>                                                                                                   ↓<br>                                   <code>demo2 request timeout</code>      &lt;-   <code>package drop</code>       &lt;-    <code>demo1 ingress</code></p>
+<p>运行命令:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">ip addr</span><br><span class="line"></span><br><span class="line">8: veth9613a25@if7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue master docker0 state UP mode DEFAULT group default</span><br><span class="line">    <span class="built_in">link</span>/ether 1a:f0:78:0d:bc:5f brd ff:ff:ff:ff:ff:ff link-netnsid 0</span><br><span class="line">10: vethb8a8bca@if9: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue master docker0 state UP mode DEFAULT group default</span><br><span class="line">    <span class="built_in">link</span>/ether 12:03:76:f8:3b:a9 brd ff:ff:ff:ff:ff:ff link-netnsid 1</span><br><span class="line">11: cilium_net@cilium_host: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000</span><br><span class="line">    <span class="built_in">link</span>/ether 4e:5a:8c:58:f4:2e brd ff:ff:ff:ff:ff:ff</span><br><span class="line">12: cilium_host@cilium_net: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000</span><br><span class="line">    <span class="built_in">link</span>/ether 72:97:c5:3e:c8:f1 brd ff:ff:ff:ff:ff:ff</span><br><span class="line">13: cilium_vxlan: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000</span><br><span class="line">    <span class="built_in">link</span>/ether 36:c1:8d:86:b1:3b brd ff:ff:ff:ff:ff:ff</span><br><span class="line">15: lxc_health@if14: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default</span><br><span class="line">    <span class="built_in">link</span>/ether 5e:82:28:6a:db:97 brd ff:ff:ff:ff:ff:ff link-netns cilium-health</span><br><span class="line">21: lxcfd196ec6df51@if20: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default</span><br><span class="line">    <span class="built_in">link</span>/ether 2e:07:92:04:03:d5 brd ff:ff:ff:ff:ff:ff link-netnsid 3</span><br></pre></td></tr></table></figure>
+
+<p><code>lxcfd196ec6df51@if20</code> 应该就是当前 demo1 的网卡了。通过  <code>ip link |grep xdp</code> 发现并没有 <code>XDP</code> 运行。可能是运行在虚拟机里的原因。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">$ tc filter show dev lxcfd196ec6df51@if20 ingress</span><br><span class="line">filter protocol all pref 1 bpf</span><br><span class="line">filter protocol all pref 1 bpf handle 0x1 bpf_lxc.o:[from-container] direct-action</span><br></pre></td></tr></table></figure>
+<p>tc 的命令显示具有 eBPF 程序加载。加载 <code>bpf_lxc.o:[from-container]</code> 还是 da 模式 ：</p>
+<p><code>from-container</code> 代码查看：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">__section(<span class="string">&quot;from-container&quot;</span>)</span><br><span class="line"><span class="type">int</span> <span class="title function_">handle_xgress</span><span class="params">(<span class="keyword">struct</span> __ctx_buff *ctx)</span></span><br><span class="line">&#123;</span><br><span class="line">  __u16 proto;</span><br><span class="line">  <span class="type">int</span> ret;</span><br><span class="line"></span><br><span class="line">  bpf_clear_meta(ctx);</span><br><span class="line"></span><br><span class="line">  send_trace_notify(ctx, TRACE_FROM_LXC, SECLABEL, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>,</span><br><span class="line">        TRACE_PAYLOAD_LEN);</span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> (!validate_ethertype(ctx, &amp;proto)) &#123;</span><br><span class="line">    ret = DROP_UNSUPPORTED_L2;</span><br><span class="line">    <span class="keyword">goto</span> out;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">switch</span> (proto) &#123;</span><br><span class="line">  <span class="keyword">case</span> <span class="title function_">bpf_htons</span><span class="params">(ETH_P_IPV6)</span>:</span><br><span class="line">    <span class="title function_">invoke_tailcall_if</span><span class="params">(__or(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),</span></span><br><span class="line"><span class="params">          is_defined(DEBUG)),</span></span><br><span class="line"><span class="params">           CILIUM_CALL_IPV6_FROM_LXC, tail_handle_ipv6)</span>;</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">  <span class="keyword">case</span> <span class="title function_">bpf_htons</span><span class="params">(ETH_P_IP)</span>:</span><br><span class="line">    <span class="title function_">invoke_tailcall_if</span><span class="params">(__or(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),</span></span><br><span class="line"><span class="params">          is_defined(DEBUG)),</span></span><br><span class="line"><span class="params">           CILIUM_CALL_IPV4_FROM_LXC, tail_handle_ipv4)</span>;</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">  <span class="keyword">case</span> <span class="title function_">bpf_htons</span><span class="params">(ETH_P_ARP)</span>:</span><br><span class="line">    ret = CTX_ACT_OK;</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">  <span class="keyword">default</span>:</span><br><span class="line">    ret = DROP_UNKNOWN_L3;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">out:</span><br><span class="line">  <span class="keyword">if</span> (IS_ERR(ret))</span><br><span class="line">    <span class="keyword">return</span> send_drop_notify(ctx, SECLABEL, <span class="number">0</span>, <span class="number">0</span>, ret, CTX_ACT_DROP,</span><br><span class="line">          METRIC_EGRESS);</span><br><span class="line">  <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>问题还是挺多的，比如入参为什么不是 <code>__skb_buff </code> 这个问题。所以带着问题搜索了一下，然并暖。直接复习下 <code>Cilium 架构</code> 和 <code>eBPF 编程指南</code> 吧。</p>
+<h2 id="eBPF-下微服务网络安全"><a href="#eBPF-下微服务网络安全" class="headerlink" title="eBPF 下微服务网络安全"></a>eBPF 下微服务网络安全</h2><p>eBPF 适用于监控、安全和网络领域：</p>
+<p>Cilium 项目大量使用了 eBPF ，为基于容器的系统提供了路由和网络流量的过滤。可以在不修改内核的前提下动态的生成和应用规则。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">    _______d:app1__________</span><br><span class="line">    /    x         x</span><br><span class="line">:80/     |:22       \</span><br><span class="line">  <span class="built_in">id</span>:app2          <span class="built_in">id</span>:app3</span><br></pre></td></tr></table></figure>
+
+<p>上面就应用了 L3&#x2F;L4 策略允许 app2 通过 80端口访问 app1，不允许 app3 访问 app1</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;labels&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;key&quot;</span><span class="punctuation">:</span> <span class="string">&quot;name&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;value&quot;</span><span class="punctuation">:</span> <span class="string">&quot;l3-rule&quot;</span></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;endpointSelector&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;matchLabels&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;app1&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;ingress&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;fromEndpoints&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;matchLabels&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;app2&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;toPorts&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;ports&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;port&quot;</span><span class="punctuation">:</span> <span class="string">&quot;80&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;protocol&quot;</span><span class="punctuation">:</span> <span class="string">&quot;TCP&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br><span class="line"><span class="punctuation">&#125;</span><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+
+<p>Cilium 具体是如何完成上面的工作的？<br><img src="https://img2020.cnblogs.com/blog/1334952/202004/1334952-20200418113727982-621490951.png" alt="架构图"></p>
+<p>Cilium 为每个主机运行一个 agent，将网络策略定义转换成 BPF 程序。这些程序会被加载到内核中。这里也就解释了为什么每次注入新的策略都会触发 BPF 重新生成的问题。但是没有解决根本的问题，为什么每次策略修改都需要重新生成 BPF 程序，难道不能优化么？<br>当 BPF 程序被加载到容器的虚拟以太网设备上后，每次发送和接收的报文都会应用这些规则。</p>
+<p>Cilium 使用 Hook 列表：</p>
+<ul>
+<li><p>XDP： XDP Hoot 最早可以在网络驱动中使用，在报文接收时触发 BPF 程序。可以修改包地址和端口</p>
+</li>
+<li><p>Ingress&#x2F;Egress 流控: 与 XDP 类似，也是附加到网络驱动程序上触发。但是在网络栈完成初始化的报文之后运行。该 Hook  在协议栈的 L3 层之前运行，但可以访问与报文相关的大多数元数据。</p>
+</li>
+<li><p>socket 操作：socket Hook 附加到一个特定的 cgroup 上，根据 TCP 事件运行。Cilium 将 BPF Socket 操作程序附加到 cgroup 上，监听 TCP 状态变更，特别是对 ESTABLISHED 状态变更。当一个<br>socket 状态变化为 ESTABLISHED 时，如果 TCP socket 的连接的远程位于本节点，就附加 socket send&#x2F;recv 程序。</p>
+</li>
+<li><p>socket 发送接收：单台已给 TCP socket 执行发送操作时会运行 socket send&#x2F;recv hook。 这个时候 hook 会检查消息或者丢弃消息。将消息发送至 TCP 层或者直接重定向到另一个套接字。Cilium 使用它来加速数据路径重定向。</p>
+<p>总结一下：就是 XDP 层工作在 sk_buff 形成之前，可以对原始数据包进行操作并且只有进这个单向可以操作。Ingress&#x2F;Egress 是在 sk_buff 上操作，例如：Ingress 是在 sk_buff 形成之后进入三层之前进行操作，但是不可以在修改重定向数据包。前面两个都是在驱动层进行操作，但是 XDP 操作更提前所以看起来效率更高。二者可以互补。<br>Cilium 对 Socket 的支持则是放在 cgroup 上，监听 TCP 的状态，只要 TCP 进入 ESTABLISHED 状态，就会附加 BPF 程序，也就是说不会管理 socket 状态、连接建立、连接销毁操作。只会在<br>socket 形成连接之后判断数据包发往的方向是否在本机上，如果是就会直接转发到对应的 socket，如果不是就按照正常的流程。</p>
+</li>
+</ul>
+<p>所以 Cilium 定义了三个虚拟网卡接口，cilium_net、cilium_host、cilium_vxlan ，根据上面的 Hook 与这三个虚拟网卡接口结婚，可以创建下面的网络对象：</p>
+<ul>
+<li>预过滤（prefilter）：prefilter 会运行一个 XDP 程序，过滤网络上的流量。根据目的地选择丢弃报文、允许网络协议栈处理报文等操作。可扩展过滤规则</li>
+<li>Endpoint 策略：Endpoint Policy对象实现Cilium端点强制。使用映射查找与标识和策略相关的数据包，该层可以很好地扩展到许多端点。根据策略，<br>该层可以丢弃数据包、转发到本地端点、转发到服务对象或转发到L7策略对象以获得进一步的L7规则。这是Cilium数据路径中的主要对象，负责将数据包映射到标识并强制执行L3和L4策略。</li>
+<li>Service: Service对象对该对象接收到的每个包执行目的地IP和可选目的地端口上的映射查找。如果找到匹配的表项，报文将被转发到配置<br>的L3&#x2F;L4端点之一。Service块可以用于在使用TC入口钩子的任何接口上实现独立的负载均衡器，也可以集成到端点策略对象中。</li>
+<li>socket layer Enforcement：socket layer Enforcement会使用两个钩子，socket 操作钩子和socket 发送&#x2F;接收钩子来监控并附加到所有与Cilium管理的endpoint相关的TCP socket，<br>包括L7代理。socket操作钩子会识别要加速的候选套接字，这些候选套接字包括所有的本地节点连接(endpoint到endpoint)以及所有到Cilium代理的连接。这些标识的连接将会包含所有<br>由socket 发送&#x2F;接收钩子处理的消息，并且使用sockmap快速重定向进行加速。快速重定向保证Cilium中实现的所有策略对于关联的socket&#x2F;endpoint映射均有效，并假设<br>它们会直接向对端socket发送消息。sockmap send&#x2F;recv钩子确保消息不会被上面提到的任何对象处理。</li>
+<li>L7策略：L7策略对象将代理的流量重定向到一个Cilium用户空间代理实例中。Cilium使用一个Envoy作为它的用户空间代理。Envoy要么转发流量，要么会根据配置的L7策略生成拒绝消息。</li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../20/ebpf/2021-06-20-cilium5/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../15/ebpf/2021-06-15-cilium4/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

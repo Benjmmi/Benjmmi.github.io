@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Kubernetes - 网络专题 - CNI [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Kubernetes - 网络专题 - CNI</h1>
+<article class="post markdown-style">
+  <h1 id="CNI"><a href="#CNI" class="headerlink" title="CNI"></a>CNI</h1><p>CNI Container Network Interface 的缩写。就是标准的、通用接口。应用于 Kubernetes、docker、<br>contained。还有其他网络解决方案。</p>
+<p>CNI 的主要工作是从容器管理系统处获取运行信息。包括 network namespace的路径、容器 ID 和 network interface name。再从容器网络的配置文件中加载网络配置信息，再将这些信息传递给对应的插件。由插件进行具体的网络配置工作。</p>
+<p>上面的描述总结来说 CNI 用于管理网络插口类似于网管的工作。但是不会介入通信管理。不支持通信。抽象来说像给容器安装网络插口、插上网线、分配IP。</p>
+<p>CNI 主要职责：</p>
+<ol>
+<li>分配网络插口</li>
+</ol>
+<p>分配网络插口需要存储到仓库中，仓库唯一键需要包含：network_name、CNI_CONTAINERID、CNI_IFNAME 三元组信息<br>network namespace 必须要在容器中创建</p>
+<ol start="2">
+<li>管理 IP 地址分配。IPAM</li>
+</ol>
+<p>ADD 操作必须在 DEL 之后，如果没有 DEL　操作，那么如果遇到　三元组冲突应当返回错误信息，不进行分配<br>DEL　操作应当存在幂等性。</p>
+<h1 id="CNI-工作模式"><a href="#CNI-工作模式" class="headerlink" title="CNI 工作模式"></a><code>CNI</code> 工作模式</h1><p><code>CNI</code> 接口并不是 <code>HTTP</code>、<code>gRPC</code> 接口，<code>CNI</code> 接口是指对可执行文件的调用。（所以在宿主机上查找<br><code>CNI</code> 进程可能查找不到）这些可执行程序称之为CNI插件，以<code>k8s</code>为例，<code>s8s</code>节点默认的<code>CNI</code>插件路径为<br> <code>/opt/cni/bin</code></p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-10-18-k8s4/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../../../../../09/27/microservices/k8s/2021-09-27-k8s2/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

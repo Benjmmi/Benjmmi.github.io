@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>go interface{} 类型理解 - eface [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">go interface{} 类型理解 - eface</h1>
+<article class="post markdown-style">
+  <h1 id="eface"><a href="#eface" class="headerlink" title="eface"></a>eface</h1><p>eface：<code>var a interface{}</code><br>代表了 go 中的任意类型</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> nameOff <span class="type">int32</span></span><br><span class="line"><span class="keyword">type</span> typeOff <span class="type">int32</span></span><br><span class="line"><span class="keyword">type</span> textOff <span class="type">int32</span></span><br><span class="line"><span class="keyword">type</span> tflag <span class="type">uint8</span></span><br><span class="line"><span class="comment">// Needs to be in sync with ../cmd/link/internal/ld/decodesym.go:/^func.commonsize,</span></span><br><span class="line"><span class="comment">// ../cmd/compile/internal/reflectdata/reflect.go:/^func.dcommontype and</span></span><br><span class="line"><span class="comment">// ../reflect/type.go:/^type.rtype.</span></span><br><span class="line"><span class="comment">// ../internal/reflectlite/type.go:/^type.rtype.</span></span><br><span class="line"><span class="keyword">type</span> _type <span class="keyword">struct</span> &#123;</span><br><span class="line">	size       <span class="type">uintptr</span> <span class="comment">//数据类型共占用的空间大小</span></span><br><span class="line">	ptrdata    <span class="type">uintptr</span> <span class="comment">//含有所有指针类型前缀大小</span></span><br><span class="line">	hash       <span class="type">uint32</span>  <span class="comment">//类型hash值；避免在哈希表中计算</span></span><br><span class="line">	tflag      tflag   <span class="comment">//额外类型信息标志</span></span><br><span class="line">	align      <span class="type">uint8</span>   <span class="comment">//该类型变量对齐方式</span></span><br><span class="line">	fieldAlign <span class="type">uint8</span>   <span class="comment">//该类型结构字段对齐方式   </span></span><br><span class="line">	kind       <span class="type">uint8</span>   <span class="comment">//类型编号</span></span><br><span class="line">	<span class="comment">// function for comparing objects of this type</span></span><br><span class="line">	<span class="comment">// (ptr to object A, ptr to object B) -&gt; ==?</span></span><br><span class="line">	equal <span class="function"><span class="keyword">func</span><span class="params">(unsafe.Pointer, unsafe.Pointer)</span></span> <span class="type">bool</span>  <span class="comment">// 比较该类型对象</span></span><br><span class="line">	<span class="comment">// gcdata stores the GC type data for the garbage collector.</span></span><br><span class="line">	<span class="comment">// If the KindGCProg bit is set in kind, gcdata is a GC program.</span></span><br><span class="line">	<span class="comment">// Otherwise it is a ptrmask bitmap. See mbitmap.go for details.</span></span><br><span class="line">	gcdata    *<span class="type">byte</span>    <span class="comment">//gc数据</span></span><br><span class="line">	str       nameOff  <span class="comment">// 类型名字的偏移</span></span><br><span class="line">	ptrToThis typeOff</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// #src/runtime/type.go</span></span><br><span class="line"><span class="keyword">type</span> eface <span class="keyword">struct</span> &#123;</span><br><span class="line">	_type *_type <span class="comment">//类型信息,指向对象的类型信息</span></span><br><span class="line">	data  unsafe.Pointer <span class="comment">//数据信息，指向数据指针</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li><code>_type</code>: 是go里面所有类型的一个抽象，里面包含GC，反射，大小等需要的细节，它也决定了data如何解释和操作。<br>里面包含了非常多信息 类型的大小、哈希、对齐以及种类等自动。</li>
+</ul>
+<p>但是各个类型需要的类型描叙是不一样的，比如chan，除了chan本身外，还需要描述其元素类型，而map则需要key类型信息和value类型信息等:</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 数组类型定义</span></span><br><span class="line"><span class="keyword">type</span> arraytype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ   _type</span><br><span class="line">	elem  *_type</span><br><span class="line">	slice *_type</span><br><span class="line">	<span class="built_in">len</span>   <span class="type">uintptr</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// chan 类型定义</span></span><br><span class="line"><span class="keyword">type</span> chantype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ  _type</span><br><span class="line">	elem *_type</span><br><span class="line">	dir  <span class="type">uintptr</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// slice 类型定义</span></span><br><span class="line"><span class="keyword">type</span> slicetype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ  _type</span><br><span class="line">	elem *_type</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 方法类型定义</span></span><br><span class="line"><span class="keyword">type</span> functype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ      _type</span><br><span class="line">	inCount  <span class="type">uint16</span></span><br><span class="line">	outCount <span class="type">uint16</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 指针类型定义</span></span><br><span class="line"><span class="keyword">type</span> ptrtype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ  _type</span><br><span class="line">	elem *_type</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 结构体字段类型定义</span></span><br><span class="line"><span class="keyword">type</span> structfield <span class="keyword">struct</span> &#123;</span><br><span class="line">	name   name</span><br><span class="line">	typ    *_type</span><br><span class="line">	offset <span class="type">uintptr</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 结构体类型定义</span></span><br><span class="line"><span class="keyword">type</span> structtype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ     _type</span><br><span class="line">	pkgPath name</span><br><span class="line">	fields  []structfield</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 接口类型定义</span></span><br><span class="line"><span class="keyword">type</span> interfacetype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ     _type</span><br><span class="line">	pkgpath name</span><br><span class="line">	mhdr    []imethod</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// map 类型定义</span></span><br><span class="line"><span class="keyword">type</span> maptype <span class="keyword">struct</span> &#123;</span><br><span class="line">	typ    _type</span><br><span class="line">	key    *_type</span><br><span class="line">	elem   *_type</span><br><span class="line">	bucket *_type <span class="comment">// internal type representing a hash bucket</span></span><br><span class="line">	<span class="comment">// function for hashing keys (ptr to key, seed) -&gt; hash</span></span><br><span class="line">	hasher     <span class="function"><span class="keyword">func</span><span class="params">(unsafe.Pointer, <span class="type">uintptr</span>)</span></span> <span class="type">uintptr</span></span><br><span class="line">	keysize    <span class="type">uint8</span>  <span class="comment">// size of key slot</span></span><br><span class="line">	elemsize   <span class="type">uint8</span>  <span class="comment">// size of elem slot</span></span><br><span class="line">	bucketsize <span class="type">uint16</span> <span class="comment">// size of bucket</span></span><br><span class="line">	flags      <span class="type">uint32</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>几乎所有的类型定义都带有 <code>_type</code> 而且是第一个字段。接下来也定义了一堆类型所需要的信息（如子类信息）,这样在进行类型相关操作时，可通过一个字<code>(typ *_type)</code>即可表述所有类型，然后再通过<code>_type.kind</code>可解析出其具体类型，最后通过地址转换即可得到类型完整的”<code>_type</code>树”，参考<code>reflect.Type.Elem()</code>函数:</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// reflect/type.go</span></span><br><span class="line"><span class="comment">// reflect.rtype结构体定义和runtime._type一致  type.kind定义也一致(为了分包而重复定义)</span></span><br><span class="line"><span class="comment">// Elem()获取rtype中的元素类型，只针对复合类型(Array, Chan, Map, Ptr, Slice)有效</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="params">(t *rtype)</span></span> Elem() Type &#123;</span><br><span class="line">	<span class="keyword">switch</span> t.Kind() &#123;</span><br><span class="line">	<span class="keyword">case</span> Array:</span><br><span class="line">		tt := (*arrayType)(unsafe.Pointer(t))</span><br><span class="line">		<span class="keyword">return</span> toType(tt.elem)</span><br><span class="line">	<span class="keyword">case</span> Chan:</span><br><span class="line">		tt := (*chanType)(unsafe.Pointer(t))</span><br><span class="line">		<span class="keyword">return</span> toType(tt.elem)</span><br><span class="line">	<span class="keyword">case</span> Map:</span><br><span class="line">		tt := (*mapType)(unsafe.Pointer(t))</span><br><span class="line">		<span class="keyword">return</span> toType(tt.elem)</span><br><span class="line">	<span class="keyword">case</span> Pointer:</span><br><span class="line">		tt := (*ptrType)(unsafe.Pointer(t))</span><br><span class="line">		<span class="keyword">return</span> toType(tt.elem)</span><br><span class="line">	<span class="keyword">case</span> Slice:</span><br><span class="line">		tt := (*sliceType)(unsafe.Pointer(t))</span><br><span class="line">		<span class="keyword">return</span> toType(tt.elem)</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="built_in">panic</span>(<span class="string">&quot;reflect: Elem of invalid type &quot;</span> + t.String())</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>对于没有方法的interface赋值后的内部结构是怎样的呢？<br>比如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">import (</span><br><span class="line">	<span class="string">&quot;fmt&quot;</span></span><br><span class="line">	<span class="string">&quot;strconv&quot;</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line">type Binary uint64</span><br><span class="line"></span><br><span class="line">func <span class="title function_">main</span><span class="params">()</span> &#123;</span><br><span class="line">	b := Binary(<span class="number">200</span>)</span><br><span class="line">	any := (interface&#123;&#125;)(b)</span><br><span class="line">	fmt.Println(any)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>输出:<code>200</code><br>但是结构如下:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">b := Binary(200)</span><br><span class="line">interface&#123;</span><br><span class="line">	_type   -------&gt; type(Binary)</span><br><span class="line">	data 	-------&gt; 200</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<hr>
+<p>参考：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://www.cnblogs.com/jiujuan/p/12653806.html">深入理解Go语言(01): interface源码分析 </a></li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../11/go/2022-07-11-go-interface%7B%7D-%E7%B1%BB%E5%9E%8B%E7%90%86%E8%A7%A3---iface/">上一篇</a>
+    
+
+    
+    <p>上次更新 2025-11-06</p>
+    
+    
+        <a class="extend next post-next" href="../../../../05/28/core/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/2022-05-28-1/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

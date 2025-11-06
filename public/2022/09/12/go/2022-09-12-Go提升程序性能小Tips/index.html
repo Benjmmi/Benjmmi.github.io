@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Go提升程序性能小Tips [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Go提升程序性能小Tips</h1>
+<article class="post markdown-style">
+  <h1 id="小Tips"><a href="#小Tips" class="headerlink" title="小Tips"></a>小Tips</h1><p>Golang 性能非常高，但是禁不住无节制的挥霍，所以在编代码后如果需要对性能的把控可以参考一些Coder 总结的规律:</p>
+<ol>
+<li>指针传递只占用了 4 字节(32位)或者 8 字节(64)位。所以在方法调用过程中如果遇到需要占用大量内存或者很多变量的情况下，采用指针传递可以减少内存占用和提高效率</li>
+<li><code>[N]int</code> 是数组,<code>[]int</code> 才是 <code>slice</code>，数组被分配在栈中生命周期比较短，<code>Slice &gt; 32KB</code> 的才会被分配在堆中，显然 Stack 内存分配速度要大于堆分配</li>
+<li><code>strcut</code>、<code>string</code> 内存占用比较大的情况下使用指针，小则简单的栈存值即可</li>
+<li>变量的生命周期比较长的使用指针，减少栈增长和分配，提高内存使用率防止栈溢出。否则使用值传递，</li>
+</ol>
+<p>所谓的逃逸分析最基本的情况就是：<code>如果一个函数返回对一个变量的引用，那么它就发生逃逸。</code><br>所以判断一个变量是否发生逃逸在编译器编译的时候就已经确定了，不需要程序员去判断，但是可以根据代码经验判断出哪里会发生逃逸。<br>编译器判断方式：</p>
+<ol>
+<li>如果函数外部没有引用，则优先放到栈中；定义了一个很大的数组，需要申请的内存过大，超过了栈的存储能力（32KB）分配到堆上。</li>
+<li>如果函数外部存在引用，则必定放到堆中;</li>
+</ol>
+<p><strong>数据区存储全局初始化数据区&#x2F;静态数据区：</strong><br>该区包含了在程序中<strong>明确被初始化的全局变量、已经初始化的静态变量</strong>（包括全局静态变量和局部静态变量）和常量数据（如字符串常量</p>
+<p><strong>未初始化数据区（bss）</strong><br>存入的是<strong>全局未初始化变量和未初始化静态变量</strong>。未初始化数据区的数据在程序开始执行之前被内核初始化为 0 或者空（nil）。</p>
+<p><strong>尽量不要将引用对象赋值给引用对象.</strong></p>
+<p>为什么值类型不会逃逸而引用类型会逃逸呢？这是因为在  new(Obj) 对象的创建时,编译器先是分析 Obj 对象可能分配在堆上,同时成员变量 A 和 B 也为引用类型,为了保证不出现栈回收后,导致对象 Obj 的成员值也被回收,所以n A 和 B 需要逃逸.</p>
+<p>但是,如果 A 和 B 为值类型,那么编译器虽然初步分析 Obj 会分配在堆上,但由于main主函数结束后,变量都会被回收,也就是说对象没有被其他引用,<br>那么就都会分配在栈上,所以 A 和 B 没有发生逃逸.</p>
+<h1 id="图片"><a href="#图片" class="headerlink" title="图片"></a>图片</h1><p><img src="">{:width&#x3D;”100%”}</p>
+<hr>
+<p>参考：</p>
+<ul>
+<li><a href=""></a></li>
+<li><a href=""></a></li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../11/06/ebpf/pathc/">上一篇</a>
+    
+
+    
+    <p>上次更新 2025-11-06</p>
+    
+    
+        <a class="extend next post-next" href="../../../../07/23/other/2022-07-23-%E5%AD%A6%E4%B9%A0%E7%9A%84%E4%B8%80%E4%BA%9B%E6%80%9D%E8%80%83/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

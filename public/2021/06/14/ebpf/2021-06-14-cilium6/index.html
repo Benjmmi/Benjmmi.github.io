@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Cilium 功能阅读：如何制定和执行 L3 策略 续续续 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Cilium 功能阅读：如何制定和执行 L3 策略 续续续</h1>
+<article class="post markdown-style">
+  <h1 id="Cilium-源码阅读：-如何制定和执行-L3-策略-续续续-解读-eBPF-执行"><a href="#Cilium-源码阅读：-如何制定和执行-L3-策略-续续续-解读-eBPF-执行" class="headerlink" title="Cilium 源码阅读： 如何制定和执行 L3 策略 续续续 解读 eBPF 执行"></a>Cilium 源码阅读： 如何制定和执行 L3 策略 续续续 解读 eBPF 执行</h1><h2 id="High-level"><a href="#High-level" class="headerlink" title="High-level"></a>High-level</h2><p><strong>api</strong><br>  Cilium &amp; Hubble API 定义<br><strong>bpf</strong><br>  BPF数据路径代码<br><strong>bpftool</strong><br>  命令行收集代理和系统信息，用于bug报告<br><strong>cilium</strong><br>  Cilium CLI客户端<br><strong>contrib, tools</strong><br>  用于开发的其他工具和资源<br><strong>daemon</strong><br>  在每个节点上运行的cilium代理<br><strong>examples</strong><br>  各种示例资源和清单。通常需要修改才能使用。<br><strong>hubble-relay</strong><br>  哈勃中继服务器<br><strong>install</strong><br>  Helm 所有组件的部署清单<br><strong>pkg</strong><br>  所有组件之间共享的通用Go包<br><strong>operator</strong><br>  负责集中任务的操作员，这些任务不需要在每个节点上执行。<br><strong>plugins</strong><br>  与Kubernetes和Docker集成的插件<br><strong>test</strong><br>  端到端集成测试在端到端测试框架中运行。  </p>
+<h2 id="Cilium"><a href="#Cilium" class="headerlink" title="Cilium"></a>Cilium</h2><p><strong>api&#x2F;v1&#x2F;openapi.yaml</strong><br>  Cilium的API规范。用于代码生成。<br><strong>api&#x2F;v1&#x2F;models&#x2F;</strong><br>  从代表所有API资源的openapi.yaml生成的Go代码<br><strong>bpf</strong><br>  BPF数据路径代码<br><strong>cilium</strong><br>  Cilium CLI客户端<br><strong>cilium-health</strong><br>  Cilium集群连接的CLI客户端<br><strong>daemon</strong><br>  cilium-agent的具体代码<br><strong>plugins&#x2F;cilium-cni</strong><br>  与Kubernetes集成的CNI插件<br><strong>plugins&#x2F;cilium-docker</strong><br>  Docker集成插件</p>
+<h1 id="重要的通用包"><a href="#重要的通用包" class="headerlink" title="重要的通用包"></a>重要的通用包</h1><p><strong>pkg&#x2F;allocator</strong><br>  安全身份分配<br><strong>pkg&#x2F;bpf</strong><br>  抽象层，与BPF运行时进行交互<br><strong>pkg&#x2F;client</strong><br>  访问Cilium API的Go客户端<br><strong>pkg&#x2F;clustermesh</strong><br>  多集群实现包括控制平面和全局服务<br><strong>pkg&#x2F;controller</strong><br>  任何需要重试或基于间隔的调用的后台操作的基本控制器实现。<br><strong>pkg&#x2F;datapath</strong><br>  用于数据通路交互的抽象层<br><strong>pkg&#x2F;default</strong><br>  所有默认值<br><strong>pkg&#x2F;elf</strong><br>  用于BPF加载器的ELF抽象库<br><strong>pkg&#x2F;endpoint</strong><br>  对Cilium endpoint 的抽象，代表所有的工作负载。<br><strong>pkg&#x2F;endpointmanager</strong><br>  管理所有 Endpoint<br><strong>pkg&#x2F;envoy</strong><br>  Envoy 集成代理<br><strong>pkg&#x2F;fqdn</strong><br>  FQDN 代理 和 FQDN 策略实现<br><strong>pkg&#x2F;health</strong><br>  网络连接健康检查<br><strong>pkg&#x2F;identity</strong><br>    代表工作负载的安全身份<br><strong>pkg&#x2F;ipam</strong><br>  IP 地址管理<br><strong>pkg&#x2F;ipcache</strong><br>  全局缓存将IP映射到端点和安全标识<br><strong>pkg&#x2F;k8s</strong><br>  与Kubernetes的所有交互<br><strong>pkg&#x2F;kafka</strong><br>  Kafka协议代理和策略实现<br><strong>pkg&#x2F;kvstore</strong><br>  带etcd和consul后端的键值存储抽象层<br><strong>pkg&#x2F;labels</strong><br>  基本元数据类型，用于描述工作负载标识规范和策略匹配的所有标签&#x2F;元数据要求。<br><strong>pkg&#x2F;loadbalancer</strong><br>  用于负载平衡功能的控制平面<br><strong>pkg&#x2F;maps</strong><br>  BPF map 表述<br><strong>pkg&#x2F;metrics</strong><br>  Prometheus 指标实现<br><strong>pkg&#x2F;monitor</strong><br>  BPF数据路径监视抽象<br><strong>pkg&#x2F;node</strong><br>  网络节点的表示<br><strong>pkg&#x2F;option</strong><br>  所有可用配置选项<br><strong>pkg&#x2F;policy</strong><br>  策略实施规范与实施<br><strong>pkg&#x2F;proxy</strong><br>  第7层代理抽象<br><strong>pkg&#x2F;service</strong><br>  负载均衡 service 的表示<br><strong>pkg&#x2F;trigger</strong><br>  实现触发器功能以实现事件驱动功能</p>
+<p>一般代码都  attach 到内核中，所以直接看前一页的内容就基本知道了 哪些  section。</p>
+<p>bpf 下主要有：bpf_host.c、bpf_lxc.c、bpf_network.c、bpf_overlay.c、bpf_sock.c、bp_xdp.c 几个文件</p>
+<p>从架构图上看在底层起到拦截作用的应该是 bpf_lxc.c 看下面代码执行：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br></pre></td><td class="code"><pre><span class="line">__section(<span class="string">&quot;from-container&quot;</span>)</span><br><span class="line"><span class="type">int</span> <span class="title function_">handle_xgress</span><span class="params">(<span class="keyword">struct</span> __ctx_buff *ctx)</span></span><br><span class="line">&#123;</span><br><span class="line"></span><br><span class="line">  __u16 proto;</span><br><span class="line">  <span class="type">int</span> ret;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">  <span class="keyword">switch</span> (proto) &#123;</span><br><span class="line">...</span><br><span class="line">  <span class="keyword">case</span> <span class="title function_">bpf_htons</span><span class="params">(ETH_P_IP)</span>:</span><br><span class="line">    <span class="title function_">invoke_tailcall_if</span><span class="params">(__or(__and(is_defined(ENABLE_IPV4), </span></span><br><span class="line"><span class="params">           is_defined(ENABLE_IPV6)),is_defined(DEBUG)),</span></span><br><span class="line"><span class="params">           CILIUM_CALL_IPV4_FROM_LXC, tail_handle_ipv4)</span>;</span><br><span class="line">    <span class="keyword">break</span>;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br><span class="line">  <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">declare_tailcall_if(__or(__and(is_defined(ENABLE_IPV4), is_defined(ENABLE_IPV6)),</span><br><span class="line">       is_defined(DEBUG)), CILIUM_CALL_IPV4_FROM_LXC)</span><br><span class="line"><span class="type">int</span> <span class="title function_">tail_handle_ipv4</span><span class="params">(<span class="keyword">struct</span> __ctx_buff *ctx)</span></span><br><span class="line">&#123;</span><br><span class="line">  __u32 dstID = <span class="number">0</span>;</span><br><span class="line">  <span class="type">int</span> ret = handle_ipv4_from_lxc(ctx, &amp;dstID);</span><br><span class="line">...</span><br><span class="line">  <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">static</span> __always_inline <span class="type">int</span> <span class="title function_">handle_ipv4_from_lxc</span><span class="params">(<span class="keyword">struct</span> __ctx_buff *ctx,</span></span><br><span class="line"><span class="params">            __u32 *dstID)</span></span><br><span class="line">&#123;</span><br><span class="line">  ...</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">remote_endpoint_info</span> *<span class="title">info</span>;</span></span><br><span class="line"></span><br><span class="line">    info = lookup_ip4_remote_endpoint(orig_dip);</span><br><span class="line">    <span class="keyword">if</span> (info != <span class="literal">NULL</span> &amp;&amp; info-&gt;sec_label) &#123;</span><br><span class="line">      *dstID = info-&gt;sec_label;</span><br><span class="line">      tunnel_endpoint = info-&gt;tunnel_endpoint;</span><br><span class="line">      encrypt_key = get_min_encrypt_key(info-&gt;key);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">      *dstID = WORLD_ID;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">  verdict = policy_can_egress4(ctx, &amp;tuple, SECLABEL, *dstID,</span><br><span class="line">             &amp;policy_match_type, &amp;audited);</span><br><span class="line"></span><br><span class="line">&#125;  </span><br><span class="line"><span class="comment">// lookup_ip4_remote_endpoint -----&gt;&gt;&gt;&gt;&gt;&gt; ipcache_lookup4</span></span><br><span class="line"></span><br><span class="line"><span class="type">static</span> __always_inline __maybe_unused <span class="keyword">struct</span> remote_endpoint_info *</span><br><span class="line"><span class="title function_">ipcache_lookup4</span><span class="params">(<span class="keyword">struct</span> bpf_elf_map *<span class="built_in">map</span>, __be32 addr, __u32 prefix)</span></span><br><span class="line">&#123;</span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">ipcache_key</span> <span class="title">key</span> =</span> &#123;</span><br><span class="line">    .lpm_key = &#123; IPCACHE_PREFIX_LEN(prefix), &#123;&#125; &#125;,</span><br><span class="line">    .family = ENDPOINT_KEY_IPV4,</span><br><span class="line">    .ip4 = addr,</span><br><span class="line">  &#125;;</span><br><span class="line">  key.ip4 &amp;= GET_PREFIX(prefix);</span><br><span class="line">  <span class="keyword">return</span> map_lookup_elem(<span class="built_in">map</span>, &amp;key);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="type">static</span> __always_inline <span class="type">int</span></span><br><span class="line">__policy_can_access(<span class="type">const</span> <span class="type">void</span> *<span class="built_in">map</span>, <span class="keyword">struct</span> __ctx_buff *ctx, __u32 localID,</span><br><span class="line">        __u32 remoteID, __u16 dport, __u8 proto, <span class="type">int</span> dir,</span><br><span class="line">        <span class="type">bool</span> is_untracked_fragment, __u8 *match_type)</span><br><span class="line">&#123;</span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">policy_entry</span> *<span class="title">policy</span>;</span></span><br><span class="line">  <span class="class"><span class="keyword">struct</span> <span class="title">policy_key</span> <span class="title">key</span> =</span> &#123;</span><br><span class="line">    .sec_label = remoteID,</span><br><span class="line">    .dport = dport,</span><br><span class="line">    .protocol = proto,</span><br><span class="line">    .egress = !dir,</span><br><span class="line">    .pad = <span class="number">0</span>,</span><br><span class="line">  &#125;;</span><br><span class="line">  <span class="comment">// Start with L3/L4 lookup. </span></span><br><span class="line">  <span class="comment">// L4-only lookup.</span></span><br><span class="line">  <span class="comment">// If L4 policy check misses, fall back to L3.</span></span><br><span class="line">  <span class="comment">// Final fallback if allow-all policy is in place.</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>禁止访问的流程就是这么多了，还是用 c 语言写出的代码比较精简，易懂。<br>流程与之前分析的差不多。流量进入了之后根据目前的网络协议发起网络尾调用，先通过 lookup_ip4_remote_endpoint 查出来源IP的唯一标识，这里查的就是 ipcache。如果没查到<br>就直接判断失败，也就是不允许访问。（PS：这里感觉有bug，或者设计的问题，因为自己访问自己都访问不通）。如果查出了之后会调用 policy_can_egress4 查看策略是否允许访问。</p>
+<ol>
+<li>先从已经跟踪的 ct 进行 L3L4 联合查找、没找到就只从 L4 查找，</li>
+<li>如果不是已经跟中的 ct 则进行 L3 层 查找</li>
+<li>如果都找不到最后就会在是否允许所有流量中进行查找。</li>
+</ol>
+<p>c 这边处理的相对要简单。所以重点应该还是上层的架构设计，繁杂适合多样性。</p>
+<p>后面可能需要分析 ct 的概念和监控的概念。</p>
+<p>完结</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../2021-06-14-cilium3/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-06-14-cilium8/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>Kubernetes-Informer 机制 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">Kubernetes-Informer 机制</h1>
+<article class="post markdown-style">
+  <h1 id="机制了解"><a href="#机制了解" class="headerlink" title="机制了解"></a>机制了解</h1><ul>
+<li>Informer机制</li>
+<li>WorkerQueue机制</li>
+</ul>
+<h1 id="Informer-机制"><a href="#Informer-机制" class="headerlink" title="Informer 机制"></a>Informer 机制</h1><h2 id="角色理解"><a href="#角色理解" class="headerlink" title="角色理解"></a>角色理解</h2><p><img src="https://cloudnative.to/blog/client-go-informer-source-code/01.jpg" alt="client-go-informer-source-code"></p>
+<ul>
+<li>Controller：Informer 的实施载体，可以创建 Reflector 及控制 processLoop。</li>
+<li>API Server：Kubernetes 网关系统，集群入口<ul>
+<li>Reflector：反射器，实现对 API Server 指定类型对象的监控（ListAndWatch）。<br>把从API Server数据获取到的数据放到 <code>DeltaFIFO</code> 队列中，充当生产者角色</li>
+<li>SharedInformer：从 <code>DeltaFIFIO</code> 队列中获取数据并分发数据，充当消费者角色</li>
+<li>Indexer：Indexer 使用一个线程安全的数据存储来存储对象和他们的键值。</li>
+</ul>
+</li>
+<li>DeltaFIFO：数据中转站，先进先出的缓存队列。存储 Watch API 返回的各种事件。</li>
+<li>WorkQueue：Informer 除了更新本地缓存之外，还要将数据同步给响应控制器，WorkQueue 就是为了<br>数据同步的问题而产生的</li>
+</ul>
+<p><code>Kubernetes 中 Controller</code> 的理解：当用户通过工具发起创建 Pod 命令时，会把将要创建的 Pod<br>对象的数据信息存储到 <code>Etcd</code> 中，如果数据对象只保存在 <code>Etcd</code> 中，而不去节点创建那么 目标<br><code>Pod</code> 只是 <code>Etcd</code> 中的一条数据而已，并没有实际的价值（svc、pv 等皆是）。<strong>那么 Controller<br>的作用就是监听指定数据对象的变化，并针对这些变化作出响应。比如：新增 Pod，那么将会响应为<br>创建一个 <code>docker</code> 实例</strong></p>
+<h2 id="Kubernetes-控制器的演化进程"><a href="#Kubernetes-控制器的演化进程" class="headerlink" title="Kubernetes 控制器的演化进程"></a>Kubernetes 控制器的演化进程</h2><p>Controller 有个非常重要的作用就是监控集群内资源的状态，将发现其余期望的状态不相符的时候就会<br>发起相对于的操作，使其对应的资源符合期望状态。简而言之 Controller 就是维护状态之间的平衡</p>
+<p>这里的资源包括：Pod、Service、Deployment 等</p>
+<h3 id="Controller-V1"><a href="#Controller-V1" class="headerlink" title="Controller V1"></a>Controller V1</h3><p>初始 Controller 通过 <code>控制循环</code> ，来调节系统周期性的操作，在 Kubernetes 中也叫<code>调谐循环</code>。<br>控制循环操作步骤：</p>
+<ol>
+<li>从 <code>API Server</code> 中统计所有属于该 <code>Deployment</code> 的 <code>Pod</code> ，也就是获取当前 <code>Deployment</code> 的<br>  实际状态。</li>
+<li>获取当前 <code>Deployment</code> 的 <code>Replicas</code> 字段，也就是期望状态。</li>
+<li>比较期望状态和实际状态，如果未达到期望状态那么久新增 <code>Pod</code> 实例，如果超过了就删除 <code>Pod</code></li>
+</ol>
+<p>初始的 Controller 通过循环进行上面的操作，在此过程中会不断的访问 <code>API Server</code> 获取状态信息。<br>但是当 Controller 多了起来，那么 <code>API Server</code> 的访问量会呈指数型增加，压力会非常的大。<br>为了解决 <code>API Server</code> 的问题，解决方案就是 <code>Informer</code></p>
+<h3 id="Controller-V2"><a href="#Controller-V2" class="headerlink" title="Controller V2"></a>Controller V2</h3><p><code>Informer</code> 的作用就是通过统一访问统一下发的方式解决 <code>API Server</code> 被过度访问造成资源浪费的<br>问题。<code>Informer</code> 替代 <code>Controller</code> 去访问 <code>API Server</code> , <code>Controller</code> 获取状态信息<br>就会直接访问 <code>Informer</code> 不再与 <code>API Server</code> 发生交互，包括操作资源伸缩同样也是与 <code>Informer</code><br>进行交接。</p>
+<p><code>Informer</code> 首次访问 <code>API Server</code> 通过 <code>LIST API</code> 获取所有资源的最新状态，然后再通过 <code>Watch</code><br>去监听<strong>所有资源</strong>的状态变化，整个过程叫 <code>ListAndWatch</code>。整个 <code>ListAndWatch</code> 的过程是在 <code>Informer</code><br>下的一个组件 <code>Reflector</code>  来完成。</p>
+<p>这里衍生出了另一个问题，虽然不需要频繁访问 <code>API Server</code> 了，但是 <code>Watch</code> 的方位是所有的资源信息。如果<br>集群非常大，那么 <code>Watch</code> 也会占用很多资源，且很多状态信息根本不关心。为了解决这个局部性问题 <code>Informer</code><br>通过为每个 Controller 分配一个 <code>Reflector</code> 分别 <code>Watch</code> 各自的资源这样就不需要每次都 <code>Watch</code> 所有的资源。</p>
+<p>但是出现了另一个问题就是重复劳动力的问题，例如：本质上 <code>Pod</code> 同时受到了 <code>Deployment</code> 和 <code>StatefulSet</code> 管理，不需要创建两个 <code>Reflector</code> 出现不必要的资源浪费，所以为了解决重复劳动力的问题就出现了 <code>SharedInformer</code></p>
+<h3 id="Controller-V3"><a href="#Controller-V3" class="headerlink" title="Controller V3"></a>Controller V3</h3><p><code>SharedInformer</code> 可以理解为共享 <code>Informer</code> ，因为很多控制器可能管理的是一个资源信息，比如 <code>Deployment</code><br>和 <code>StatefulSet</code> 管理的都是 <code>Pod</code> 资源信息，所以他们两个可以共享一个 <code>Informer</code> 即可。</p>
+<p>关于 <code>SharedInformer</code> 细节性的问题：<code>SharedInformer</code> 无法同时给多个 <code>Controller</code> 提供信息，所以就<br>需要 <code>Controller</code> 自己排队和重试。为了 <code>Controller</code> 更好的排队和重试 <code>SharedInformer</code> 提供了一个<br><code>Delta FIFO Queue</code> ，每当资源信息有更新的时候 <code>Reflector</code> 就会收到事件通知，并将对应的事件放入到<br><code>Delta FIFO Queue</code> 中，同时 <code>SharedInformer</code> 会从 <code>Delta FIFO Queue</code> 将事件读取出来缓存到本地。<br>同时 <code>SharedInformer</code> 还要将 <strong>事件信息</strong> 同步给各个控制器，为了解决这个问题，<code>SharedInformer</code> 提供<br>了一个工作队列 <code>Workqueue</code>，一旦有资源被添加、修改或者删除，就会将相应的事件加入到 <code>Workqueue</code> 中。<br>所有的控制器排队对 <code>Workqueue</code> 读取，一旦某个控制发现这个事件与自己相关，那就会执行相应的操作。如果操作<br>失败就该将事件放回队列，等到下次排到自己再重试。如果操作成功，就将该事件从队列中删除。</p>
+<h1 id="北极星了解"><a href="#北极星了解" class="headerlink" title="北极星了解"></a>北极星了解</h1><p>关于 client-go， client-go 有多个 client 分别为：</p>
+<ul>
+<li>ClientSet：最常用的 client，可以在 <code>kuberntes</code> 目前的所有原生资源对应 client</li>
+<li>Dynamic Client：是一种动态的 <code>client</code> 能太浓是处理 kubernetes 所有的资源。<br>并且它也不同于 clientset，dynamic client 返回的对象是一个 map[string]interface{}<br>，如果一个 <code>controller</code> 需要控制所有的 API，可以还是用 <code>dynamic client</code> ，目前被<br>用在 <code>garbage collector</code> 和 <code>namespace controller</code></li>
+<li>ResetClient：是 <code>clientset</code> 和 <code>dynamic client</code> 的基础，上面两个 <code>client</code> 本质上<br>都是 <code>RESTClient</code> 它提供了一些 RESTful 的函数，如 <code>Get()</code>、<code>Put()</code>、<code>Post()</code>、<br><code>Delete()</code> 。有 Codec 提供序列化功能。</li>
+</ul>
+<p>关于 Client 的使用场景：<br>如果 <code>Controller</code> 只是需要控制 <code>Kubernetes</code> 的原生资源，如 <code>Pod</code>、<code>Deployments</code> 那么<br><code>ClientSet</code> 基本足够<br>如果需要使用 <code>CRD</code> 来扩展 <code>Kuberntes</code> 的 API ，那么就需要使用 <code>Dynamic Client</code> 或 <code>RESTClient</code></p>
+<h2 id="北极星控制器主流程"><a href="#北极星控制器主流程" class="headerlink" title="北极星控制器主流程"></a>北极星控制器主流程</h2><p><code>startPolarisController</code> 主要包括<code>NewPolarisController</code>和<code>PolarisController.Run</code>两部分。</p>
+<p>NewPolarisController 主要构建<code>PolarisController</code>r结构体。</p>
+<p>该部分主要处理了以下逻辑：</p>
+<p>构建并运行事件处理器<code>eventBroadcaster</code>。</p>
+<p>添加 <code>podInformer</code>、<code>serviceInformer</code>、<code>endpointsInformer</code>、<code>namespaceInformer</code>的<code>ResourceEventHandlerFuncs</code>，其中主要为AddFunc、UpdateFunc、DeleteFunc三类方法。<br>构造 <code>podInformer</code>、<code>serviceInformer</code> 的Lister函数和HasSynced函数。</p>
+<p><code>PolarisController.Run</code> 主要包含<code>WaitForCacheSync</code>、<code>syncService</code>和<code>syncNamespace</code>三部分。</p>
+<p><code>syncService</code> </p>
+<p>主要流程如下：</p>
+<ol>
+<li>通过<code>SplitMetaNamespaceKey</code>获取<code>namespace</code>和<code>deployment</code>对象的name。</li>
+<li>调用<code>Lister</code>的接口获取的<code>service</code>的对象。</li>
+<li>判断获取 <code>service</code> 对象是否失败</li>
+<li>获取成功</li>
+<li>从 cache 中获取 service 信息失败<br>1. 获取失败，那就判断当前 service 为首次创建<br>2. 同步 k8s 的 namespace 和 service 到 注册中心</li>
+<li>从 cache 中获取 service 信息成功<br>1. 获取成功就判断 service 是否发生变化，如果发生变化就同步到注册中心</li>
+<li>获取失败</li>
+<li>从 cache 中查找 <code>service</code> 信息</li>
+<li>如果 cache 中也查找不到，说明这个 service 没有通不过到注册中心过，结束处理</li>
+<li>如果 cache 中查找到了，说明注册中心还保留当前信息，那么就把删除信息同步到注册中心</li>
+</ol>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../grpc/2021-04-01-grpc-02/">上一篇</a>
+    
+
+    
+    <p>上次更新 2024-08-26</p>
+    
+    
+        <a class="extend next post-next" href="../2021-04-01-k8s3/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

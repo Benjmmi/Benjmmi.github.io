@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>flowable3 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">flowable3</h1>
+<article class="post markdown-style">
+  <blockquote>
+</blockquote>
+<p>使用 ChatGPT 理解源码</p>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>对于业务型的系统还是考虑其设计和应用,源码深入剖析远远没有必要,只需要点到为止即可。</p>
+<p><code>Flowable</code> 是 Fork 了 Activiti 的分支，基础结构基本一样，在功能特性上做了一些细微的调整。Flowable 支持 <a target="_blank" rel="noopener" href="https://tkjohn.github.io/flowable-userguide/#bpmn20">BPMN</a> SOP规范</p>
+<p><strong>JavaDelegate</strong> 和 <strong>ActivityBehavior</strong> 接口能力分析</p>
+<h2 id="JavaDelegate"><a href="#JavaDelegate" class="headerlink" title="JavaDelegate"></a>JavaDelegate</h2><p>概述<br>    接口位置：<code>org.flowable.engine.delegate.JavaDelegate</code><br>    主要功能：用于在流程执行中执行自定义的业务逻辑。<br>典型场景：用户需要在流程的某个任务节点上执行具体的业务逻辑，例如调用外部服务、处理业务数据等。<br>具体用法<br>    <code>JavaDelegate</code>接口有一个方法<code>execute(DelegateExecution execution)</code>，需要实现该方法来编写具体的业务逻辑。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyJavaDelegate</span> <span class="keyword">implements</span> <span class="title class_">JavaDelegate</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">execute</span><span class="params">(DelegateExecution execution)</span> &#123;</span><br><span class="line">        <span class="comment">// 自定义的业务逻辑</span></span><br><span class="line">        System.out.println(<span class="string">&quot;Executing my custom business logic&quot;</span>);</span><br><span class="line">        <span class="comment">// 可以通过execution对象访问流程变量</span></span><br><span class="line">        <span class="type">String</span> <span class="variable">myVariable</span> <span class="operator">=</span> (String) execution.getVariable(<span class="string">&quot;myVariable&quot;</span>);</span><br><span class="line">        <span class="comment">// 进行业务处理</span></span><br><span class="line">        execution.setVariable(<span class="string">&quot;myVariable&quot;</span>, myVariable + <span class="string">&quot; processed&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="ActivityBehavior"><a href="#ActivityBehavior" class="headerlink" title="ActivityBehavior"></a>ActivityBehavior</h2><p>概述<br>    接口位置：<code>org.flowable.engine.impl.delegate.ActivityBehavior</code><br>    主要功能：定义流程中活动节点的行为，通常由Flowable内部使用来实现BPMN规范中的各种活动行为（例如任务、网关、事件等）。<br>    典型场景：用户自定义复杂活动节点行为时，或扩展Flowable引擎时使用。<br>具体用法<br>    <code>ActivityBehavior</code>接口有一个方法<code>execute(ActivityExecution execution)</code>，需要实现该方法来定义活动节点的行为。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyActivityBehavior</span> <span class="keyword">implements</span> <span class="title class_">ActivityBehavior</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">execute</span><span class="params">(ActivityExecution execution)</span> &#123;</span><br><span class="line">        <span class="comment">// 自定义的活动行为逻辑</span></span><br><span class="line">        System.out.println(<span class="string">&quot;Executing custom activity behavior&quot;</span>);</span><br><span class="line">        <span class="comment">// 处理后，手动触发流程的后续流转</span></span><br><span class="line">        execution.leaveActivityViaGatewayOrContinue();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="主要区别"><a href="#主要区别" class="headerlink" title="主要区别"></a>主要区别</h2><p>用途和场景：</p>
+<pre><code>JavaDelegate：主要用于在流程执行过程中调用自定义的业务逻辑，适用于服务任务等场景。
+ActivityBehavior：用于定义流程中活动节点的具体行为，适用于自定义或扩展流程引擎内部行为。
+</code></pre>
+<p>接口方法：<br>    JavaDelegate：只有一个方法execute(DelegateExecution execution)，用于执行自定义的业务逻辑。<br>    ActivityBehavior：只有一个方法execute(ActivityExecution execution)，用于定义活动节点的行为。</p>
+<p>复杂度和灵活性：<br>    JavaDelegate：相对简单，主要用于实现具体的业务逻辑。<br>    ActivityBehavior：更灵活和复杂，主要用于实现自定义活动节点行为，适用于扩展流程引擎的场景</p>
+<p> 在包 <code>org.flowable.engine.impl.bpmn.behavior</code> 可以看大大多数常用的<code>Flowable</code>官方定义的流程引擎   </p>
+<h2 id="FLowable-部署过程"><a href="#FLowable-部署过程" class="headerlink" title="FLowable 部署过程"></a>FLowable 部署过程</h2><pre class="mermaid">sequenceDiagram
+    participant A as Deployment.execute
+    participant B as DeploymentEntityManager
+    participant C as DeploymentManager
+    participant D as BpmnDeployer
+    participant E as ParsedDeploymentBuilderFactory
+    participant F as ContinueProcessOperation
+    A-->>A: executeDeploy
+    A->>B: insert
+    A->>C: deploy
+    C-->>D: deploy
+    D->>E: getBuilderForDeploymentAndSettings.build
+    D->>D: createLocalizationValues</pre>
+
+<p><strong>这里有个区别</strong><br>当使用 <code>XML</code> 文件部署的时候会自动创建 ProcessDefinition 但是当使用 BPMNModel 部署的时候会出现<br>部署后没有 ProcessDefinition 的情况。出现这样的问题是因为 ResourceName 的问题。<br>代码如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> ParsedDeployment <span class="title function_">build</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="comment">// ....</span></span><br><span class="line">    <span class="type">DeploymentEntity</span> <span class="variable">deploymentEntity</span> <span class="operator">=</span> (DeploymentEntity) deployment;</span><br><span class="line">    <span class="keyword">for</span> (EngineResource resource : deploymentEntity.getResources().values()) &#123;</span><br><span class="line">        <span class="keyword">if</span> (isBpmnResource(resource.getName())) &#123;</span><br><span class="line">    <span class="comment">// ....</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">ParsedDeployment</span>(deploymentEntity, processDefinitions,</span><br><span class="line">            processDefinitionsToBpmnParseMap, processDefinitionsToResourceMap);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> String[] BPMN_RESOURCE_SUFFIXES = <span class="keyword">new</span> <span class="title class_">String</span>[] &#123; <span class="string">&quot;bpmn20.xml&quot;</span>, <span class="string">&quot;bpmn&quot;</span> &#125;;</span><br><span class="line"></span><br><span class="line"><span class="keyword">protected</span> <span class="type">boolean</span> <span class="title function_">isBpmnResource</span><span class="params">(String resourceName)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span> (String suffix : ResourceNameUtil.BPMN_RESOURCE_SUFFIXES) &#123;</span><br><span class="line">        <span class="keyword">if</span> (resourceName.endsWith(suffix)) &#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">&#125;    </span><br></pre></td></tr></table></figure>
+
+<h2 id="Flowable-执行过程"><a href="#Flowable-执行过程" class="headerlink" title="Flowable 执行过程"></a>Flowable 执行过程</h2><pre class="mermaid">sequenceDiagram
+    participant A as RuntimeServiceImpl
+    participant B as StartProcessInstanceCmd
+    participant C as ProcessInstanceHelper
+    participant D as FlowableEngineAgenda
+    participant E as DefaultFlowableEngineAgenda
+    participant F as ContinueProcessOperation
+    A-->>B: execute
+    B->>C: createProcessInstance
+    C->>C: createAndStartProcessInstanceWithInitialFlowElement
+    C-->>A: ProcessInstance
+    C->>C: startProcessInstance
+    C->>D: planContinueProcessOperation
+    D->>E: planOperation
+    E->>F: continueThroughFlowNode/continueThroughSequenceFlow
+    E->>E: executeAsynchronous/executeSynchronous</pre>
+
+
+
+<hr>
+<p>参考：</p>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+        <a class="extend prev post-prev" href="../../../../12/%E6%95%B0%E6%8D%AE%E9%9B%86%E6%88%90/flowable/2024-08-12-flowable4/">上一篇</a>
+    
+
+    
+    <p>上次更新 2025-10-13</p>
+    
+    
+        <a class="extend next post-next" href="../../../../../07/31/%E6%95%B0%E6%8D%AE%E9%9B%86%E6%88%90/flowable/2024-07-31-flowable2/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>

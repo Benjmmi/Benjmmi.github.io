@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  
+  <title>datax_阅读理解3 [ Benjmmi 的博客 ]</title>
+  
+    <!-- stylesheets list from config.yml -->
+    
+      <link rel="stylesheet" href="/css/iLiKE.css">
+    
+  
+  
+<meta name="generator" content="Hexo 8.1.1"></head>
+<body>
+    <div class="header">
+        <div class="container">
+    <div class="menu">
+      <div class="menu-left">
+        <a href="/">
+          <img src="/favicon.ico"></img>
+        </a>
+      </div>
+      <div class="menu-right">
+        
+          
+          
+          
+          
+          
+          
+          <a href="/">首页</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/archives">归档</a>
+        
+          
+          
+          
+          
+          
+          
+          <a href="/about">关于</a>
+        
+          
+          
+          
+          
+          
+          <a target="_blank" rel="noopener" href="https://github.com/Benjmmi">Codes</a>
+        
+      </div>
+    </div>
+</div>
+    </div>
+    <div class="container">
+        <h1 class="post-title">datax_阅读理解3</h1>
+<article class="post markdown-style">
+  <blockquote>
+</blockquote>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>借助GPT理解代码。开源 Datax 是数据集成比较常用的工具，满足一般中小公司的场景使用，通常数据库数据不会有几百TB的场景。</p>
+<h1 id="设计理念"><a href="#设计理念" class="headerlink" title="设计理念"></a>设计理念</h1><p>为了解决异构数据源同步问题，DataX将复杂的网状的同步链路变成了星型数据链路，DataX作为中间传输载体负责连接各种数据源。当需要接入一个新的数据源的时候，只需要将此数据源对接到DataX，便能跟已有的数据源做到无缝数据同步。</p>
+<h1 id="DataX-阅读理解"><a href="#DataX-阅读理解" class="headerlink" title="DataX 阅读理解"></a>DataX 阅读理解</h1><p>带着问题阅读</p>
+<ol>
+<li>怎么调度，任务怎么切割，线程怎么分配，何时运行抽数何时运行写数</li>
+<li>如何合理使用资源</li>
+</ol>
+<p>DataX 开源的因为是 <code>Standalone</code> 模式的，所以所有任务的切割都是线程级别，然后在按照线程分组。形成多任务多线运行任务，最终还是落在单实例上运行，所以不会有很复杂的情况。大概执行路径如下：</p>
+<pre class="mermaid">sequenceDiagram
+	participant A as JobContainer
+    participant B as AbstractScheduler
+    participant C as AbstractContainerCommunicator
+    participant D as ProcessInnerScheduler
+	participant E as AbstractCollector
+	participant F as ProcessInnerScheduler
+	participant G as TaskGroupContainerRunner
+	participant H as JobAssignUtil
+	A->>H: assignFairly(获取运行哪些tasks任务)
+	A->>B: schedule
+	B->>C: registerCommunication
+	C->>E: registerTGCommunication
+	B->>B: calculateTaskCount
+	B->>B: startAllTaskGroup
+	B->>F: startAllTaskGroup
+	F->>F: newTaskGroupContainerRunner
+	F->>G: execute</pre>
+
+<p>总体的任务分割在 JobAssignUtil 类下，分割任务之前需要获取一些基本参数代码如下：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">  <span class="comment">/**</span></span><br><span class="line"><span class="comment">   * schedule首先完成的工作是把上一步reader和writer split的结果整合到具体taskGroupContainer中,</span></span><br><span class="line"><span class="comment">   * 同时不同的执行模式调用不同的调度策略，将所有任务调度起来</span></span><br><span class="line"><span class="comment">   */</span></span><br><span class="line">  <span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">schedule</span><span class="params">()</span> &#123;</span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">       * 这里的全局speed和每个channel的速度设置为B/s</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line"><span class="comment">// 每个 taskGroup 中要执行的任务数量</span></span><br><span class="line">      <span class="type">int</span> channelsPerTaskGroup=<span class="built_in">this</span>.configuration.getInt(CoreConstant.DATAX_CORE_CONTAINER_TASKGROUP_CHANNEL, <span class="number">5</span>);</span><br><span class="line">      <span class="comment">// 总任务数量</span></span><br><span class="line"><span class="type">int</span> <span class="variable">taskNumber</span> <span class="operator">=</span> <span class="built_in">this</span>.configuration.getList(CoreConstant.DATAX_JOB_CONTENT).size();</span><br><span class="line"><span class="comment">// 实际需要 Channel 的数量和总任务数量取最小值，防止 Channel 数量多于任务数量</span></span><br><span class="line">      <span class="built_in">this</span>.needChannelNumber = Math.min(<span class="built_in">this</span>.needChannelNumber, taskNumber);</span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">       * 通过获取配置信息得到每个taskGroup需要运行哪些tasks任务</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">      List&lt;Configuration&gt; taskGroupConfigs = JobAssignUtil.assignFairly(<span class="built_in">this</span>.configuration,<span class="built_in">this</span>.needChannelNumber, channelsPerTaskGroup);</span><br></pre></td></tr></table></figure>
+
+<p><code>DataX</code> 中的 <code>JobAssignUtil.assignFairly</code> 方法的作用是将任务（<code>Job</code>）在多个通道（<code>Channel</code>）之间进行公平分配。该方法确保各个通道分配的任务数量尽可能均衡，从而优化数据传输的性能和效率。这对于数据量较大的任务尤为重要，可以防止某些通道负载过高而影响整体任务的执行速度。通过这种分配机制，DataX 能够更有效地利用系统资源，提高任务执行的并发性和吞吐量。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment">     * 公平的分配 task 到对应的 taskGroup 中。</span></span><br><span class="line"><span class="comment">     * 公平体现在：会考虑 task 中对资源负载作的 load 标识进行更均衡的作业分配操作。</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> configuration</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> channelNumber Channel 数量</span></span><br><span class="line"><span class="comment">     * <span class="doctag">@param</span> channelsPerTaskGroup 每个 taskGroup 中要执行的任务数量</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> List&lt;Configuration&gt; <span class="title function_">assignFairly</span><span class="params">(Configuration configuration, <span class="type">int</span> channelNumber, <span class="type">int</span> channelsPerTaskGroup)</span> &#123;</span><br><span class="line">        <span class="type">int</span> <span class="variable">taskGroupNumber</span> <span class="operator">=</span> (<span class="type">int</span>) Math.ceil(<span class="number">1.0</span> * channelNumber / channelsPerTaskGroup);</span><br><span class="line">        LinkedHashMap&lt;String, List&lt;Integer&gt;&gt; resourceMarkAndTaskIdMap;</span><br><span class="line">        List&lt;Configuration&gt; taskGroupConfig = doAssign(resourceMarkAndTaskIdMap, configuration, taskGroupNumber);</span><br><span class="line">        <span class="comment">// 调整 每个 taskGroup 对应的 Channel 个数（属于优化范畴）</span></span><br><span class="line">        adjustChannelNumPerTaskGroup(taskGroupConfig, channelNumber);</span><br><span class="line">        <span class="keyword">return</span> taskGroupConfig;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/**</span></span><br><span class="line"><span class="comment">     * </span></span><br><span class="line"><span class="comment">     * 需要实现的效果通过例子来说是：</span></span><br><span class="line"><span class="comment">     * &lt;pre&gt;</span></span><br><span class="line"><span class="comment">     * a 库上有表：0, 1, 2</span></span><br><span class="line"><span class="comment">     * b 库上有表：3, 4</span></span><br><span class="line"><span class="comment">     * c 库上有表：5, 6, 7</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * 如果有 4个 taskGroup</span></span><br><span class="line"><span class="comment">     * 则 assign 后的结果为：</span></span><br><span class="line"><span class="comment">     * taskGroup-0: 0,  4,</span></span><br><span class="line"><span class="comment">     * taskGroup-1: 3,  6,</span></span><br><span class="line"><span class="comment">     * taskGroup-2: 5,  2,</span></span><br><span class="line"><span class="comment">     * taskGroup-3: 1,  7</span></span><br><span class="line"><span class="comment">     *</span></span><br><span class="line"><span class="comment">     * &lt;/pre&gt;</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> List&lt;Configuration&gt; <span class="title function_">doAssign</span><span class="params">(LinkedHashMap&lt;String, List&lt;Integer&gt;&gt; resourceMarkAndTaskIdMap, Configuration jobConfiguration, <span class="type">int</span> taskGroupNumber)</span> &#123;</span><br><span class="line">        List&lt;Configuration&gt; contentConfig = jobConfiguration.getListConfiguration(CoreConstant.DATAX_JOB_CONTENT);</span><br><span class="line">		<span class="comment">// 获取所有同步任务内容</span></span><br><span class="line">        <span class="type">Configuration</span> <span class="variable">taskGroupTemplate</span> <span class="operator">=</span> jobConfiguration.clone();</span><br><span class="line">		<span class="comment">// 从原模板内容中去除数据</span></span><br><span class="line">        taskGroupTemplate.remove(CoreConstant.DATAX_JOB_CONTENT);</span><br><span class="line">		</span><br><span class="line">        List&lt;Configuration&gt; result = <span class="keyword">new</span> <span class="title class_">LinkedList</span>&lt;Configuration&gt;();</span><br><span class="line">		<span class="comment">// 初始化任务量</span></span><br><span class="line">        List&lt;List&lt;Configuration&gt;&gt; taskGroupConfigList = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;List&lt;Configuration&gt;&gt;(taskGroupNumber);</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; taskGroupNumber; i++) &#123;</span><br><span class="line">            taskGroupConfigList.add(<span class="keyword">new</span> <span class="title class_">LinkedList</span>&lt;Configuration&gt;());</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="type">int</span> <span class="variable">mapValueMaxLength</span> <span class="operator">=</span> -<span class="number">1</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 获取任务编号，并给每个任务一个标记，每个任务的标记都一致，用一个map保存，标记 -&gt; 编号</span></span><br><span class="line">        List&lt;String&gt; resourceMarks = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;String&gt;();</span><br><span class="line">        <span class="keyword">for</span> (Map.Entry&lt;String, List&lt;Integer&gt;&gt; entry : resourceMarkAndTaskIdMap.entrySet()) &#123;</span><br><span class="line">            resourceMarks.add(entry.getKey());</span><br><span class="line">            <span class="keyword">if</span> (entry.getValue().size() &gt; mapValueMaxLength) &#123;</span><br><span class="line">                mapValueMaxLength = entry.getValue().size();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    	<span class="comment">// 核心Round Robin分配逻辑</span></span><br><span class="line">        <span class="type">int</span> <span class="variable">taskGroupIndex</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; mapValueMaxLength; i++) &#123;</span><br><span class="line">            <span class="keyword">for</span> (String resourceMark : resourceMarks) &#123;</span><br><span class="line">                <span class="keyword">if</span> (resourceMarkAndTaskIdMap.get(resourceMark).size() &gt; <span class="number">0</span>) &#123;</span><br><span class="line">                    <span class="type">int</span> <span class="variable">taskId</span> <span class="operator">=</span> resourceMarkAndTaskIdMap.get(resourceMark).get(<span class="number">0</span>);</span><br><span class="line">					<span class="comment">// 模除算法合理分配数量</span></span><br><span class="line">                    taskGroupConfigList.get(taskGroupIndex % taskGroupNumber).add(contentConfig.get(taskId));</span><br><span class="line">                    taskGroupIndex++;</span><br><span class="line"></span><br><span class="line">                    resourceMarkAndTaskIdMap.get(resourceMark).remove(<span class="number">0</span>);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">		<span class="comment">// 均衡分配后重新设置 job.content 内容</span></span><br><span class="line">        Configuration tempTaskGroupConfig;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; taskGroupNumber; i++) &#123;</span><br><span class="line">            tempTaskGroupConfig = taskGroupTemplate.clone();</span><br><span class="line">            tempTaskGroupConfig.set(CoreConstant.DATAX_JOB_CONTENT, taskGroupConfigList.get(i));</span><br><span class="line">            tempTaskGroupConfig.set(CoreConstant.DATAX_CORE_CONTAINER_TASKGROUP_ID, i);</span><br><span class="line"></span><br><span class="line">            result.add(tempTaskGroupConfig);</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> result;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
+
+<p>为什么获取后要去除模板中的内容？但是这里并没有显示代码把 Table 拍平。</p>
+<p>然后调用 <code>adjustChannelNumPerTaskGroup</code> 调整 taskGroup 对应的 <code>Channel</code> 数量:</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">adjustChannelNumPerTaskGroup</span><span class="params">(List&lt;Configuration&gt; taskGroupConfig, <span class="type">int</span> channelNumber)</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">taskGroupNumber</span> <span class="operator">=</span> taskGroupConfig.size();</span><br><span class="line">    <span class="type">int</span> <span class="variable">avgChannelsPerTaskGroup</span> <span class="operator">=</span> channelNumber / taskGroupNumber;</span><br><span class="line">    <span class="type">int</span> <span class="variable">remainderChannelCount</span> <span class="operator">=</span> channelNumber % taskGroupNumber;</span><br><span class="line">    <span class="comment">// 表示有 remainderChannelCount 个 taskGroup,其对应 Channel 个数应该为：avgChannelsPerTaskGroup + 1；</span></span><br><span class="line">    <span class="comment">// （taskGroupNumber - remainderChannelCount）个 taskGroup,其对应 Channel 个数应该为：avgChannelsPerTaskGroup</span></span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (; i &lt; remainderChannelCount; i++) &#123;</span><br><span class="line">        taskGroupConfig.get(i).set(CoreConstant.DATAX_CORE_CONTAINER_TASKGROUP_CHANNEL, avgChannelsPerTaskGroup + <span class="number">1</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">j</span> <span class="operator">=</span> <span class="number">0</span>; j &lt; taskGroupNumber - remainderChannelCount; j++) &#123;</span><br><span class="line">        taskGroupConfig.get(i + j).set(CoreConstant.DATAX_CORE_CONTAINER_TASKGROUP_CHANNEL, avgChannelsPerTaskGroup);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>代码可以列为冗余一个 <code>Channel</code>.</p>
+<p>接下来就是调度行为了，任务切分好了，<code>Channel</code> 资源也分配好了只需要执行就可以了</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">ExecuteMode</span> <span class="variable">executeMode</span> <span class="operator">=</span> <span class="literal">null</span>;</span><br><span class="line"><span class="type">AbstractScheduler</span> <span class="variable">scheduler</span> <span class="operator">=</span> initStandaloneScheduler(<span class="built_in">this</span>.configuration);</span><br><span class="line"></span><br><span class="line">	executeMode = ExecuteMode.STANDALONE;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//设置 executeMode</span></span><br><span class="line">    <span class="keyword">for</span> (Configuration taskGroupConfig : taskGroupConfigs) &#123;</span><br><span class="line">        taskGroupConfig.set(CoreConstant.DATAX_CORE_CONTAINER_JOB_MODE, executeMode.getValue());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    scheduler.schedule(taskGroupConfigs);</span><br></pre></td></tr></table></figure>
+<p>这里代码做了一些剪裁，只保留了核心代码，应为当前 DataX 只支持 <code>STANDALONE</code> 模式，所以代码相对没有那么多。这里先对 <code>Scheduler</code> 做了初始化操作</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> AbstractScheduler <span class="title function_">initStandaloneScheduler</span><span class="params">(Configuration configuration)</span> &#123;</span><br><span class="line">    <span class="type">AbstractContainerCommunicator</span> <span class="variable">containerCommunicator</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">StandAloneJobContainerCommunicator</span>(configuration);</span><br><span class="line">    <span class="built_in">super</span>.setContainerCommunicator(containerCommunicator);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">StandAloneScheduler</span>(containerCommunicator);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong><code>AbstractContainerCommunicator</code></strong> 是一个抽象类，通常用于定义和实现 <code>DataX</code> 中容器（container）与外部系统之间的通信机制。在 <code>DataX</code> 框架中，容器通常指的是任务执行的进程或线程，而通信机制涉及如何在这些容器之间、以及容器与数据源之间传递信息和数据。这个类的主要作用包括：</p>
+<ol>
+<li><p>定义通信协议<br><code>AbstractContainerCommunicator</code> 类通常定义了容器之间或容器通信协议和接口。它提供了必要的方法和机制，以便在不同组件之间传递消息、任务、状态等信息。</p>
+</li>
+<li><p>实现通信功能<br>该类实现了一些基本的通信功能，比如：</p>
+</li>
+</ol>
+<ul>
+<li><strong>发送和接收消息</strong>：处理容器与外部系统之间的消息传递，确保信息能够准确地从发送端到达接收端。</li>
+<li><strong>数据传输</strong>：负责数据的序列化和反序列化，确保数据能够在不同系统之间正确地传递。</li>
+</ul>
+<ol start="3">
+<li>提供抽象接口<br>作为一个抽象类，它提供了一个通用的接口，供具体的通信实现类继承和实现。这些具体实现类将根据不同的通信协议和需求，扩展 <code>AbstractContainerCommunicator</code> 提供的方法，以满足特定的功能需求。</li>
+</ol>
+<p>然后就是执行 <code>schedule</code> 方法了:</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line">  <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">schedule</span><span class="params">(List&lt;Configuration&gt; configurations)</span> &#123;</span><br><span class="line">      <span class="type">int</span> <span class="variable">jobReportIntervalInMillSec</span> <span class="operator">=</span> configurations.get(<span class="number">0</span>).getInt(CoreConstant.DATAX_CORE_CONTAINER_JOB_REPORTINTERVAL, <span class="number">30000</span>);</span><br><span class="line">      <span class="type">int</span> <span class="variable">jobSleepIntervalInMillSec</span> <span class="operator">=</span> configurations.get(<span class="number">0</span>).getInt(CoreConstant.DATAX_CORE_CONTAINER_JOB_SLEEPINTERVAL, <span class="number">10000</span>);</span><br><span class="line"></span><br><span class="line">      <span class="built_in">this</span>.jobId = configurations.get(<span class="number">0</span>).getLong(CoreConstant.DATAX_CORE_CONTAINER_JOB_ID);</span><br><span class="line"></span><br><span class="line">      errorLimit = <span class="keyword">new</span> <span class="title class_">ErrorRecordChecker</span>(configurations.get(<span class="number">0</span>));</span><br><span class="line"></span><br><span class="line">      <span class="comment">/**</span></span><br><span class="line"><span class="comment">       * 给 taskGroupContainer 的 Communication 注册</span></span><br><span class="line"><span class="comment">       */</span></span><br><span class="line">      <span class="built_in">this</span>.containerCommunicator.registerCommunication(configurations);</span><br><span class="line"><span class="comment">// 开始执行每个线程组</span></span><br><span class="line">      startAllTaskGroup(configurations);</span><br><span class="line"></span><br><span class="line">      <span class="type">Communication</span> <span class="variable">lastJobContainerCommunication</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Communication</span>();</span><br><span class="line"><span class="comment">// 下面的代码是收集状态信息，并进行上报</span></span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+
+<p>这里代码将上面创建的 <code>Communicator</code> 注册到当前任务，然后开始调用 <code>startAllTaskGroup</code>.</p>
+<p><code>startAllTaskGroup</code> 具体操作</p>
+<pre class="mermaid">sequenceDiagram
+	participant A as ProcessInnerScheduler
+    participant B as TaskGroupContainerRunner
+	participant C as TaskGroupContainer
+	A->>B: execute
+	B->>C: start</pre>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">  <span class="meta">@Override</span></span><br><span class="line">  <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">startAllTaskGroup</span><span class="params">(List&lt;Configuration&gt; configurations)</span> &#123;</span><br><span class="line"><span class="comment">// 新建一个线程池</span></span><br><span class="line">      <span class="built_in">this</span>.taskGroupContainerExecutorService = Executors</span><br><span class="line">              .newFixedThreadPool(configurations.size());</span><br><span class="line"></span><br><span class="line">      <span class="keyword">for</span> (Configuration taskGroupConfiguration : configurations) &#123;</span><br><span class="line">	<span class="comment">// 注册taskGroup任务到线程池中并启动</span></span><br><span class="line">          <span class="type">TaskGroupContainerRunner</span> <span class="variable">taskGroupContainerRunner</span> <span class="operator">=</span> newTaskGroupContainerRunner(taskGroupConfiguration);</span><br><span class="line">          <span class="built_in">this</span>.taskGroupContainerExecutorService.execute(taskGroupContainerRunner);</span><br><span class="line">      &#125;</span><br><span class="line">  	<span class="comment">// 关闭线程池提交线程的入口</span></span><br><span class="line">      <span class="built_in">this</span>.taskGroupContainerExecutorService.shutdown();</span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+
+<p>实际上DataX底层对于每个taskGroup都启动了一个线程TaskGroupContainerRunner，采用线程池的方式实现并发操作</p>
+<p>实际运行中的代码片段</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"></span><br><span class="line"><span class="built_in">this</span>.containerCommunicator.registerCommunication(taskConfigs);</span><br><span class="line"></span><br><span class="line">Map&lt;Integer, Configuration&gt; taskConfigMap = buildTaskConfigMap(taskConfigs); <span class="comment">//taskId与task配置</span></span><br><span class="line">List&lt;Configuration&gt; taskQueue = buildRemainTasks(taskConfigs); <span class="comment">//待运行task列表</span></span><br><span class="line">Map&lt;Integer, TaskExecutor&gt; taskFailedExecutorMap = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;Integer, TaskExecutor&gt;(); <span class="comment">//taskId与上次失败实例</span></span><br><span class="line">List&lt;TaskExecutor&gt; runTasks = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;TaskExecutor&gt;(channelNumber); <span class="comment">//正在运行task</span></span><br><span class="line">Map&lt;Integer, Long&gt; taskStartTimeMap = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;Integer, Long&gt;(); <span class="comment">//任务开始时间</span></span><br></pre></td></tr></table></figure>
+<ol>
+<li>构建 taskId 与 task 映射</li>
+<li>构建待运行的 task，初始进来所有的 task 都是待运行的状态</li>
+<li>构建存放失败的 task容器</li>
+<li>构建存放正在运行的 task</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">boolean</span> <span class="variable">failedOrKilled</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line"><span class="comment">// 存放已经运行完成的 task</span></span><br><span class="line">        	Map&lt;Integer, Communication&gt; communicationMap = containerCommunicator.getCommunicationMap();</span><br><span class="line">        	<span class="keyword">for</span>(Map.Entry&lt;Integer, Communication&gt; entry : communicationMap.entrySet())&#123;</span><br><span class="line">        		<span class="type">Integer</span> <span class="variable">taskId</span> <span class="operator">=</span> entry.getKey();</span><br><span class="line">        		<span class="type">Communication</span> <span class="variable">taskCommunication</span> <span class="operator">=</span> entry.getValue();</span><br><span class="line">	<span class="comment">// 判断当前任务是否运行完成</span></span><br><span class="line">	<span class="comment">// this.state == State.SUCCEEDED || this.state == State.FAILED	|| this.state == State.KILLED</span></span><br><span class="line">                <span class="keyword">if</span>(!taskCommunication.isFinished())&#123;</span><br><span class="line">                    <span class="keyword">continue</span>;</span><br><span class="line">                &#125;</span><br><span class="line">	<span class="comment">// 如果运行完成会从正在运行的队列删除这个任务</span></span><br><span class="line">                <span class="type">TaskExecutor</span> <span class="variable">taskExecutor</span> <span class="operator">=</span> removeTask(runTasks, taskId);</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><hr>
+<p>参考：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://tyrantlucifer.com/datax-02.html">DataX源码解析</a></li>
+</ul>
+
+</article>
+
+    <div class="pagenator post-pagenator">
+    
+    
+
+    
+    <p>上次更新 2025-11-06</p>
+    
+    
+        <a class="extend next post-next" href="../../../../26/%E6%95%B0%E6%8D%AE%E9%9B%86%E6%88%90/Datax/2024-08-26-datax_%E9%98%85%E8%AF%BB%E7%90%86%E8%A7%A32/">下一篇</a>
+    
+    </div>
+
+
+    </div>
+    <div class="footer">
+        <div class="container">
+    <div class="social">
+	<ul class="social-list">
+		
+			
+				
+				
+				<li>
+					<a href="mailto:2228598786@qq.com" title="email" target="_blank">
+					<i class="fa fa-email"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+				
+				<li>
+					<a href="https://github.com/Benjmmi" title="github" target="_self">
+					<i class="fa fa-github"></i>
+					</a>
+				</li>
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+			
+		
+	</ul>
+</div>
+    <div class="copyright">
+        <span>
+            
+            
+            
+                © Benjmmi 2017 - 2025
+            
+        </span>
+    </div>
+    <div class="power">
+        <span>
+            Powered by <a target="_blank" rel="noopener" href="https://hexo.io">Hexo</a> & <a target="_blank" rel="noopener" href="https://github.com/CaiChenghan/iLiKE">iLiKE Theme</a>
+        </span>
+    </div>
+    <script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.js"></script>
+    <!--page counter part-->
+<script>
+function addCount (Counter) {
+    url=$('.article-date').attr('href').trim();
+    title = $('.article-title').text().trim();
+    var query = new AV.Query(Counter);
+    //use url as unique idnetfication
+    query.equalTo("url",url);
+    query.find({
+        success: function(results) {
+            if (results.length>0) {
+                var counter=results[0];
+                counter.fetchWhenSave(true); //get recent result
+                counter.increment("time");
+                counter.save();
+            } else {
+                var newcounter=new Counter();
+                newcounter.set("title",title);
+                newcounter.set("url",url);
+                newcounter.set("time",1);
+                newcounter.save(null,{
+                    success: function(newcounter) {
+                        //alert('New object created');
+                    }, error: function(newcounter,error) {
+                        alert('Failed to create');
+                    }
+                })
+            }
+        },
+        error: function(error) {
+            //find null is not a error
+            alert('Error:'+error.code+" "+error.message);
+        }
+    });
+}
+$(function() {
+    var Counter=AV.Object.extend("Counter");
+    //only increse visit counting when intering a page
+    if ($('.article-title').length == 1) {
+       addCount(Counter);
+    }
+    var query=new AV.Query(Counter);
+    query.descending("time");
+    // the sum of popular posts
+    query.limit(10); 
+    query.find({
+        success: function(results) {
+                for(var i=0;i<results.length;i++) {
+                    var counter=results[i];
+                    title=counter.get("title");
+                    url=counter.get("url");
+                    time=counter.get("time");
+                    // add to the popularlist widget
+                    showcontent=title+" ("+time+")";
+                    //notice the "" in href
+                    $('.popularlist').append('<li><a href="'+url+'">'+showcontent+'</a></li>');
+                }
+            },
+        error: function(error) {
+            alert("Error:"+error.code+" "+error.message);
+        }
+    });
+});
+</script>
+</div>
+
+  <script src='https://unpkg.com/mermaid@11.12.1/dist/mermaid.min.js'></script>
+  <script>
+    if (window.mermaid) {
+      mermaid.initialize({theme: 'forest'});
+    }
+  </script>
+    </div>
+</body>
+</html>
