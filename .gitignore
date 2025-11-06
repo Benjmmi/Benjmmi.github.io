@@ -5,3 +5,5 @@ assets/codes/leetcode/target
 .DS_Store
 
 node_moudles
+public
+node_modules

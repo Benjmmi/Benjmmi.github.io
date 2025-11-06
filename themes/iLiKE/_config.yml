@@ -6,21 +6,21 @@ language: zh-CN
 menu:
   Home: /
   Archives: /archives
-  About: /about
+  联系我: mailto:2228598786@qq.com
+  Codes: https://github.com/Benjmmi/Benjmmi.github.io/tree/main/assets/codes
 
 # Social
 social:
-  email: 1178752402@qq.com
+  email: 2228598786@qq.com
   stack-overflow:
   twitter:
   facebook:
   linkedin:
   google:
-  github: https://github.com/CaiChenghan
+  github: https://github.com/Benjmmi/Benjmmi.github.io
   weibo:
   douban:
   zhihu:
-  jianshu: https://www.jianshu.com/u/565c8e790605
   pocket:
   tumblr:
   instagram:
@@ -48,8 +48,3 @@ auto_excerpt:
 # ===========================================
 # Third Party Services Settings
 # ===========================================
-
-# LeanCloud
-leancloud:
-  app_id: 6E5zTbTljdUbVW2WkXPsXGJk-gzGzoHsz
-  app_key: 0vsyDKfNpeSECAI70J794ugv
