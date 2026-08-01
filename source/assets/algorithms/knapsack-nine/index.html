@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f3efe6" />
+    <meta
+      name="description"
+      content="《背包九讲》动画学习版：用九个连续的交互动画理解背包动态规划。"
+    />
+    <title>背包九讲 · 动画学习版</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#chapter-1" aria-label="返回第一讲">
+          <span class="brand-mark" aria-hidden="true">包</span>
+          <span>
+            <strong>背包九讲</strong>
+            <small>动画学习版</small>
+          </span>
+        </a>
+
+        <div class="course-progress" aria-label="课程进度">
+          <span id="progressText">0 / 9 章完成</span>
+          <span class="progress-track"><i id="progressFill"></i></span>
+        </div>
+
+        <button class="icon-button" id="themeToggle" type="button" aria-label="切换明暗主题">
+          <span aria-hidden="true">◐</span>
+        </button>
+      </header>
+
+      <aside class="course-nav" aria-label="课程章节">
+        <div class="nav-intro">
+          <span class="eyebrow">学习路径</span>
+          <p>每讲约 6–10 分钟。建议按顺序学习。</p>
+        </div>
+        <nav id="chapterNav"></nav>
+        <a class="source-link" href="V1/Index.html">阅读 2007 原版文档 ↗</a>
+      </aside>
+
+      <main id="lesson" class="lesson" tabindex="-1">
+        <section class="lesson-heading">
+          <div>
+            <span class="eyebrow" id="chapterNumber"></span>
+            <h1 id="chapterTitle"></h1>
+            <p class="lead" id="chapterKicker"></p>
+          </div>
+          <div class="lesson-meta">
+            <span id="lessonDuration">约 8 分钟</span>
+            <span id="lessonStatus">未完成</span>
+          </div>
+        </section>
+
+        <section class="bridge-card" aria-label="章节衔接">
+          <span aria-hidden="true">↳</span>
+          <p id="chapterBridge"></p>
+        </section>
+
+        <section class="lesson-grid">
+          <article class="visual-card">
+            <div class="visual-toolbar">
+              <div>
+                <span class="eyebrow">动态演示</span>
+                <h2 id="sceneTitle"></h2>
+              </div>
+              <label class="speed-control">
+                <span>速度</span>
+                <select id="speedSelect" aria-label="动画播放速度">
+                  <option value="1400">慢</option>
+                  <option value="900" selected>标准</option>
+                  <option value="520">快</option>
+                </select>
+              </label>
+            </div>
+
+            <div id="scene" class="scene" aria-live="polite"></div>
+
+            <div class="narration">
+              <span id="stepCounter"></span>
+              <div>
+                <h3 id="stepTitle"></h3>
+                <p id="stepBody"></p>
+              </div>
+            </div>
+
+            <div class="player-controls">
+              <button id="prevStep" class="button ghost" type="button">← 上一步</button>
+              <button id="playPause" class="button primary" type="button">▶ 自动播放</button>
+              <button id="nextStep" class="button ghost" type="button">下一步 →</button>
+            </div>
+            <p class="keyboard-hint">空格播放 / 暂停 · ← → 切换步骤</p>
+          </article>
+
+          <aside class="concept-card">
+            <span class="eyebrow">这一讲要带走什么</span>
+            <ul id="objectives"></ul>
+            <div class="formula-box">
+              <span>核心表达</span>
+              <code id="formula"></code>
+            </div>
+            <div class="memory-box">
+              <span>记忆钩子</span>
+              <p id="memory"></p>
+            </div>
+          </aside>
+        </section>
+
+        <section class="check-card" id="checkCard">
+          <div class="check-heading">
+            <div>
+              <span class="eyebrow">30 秒检查</span>
+              <h2 id="quizQuestion"></h2>
+            </div>
+            <span class="check-badge">答对才算学完</span>
+          </div>
+          <div id="quizOptions" class="quiz-options"></div>
+          <p id="quizFeedback" class="quiz-feedback" aria-live="polite"></p>
+        </section>
+
+        <footer class="lesson-footer">
+          <button id="prevChapter" class="chapter-button" type="button">
+            <span>上一讲</span>
+            <strong id="prevChapterName"></strong>
+          </button>
+          <button id="nextChapter" class="chapter-button next" type="button">
+            <span>下一讲</span>
+            <strong id="nextChapterName"></strong>
+          </button>
+        </footer>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
