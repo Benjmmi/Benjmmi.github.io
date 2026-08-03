@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx hexo *)",
+      "Bash(awk '/<h3>2026<\\\\/h3>/,/<h3>2025<\\\\/h3>/' public/index.html)"
+    ]
+  }
+}

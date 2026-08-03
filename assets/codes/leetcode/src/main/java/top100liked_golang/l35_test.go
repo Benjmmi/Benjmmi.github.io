@@ -19,5 +19,5 @@ func searchInsert(nums []int, target int) int {
 }
 
 func Test_searchInsert(t *testing.T) {
-
+	
 }
