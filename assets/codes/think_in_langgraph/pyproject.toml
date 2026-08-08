@@ -1,0 +1,18 @@
+[project]
+name = "think-in-langgraph"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "langchain-deepseek>=1.1.0",
+    "langchain-openai>=1.4.1",
+    "langchain[all,openai]>=1.3.14",
+    "langgraph>=1.2.10",
+    "python-multipart>=0.0.32",
+]
+
+
+[tool.fastapi]
+entrypoint = "main:app"
