@@ -1,39 +1,43 @@
+from functools import lru_cache
 from typing import Literal
 
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage
 from langgraph.constants import END
 from langgraph.types import interrupt, Command
 
 from src.model import EmailAgentState, EmailClassification
 
-llm = init_chat_model("deepseek-chat", model_provider="deepseek")
+
+@lru_cache(maxsize=1)
+def get_llm():
+    """延迟创建并复用模型，避免导入 API 模块时立即检查凭据。"""
+    return init_chat_model("deepseek-chat", model_provider="deepseek")
 
 
-def read_email(state: EmailAgentState):
-    """
-    抽取和转换 Email 内容
-    :param state:
-    :return:
-    """
-    return {"message": [HumanMessage(content=f"Processing email:{state.email_content}")]}
+def read_email(state: EmailAgentState) -> dict:
+    """读取邮件内容并记录当前处理消息。"""
+    return {
+        "messages": [f"正在处理邮件：{state['email_content']}"],
+        "current_step": "email_read",
+    }
 
 
 def classify_intent(state: EmailAgentState) -> Command[
     Literal["search_documentation", "human_review", "draft_response", "bug_tracking"]]:
-    """
-    使用大模型对邮件内容进行分类
-    :param state:
-    :return:
-    """
+    """使用大模型分类邮件，并根据意图和紧急程度选择后续节点。"""
+    llm = get_llm()
     struct_llm = llm.with_structured_output(EmailClassification)
     classification_prompt = f"""
-    Analyze this customer email and classify it:
+    请分析下面的客户邮件，并对邮件进行分类。
 
-    Email: {state.email_content}
-    From: {state.sender_email}
+    邮件内容：{state['email_content']}
+    发件人：{state['sender_email']}
 
-    Provide classification including intent, urgency, topic, and summary.
+    请返回以下分类信息：
+    - intent：客户意图
+    - urgency：紧急程度
+    - topic：邮件主题
+    - summary：邮件内容摘要
     """
 
     classification = struct_llm.invoke(classification_prompt)
@@ -48,49 +52,46 @@ def classify_intent(state: EmailAgentState) -> Command[
         goto = "draft_response"
 
     return Command(
-        update={"classification": classification},
+        update={"classification": classification, "current_step": "classified"},
         goto=goto
     )
 
 
 def search_documentation(state: EmailAgentState) -> Command[Literal["draft_response"]]:
-    """
-    搜索检索信息
-    :param state:
-    :return:
-    """
+    """根据分类信息检索相关知识库内容。"""
 
-    # Build search query from classification
+    # 使用结构化分类结果构造检索条件。
     classification = state.get('classification', {})
-    query = f"{classification.get('intent', '')} {classification.get('topic', '')}"
+    query = f"{classification.get('intent', '')} {classification.get('topic', '')}".strip()
 
     try:
-        # Implement your search logic here
-        # Store raw search results, not formatted text
+        # 此处为演示数据，接入真实知识库时在这里替换检索逻辑。
+        # 状态中保存原始检索结果，供下游节点按需格式化。
         search_results = [
-            "Reset password via Settings > Security > Change Password",
-            "Password must be at least 12 characters",
-            "Include uppercase, lowercase, numbers, and symbols"
+            f"知识库匹配条件：{query}",
+            "可以通过“设置 > 安全 > 修改密码”重置密码",
+            "密码长度必须至少为 12 个字符",
+            "密码应包含大写字母、小写字母、数字和符号"
         ]
     except IOError as e:
-        # For recoverable search errors, store error and continue
-        search_results = [f"Search temporarily unavailable: {str(e)}"]
+        # 可恢复的检索错误写入状态，让流程继续生成回复。
+        search_results = [f"知识库暂时不可用：{str(e)}"]
 
     return Command(
-        update={"search_results": search_results},  # Store raw results or error
+        update={"search_results": search_results, "current_step": "documentation_searched"},
         goto="draft_response"
     )
 
 
 def bug_tracking(state: EmailAgentState) -> Command[Literal["draft_response"]]:
-    """Create or update bug tracking ticket"""
+    """创建或更新缺陷跟踪工单。"""
 
-    # Create ticket in your bug tracking system
-    ticket_id = "BUG-12345"  # Would be created via API
+    # 此处为演示工单号，接入真实系统后由工单 API 返回。
+    ticket_id = "BUG-12345"
 
     return Command(
         update={
-            "search_results": [f"Bug ticket {ticket_id} created"],
+            "search_results": [f"已创建缺陷工单 {ticket_id}"],
             "current_step": "bug_tracked"
         },
         goto="draft_response"
@@ -98,83 +99,92 @@ def bug_tracking(state: EmailAgentState) -> Command[Literal["draft_response"]]:
 
 
 def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "send_reply"]]:
-    """Generate response using context and route based on quality"""
+    """结合已有上下文生成回复，并判断是否需要人工审核。"""
 
     classification = state.get('classification', {})
 
-    # Format context from raw state data on-demand
+    # 使用状态中的原始数据按需组装提示上下文。
     context_sections = []
 
     if state.get('search_results'):
-        # Format search results for the prompt
+        # 将原始检索结果格式化为提示词中的资料列表。
         formatted_docs = "\n".join([f"- {doc}" for doc in state['search_results']])
-        context_sections.append(f"Relevant documentation:\n{formatted_docs}")
+        context_sections.append(f"相关资料：\n{formatted_docs}")
 
     if state.get('customer_history'):
-        # Format customer data for the prompt
-        context_sections.append(f"Customer tier: {state['customer_history'].get('tier', 'standard')}")
+        # 将需要的客户资料加入提示词，不在状态中保存格式化文本。
+        context_sections.append(f"客户等级：{state['customer_history'].get('tier', '标准')}")
 
-    # Build the prompt with formatted context
+    # 在节点内部动态构造回复提示词。
     draft_prompt = f"""
-    Draft a response to this customer email:
+    请为下面的客户邮件起草一封中文回复：
     {state['email_content']}
 
-    Email intent: {classification.get('intent', 'unknown')}
-    Urgency level: {classification.get('urgency', 'medium')}
+    客户意图：{classification.get('intent', '未知')}
+    紧急程度：{classification.get('urgency', '中等')}
 
     {chr(10).join(context_sections)}
 
-    Guidelines:
-    - Be professional and helpful
-    - Address their specific concern
-    - Use the provided documentation when relevant
+    回复要求：
+    - 使用专业、友善的中文
+    - 直接回应客户的具体问题
+    - 在适用时使用上面提供的资料
+    - 不要编造资料中不存在的操作结果或承诺
     """
 
-    response = llm.invoke(draft_prompt)
+    response = get_llm().invoke(draft_prompt)
 
-    # Determine if human review needed based on urgency and intent
+    # 高紧急程度或复杂问题必须进入人工审核。
     needs_review = (
             classification.get('urgency') in ['high', 'critical'] or
             classification.get('intent') == 'complex'
     )
 
-    # Route to appropriate next node
+    # 根据审核要求选择下一个节点。
     goto = "human_review" if needs_review else "send_reply"
 
     return Command(
-        update={"draft_response": response.content},  # Store only the raw response
+        update={"draft_response": response.content, "current_step": "response_drafted"},
         goto=goto
     )
 
 
 def human_review(state: EmailAgentState) -> Command[Literal["send_reply", END]]:
-    """Pause for human review using interrupt and route based on decision"""
+    """暂停流程等待人工审核，再根据审核决定继续或结束。"""
 
     classification = state.get('classification', {})
 
-    # interrupt() must come first - any code before it will re-run on resume
+    # interrupt() 应尽量放在节点开头，因为恢复流程时其前面的代码会重新执行。
     human_decision = interrupt({
         "email_id": state.get('email_id', ''),
         "original_email": state.get('email_content', ''),
         "draft_response": state.get('draft_response', ''),
         "urgency": classification.get('urgency'),
         "intent": classification.get('intent'),
-        "action": "Please review and approve/edit this response"
+        "action": "请审核这封回复，并选择批准、编辑或交由人工处理"
     })
 
-    # Now process the human's decision
+    # 恢复执行后，根据审核结果选择发送回复或交由人工处理。
     if human_decision.get("approved"):
         return Command(
-            update={"draft_response": human_decision.get("edited_response", state.get('draft_response', ''))},
+            update={
+                "draft_response": human_decision.get("edited_response") or state.get('draft_response', ''),
+                "current_step": "human_approved",
+            },
             goto="send_reply"
         )
     else:
-        # Rejection means human will handle directly
-        return Command(update={}, goto=END)
+        # 审核拒绝表示后续工作由人工直接处理。
+        return Command(
+            update={"current_step": "human_handled", "delivery_status": "human_handled"},
+            goto=END,
+        )
 
 
 def send_reply(state: EmailAgentState) -> dict:
-    """Send the email response"""
-    # Integrate with email service
-    print(f"Sending reply: {state['draft_response'][:100]}...")
-    return {}
+    """发送最终邮件回复。"""
+
+    # 此处仅输出日志，接入真实邮件服务时替换为发送接口。
+    draft = state.get("draft_response") or ""
+    print(f"正在发送回复：{draft[:100]}...")
+    return {"current_step": "reply_sent", "delivery_status": "sent"}
