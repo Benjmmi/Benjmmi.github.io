@@ -11,14 +11,44 @@ from main import app
 
 
 class FakeStructuredModel:
+    def __init__(self, schema):
+        self.schema = schema
+
     def invoke(self, prompt: str, config=None) -> dict:
         lower = prompt.lower()
+        if self.schema.__name__ == "TravelResearchPlan":
+            return {
+                "tasks": [
+                    {
+                        "task_id": "transport-1",
+                        "category": "transport",
+                        "query": "比较上海到杭州的往返交通",
+                    },
+                    {
+                        "task_id": "activities-1",
+                        "category": "activities",
+                        "query": "安排自然和美食活动",
+                    },
+                    {
+                        "task_id": "budget-1",
+                        "category": "budget",
+                        "query": "规划两人 3000 元预算",
+                    },
+                ]
+            }
         if "charged twice" in lower:
             return {
                 "intent": "billing",
                 "urgency": "critical",
                 "topic": "duplicate charge",
                 "summary": "Customer reports a duplicate charge",
+            }
+        if "hangzhou" in lower:
+            return {
+                "intent": "travel",
+                "urgency": "low",
+                "topic": "Hangzhou weekend trip",
+                "summary": "Customer requests a two-day Hangzhou itinerary",
             }
         return {
             "intent": "question",
@@ -29,8 +59,8 @@ class FakeStructuredModel:
 
 
 class FakeModel:
-    def with_structured_output(self, _schema):
-        return FakeStructuredModel()
+    def with_structured_output(self, schema):
+        return FakeStructuredModel(schema)
 
     def invoke(self, _prompt: str, config=None) -> AIMessage:
         return AIMessage(content="Open Settings > Security to reset your password.")
@@ -88,6 +118,25 @@ class EmailWorkflowTests(unittest.TestCase):
         body = resumed.json()
         self.assertEqual(body["status"], "completed")
         self.assertEqual(body["state"]["draft_response"], "A refund has been initiated.")
+        self.assertEqual(body["state"]["delivery_status"], "sent")
+
+    def test_travel_branch_dynamically_runs_workers(self):
+        response = self.client.post(
+            "/emails/process",
+            json={
+                "email_content": "Plan a two-day Hangzhou trip for two people with a 3000 RMB budget.",
+                "sender_email": "traveler@example.com",
+                "email_id": "travel-1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "completed")
+        self.assertEqual(body["state"]["classification"]["intent"], "travel")
+        self.assertEqual(len(body["state"]["travel_research_tasks"]), 3)
+        self.assertEqual(len(body["state"]["travel_research_results"]), 3)
+        self.assertTrue(body["state"]["travel_itinerary"])
         self.assertEqual(body["state"]["delivery_status"], "sent")
 
     def test_rejected_review_is_marked_for_human_handling(self):

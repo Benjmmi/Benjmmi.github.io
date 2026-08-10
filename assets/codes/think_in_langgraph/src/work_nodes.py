@@ -13,9 +13,14 @@ from typing import Literal
 
 from langchain.chat_models import init_chat_model
 from langgraph.constants import END
-from langgraph.types import interrupt, Command
+from langgraph.types import interrupt, Command, Send
 
-from src.model import EmailAgentState, EmailClassification
+from src.model import (
+    EmailAgentState,
+    EmailClassification,
+    TravelResearchPlan,
+    TravelWorkerState,
+)
 
 
 @lru_cache(maxsize=1)
@@ -37,7 +42,13 @@ def read_email(state: EmailAgentState) -> dict:
 
 
 def classify_intent(state: EmailAgentState) -> Command[
-    Literal["search_documentation", "human_review", "draft_response", "bug_tracking"]]:
+    Literal[
+        "search_documentation",
+        "human_review",
+        "draft_response",
+        "bug_tracking",
+        "plan_travel",
+    ]]:
     """使用大模型分类邮件，并根据意图和紧急程度选择后续节点。"""
     llm = get_llm()
     # with_structured_output 会根据 EmailClassification 生成 JSON Schema。
@@ -63,6 +74,8 @@ def classify_intent(state: EmailAgentState) -> Command[
 
     if classification['intent'] == 'billing' or classification['urgency'] == 'critical':
         goto = "human_review"
+    elif classification['intent'] == 'travel':
+        goto = "plan_travel"
     elif classification['intent'] in ['question', 'feature']:
         goto = "search_documentation"
     elif classification['intent'] == 'bug':
@@ -74,6 +87,91 @@ def classify_intent(state: EmailAgentState) -> Command[
     return Command(
         update={"classification": classification, "current_step": "classified"},
         goto=goto
+    )
+
+
+def plan_travel(state: EmailAgentState) -> dict:
+    """Orchestrator 根据旅游邮件动态规划本次需要的调研任务。"""
+
+    planner = get_llm().with_structured_output(TravelResearchPlan)
+    plan = planner.invoke(
+        f"""
+        你是旅行规划协调者。请根据邮件动态拆分必要且可独立执行的调研任务。
+
+        邮件：{state['email_content']}
+
+        category 只能是 transport、accommodation、activities、budget、visa。
+        任务数量由邮件实际需求决定，每个 task_id 必须唯一；不要为了凑数创建任务。
+        """
+    )
+    if not plan["tasks"]:
+        raise ValueError("没有生成旅游调研任务")
+    return {
+        "travel_research_tasks": plan["tasks"],
+        "current_step": "travel_planned",
+    }
+
+
+def assign_travel_workers(state: EmailAgentState) -> list[Send]:
+    """使用 Send 为 Orchestrator 运行时生成的每项任务创建 Worker。"""
+
+    tasks = state["travel_research_tasks"]
+    print(f"即将执行 {len(tasks)} 个旅游调研任务：")
+    for task in tasks:
+        print(
+            f"- [{task['task_id']}] "
+            f"category={task['category']} query={task['query']}"
+        )
+
+    return [
+        Send("travel_worker", {"task": task})
+        for task in tasks
+    ]
+
+
+def travel_worker(state: TravelWorkerState) -> dict:
+    """独立完成一项旅游调研任务。"""
+
+    task = state["task"]
+    response = get_llm().invoke(
+        f"""
+        你是旅游调研 Worker，只处理下面这一项任务：
+        类别：{task['category']}
+        查询：{task['query']}
+
+        返回简洁、可操作的结论。价格、班次、开放时间和签证政策等时效信息，
+        必须提醒用户在预订或出发前通过官方渠道确认。
+        """
+    )
+    return {
+        "travel_research_results": [
+            {
+                "task_id": task["task_id"],
+                "category": task["category"],
+                "content": response.content,
+            }
+        ]
+    }
+
+
+def synthesize_itinerary(state: EmailAgentState) -> Command[Literal["draft_response"]]:
+    """汇总所有 Worker 输出，形成一份一致的旅行方案。"""
+
+    response = get_llm().invoke(
+        f"""
+        请把下面各旅游调研 Worker 的结果合成为一份中文旅行方案。
+        需要解决建议之间的冲突，不要只是逐项拼接，也不要声称已经完成预订。
+
+        原始邮件：{state['email_content']}
+        调研结果：{state['travel_research_results']}
+        """
+    )
+    return Command(
+        update={
+            "travel_itinerary": response.content,
+            "current_step": "travel_synthesized",
+        },
+        goto="draft_response",
     )
 
 
@@ -135,6 +233,9 @@ def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "s
         # 将需要的客户资料加入提示词，不在状态中保存格式化文本。
         context_sections.append(f"客户等级：{state['customer_history'].get('tier', '标准')}")
 
+    if state.get('travel_itinerary'):
+        context_sections.append(f"旅行方案：\n{state['travel_itinerary']}")
+
     # 在节点内部动态构造回复提示词。
     draft_prompt = f"""
     请为下面的客户邮件起草一封中文回复：
@@ -157,7 +258,11 @@ def draft_response(state: EmailAgentState) -> Command[Literal["human_review", "s
     # 高紧急程度或复杂问题必须进入人工审核。
     needs_review = (
             classification.get('urgency') in ['high', 'critical'] or
-            classification.get('intent') == 'complex'
+            classification.get('intent') == 'complex' or
+            any(
+                task.get('category') == 'visa'
+                for task in state.get('travel_research_tasks', [])
+            )
     )
 
     # 根据审核要求选择下一个节点。

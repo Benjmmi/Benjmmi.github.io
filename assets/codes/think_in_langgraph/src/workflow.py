@@ -11,13 +11,17 @@ from src.model import EmailAgentState
 from src.mysql_saver import MySQLSaver
 from src.run_store import MySQLRunStore
 from src.work_nodes import (
+    assign_travel_workers,
     bug_tracking,
     classify_intent,
     draft_response,
     human_review,
     read_email,
+    plan_travel,
     search_documentation,
     send_reply,
+    synthesize_itinerary,
+    travel_worker,
 )
 
 # StateGraph 只描述图的结构；compile 后才得到可以 invoke/stream 的运行时对象。
@@ -35,6 +39,13 @@ workflow.add_node(
     retry_policy=RetryPolicy(max_attempts=3)
 )
 workflow.add_node("bug_tracking", bug_tracking)
+workflow.add_node("plan_travel", plan_travel)
+workflow.add_node(
+    "travel_worker",
+    travel_worker,
+    retry_policy=RetryPolicy(max_attempts=3),
+)
+workflow.add_node("synthesize_itinerary", synthesize_itinerary)
 workflow.add_node("draft_response", draft_response)
 workflow.add_node("human_review", human_review)
 workflow.add_node("send_reply", send_reply)
@@ -43,6 +54,14 @@ workflow.add_node("send_reply", send_reply)
 # 的去向由运行结果决定，所以它们在节点内部返回 Command(goto=...)。
 workflow.add_edge(START, "read_email")
 workflow.add_edge("read_email", "classify_intent")
+# plan_travel 运行时决定任务数量；Send 动态创建 Worker。所有 Worker 的输出
+# 通过 State reducer 合并后，再统一进入 synthesizer。
+workflow.add_conditional_edges(
+    "plan_travel",
+    assign_travel_workers,
+    ["travel_worker"],
+)
+workflow.add_edge("travel_worker", "synthesize_itinerary")
 workflow.add_edge("send_reply", END)
 
 def create_checkpointer():

@@ -6,6 +6,7 @@
 START -> read_email -> classify_intent
                          | question/feature -> search_documentation -> draft_response
                          | bug              -> bug_tracking         -> draft_response
+                         | travel           -> plan_travel -> workers -> synthesize_itinerary -> draft_response
                          | complex          -> draft_response
                          | billing/critical -> human_review
 
@@ -43,6 +44,28 @@ agent_runs / agent_run_steps
 ```
 
 流程状态只保存原始邮件、结构化分类、检索结果和回复草稿；提示词在节点执行时动态生成。文档检索节点配置了重试策略，人工审核使用 `interrupt()` 和 MySQL checkpointer 实现可跨进程的暂停/恢复。
+
+## Orchestrator–Worker 旅游分支
+
+当 `classify_intent` 把邮件识别为 `travel` 时，原客服流程会进入新增的旅游分支：
+
+```text
+plan_travel                 Orchestrator 根据邮件生成 N 个任务
+    ↓
+assign_travel_workers       使用 Send 动态创建 N 个 Worker
+    ├── travel_worker       交通
+    ├── travel_worker       活动
+    ├── travel_worker       预算
+    └── ...                 数量和类别由本次邮件决定
+    ↓
+synthesize_itinerary       汇总全部 Worker 结果
+    ↓
+draft_response             回到原有邮件草拟和审核流程
+```
+
+多个 Worker 都写入 `travel_research_results`，该字段使用
+`Annotated[list, operator.add]` reducer 合并并行输出。含 `visa` 任务的旅游方案
+会复用原有 `human_review` 节点。其他客服邮件路径与原练习保持不变。
 
 ## 启动
 
