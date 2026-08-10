@@ -14,22 +14,71 @@ human_review   -> send_reply（批准）或 END（人工接管）
 send_reply     -> END
 ```
 
-流程状态只保存原始邮件、结构化分类、检索结果和回复草稿；提示词在节点执行时动态生成。文档检索节点配置了重试策略，人工审核使用 `interrupt()` 和内存 checkpointer 实现暂停/恢复。
+## 建议阅读顺序
+
+这是一个学习型项目，建议按下面的顺序阅读源码：
+
+```text
+src/model.py          先理解图中流转的 State
+    ↓
+src/work_nodes.py     理解节点、Command 路由和 interrupt
+    ↓
+src/workflow.py       理解节点注册、固定边和 compile
+    ↓
+src/mysql_saver.py    理解 checkpoint 如何持久化和恢复
+    ↓
+src/run_store.py      理解 checkpoint 与业务审计记录的区别
+    ↓
+src/http_route.py     理解首次执行、人工恢复和状态查询
+```
+
+数据库中存在两套用途不同的数据：
+
+```text
+LangGraph checkpoint 表
+    用于程序恢复 State 和执行位置
+
+agent_runs / agent_run_steps
+    用于人类查询流程状态和节点执行历史
+```
+
+流程状态只保存原始邮件、结构化分类、检索结果和回复草稿；提示词在节点执行时动态生成。文档检索节点配置了重试策略，人工审核使用 `interrupt()` 和 MySQL checkpointer 实现可跨进程的暂停/恢复。
 
 ## 启动
 
-要求 Python 3.11+ 和 [uv](https://docs.astral.sh/uv/)。当前模型配置为 DeepSeek：
+要求 Python 3.11+、[uv](https://docs.astral.sh/uv/) 和 Docker。当前模型配置为 DeepSeek。
+
+先启动本地 MySQL 8.4：
+
+```bash
+docker compose up -d mysql
+docker compose ps
+```
+
+默认数据库连接为：
+
+```text
+mysql://langgraph:langgraph@127.0.0.1:3307/langgraph
+```
+
+然后启动服务：
 
 ```bash
 export DEEPSEEK_API_KEY=你的密钥
 uv sync
-uv run fastapi dev
+uv run python main.py
 ```
 
-也可以直接运行 `main.py` 进入本地调试模式（自动重载并输出 debug 日志）：
+如需使用其他 MySQL，可通过环境变量覆盖：
 
 ```bash
-uv run python main.py
+export MYSQL_URI='mysql://用户名:密码@主机:3306/数据库名'
+```
+
+`main.py` 默认启用自动重载和 LangChain debug 日志。只在测试或临时调试时使用内存检查点：
+
+```bash
+CHECKPOINT_BACKEND=memory uv run python main.py
 ```
 
 接口文档打开 <http://127.0.0.1:8000/docs>，健康检查为 `GET /health`。
@@ -59,7 +108,31 @@ curl -X POST http://127.0.0.1:8000/emails/THREAD_ID/review \
 
 拒绝时提交 `{"approved": false}`，流程将结束并标记为人工接管。
 
-当前的文档检索、缺陷单创建和邮件发送是便于演示的本地占位实现；对应节点已经独立，后续可直接替换成真实知识库、工单和邮件 API。`MemorySaver` 也只适合本地开发，服务重启后不会保留审核断点，生产环境应改用持久化 checkpointer。
+当前的文档检索、缺陷单创建和邮件发送是便于演示的本地占位实现；对应节点已经独立，后续可直接替换成真实知识库、工单和邮件 API。MySQL checkpointer 会在启动时自动创建以下表：
+
+```text
+langgraph_checkpoints          # checkpoint 结构
+langgraph_checkpoint_blobs     # State channel 数据
+langgraph_checkpoint_writes    # 中间写入
+agent_runs                     # 流程当前业务状态
+agent_run_steps                # 每次节点流转记录
+```
+
+查询流程当前状态和节点历史：
+
+```bash
+curl http://127.0.0.1:8000/emails/THREAD_ID/status
+```
+
+节点记录包含 `running`、`completed`、`waiting_input` 和 `failed` 四种状态。
+
+停止容器但保留数据：
+
+```bash
+docker compose down
+```
+
+MySQL 数据存放在命名卷 `langgraph_mysql_data` 中。仅在确认不再需要历史 checkpoint 时才删除该卷。
 
 ## 测试
 
@@ -67,4 +140,10 @@ curl -X POST http://127.0.0.1:8000/emails/THREAD_ID/review \
 
 ```bash
 uv run python -m unittest discover -s tests -v
+```
+
+MySQL 集成测试会创建临时 thread，使用全新的图实例恢复中断，完成后删除测试数据：
+
+```bash
+MYSQL_INTEGRATION_TEST=1 uv run python -m unittest discover -s tests -v
 ```

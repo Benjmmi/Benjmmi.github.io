@@ -1,8 +1,11 @@
+import os
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
+
+os.environ["CHECKPOINT_BACKEND"] = "memory"
 
 from main import app
 
@@ -58,6 +61,10 @@ class EmailWorkflowTests(unittest.TestCase):
         self.assertEqual(body["state"]["delivery_status"], "sent")
         self.assertEqual(body["state"]["classification"]["intent"], "question")
         self.assertTrue(body["state"]["search_results"])
+
+        status = self.client.get(f"/emails/{body['thread_id']}/status")
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["run"]["status"], "completed")
 
     def test_billing_pauses_and_can_be_approved(self):
         started = self.client.post(

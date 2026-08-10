@@ -1,3 +1,13 @@
+"""邮件处理图中的节点函数。
+
+节点接收当前 State，并返回普通字典或 ``Command``：
+
+* 普通字典只更新 State，下一步由 workflow 中声明的固定边决定；
+* ``Command(update=..., goto=...)`` 同时更新 State 并动态选择下一节点。
+
+节点尽量保持单一职责，既便于观察流程，也能缩小失败重试的范围。
+"""
+
 from functools import lru_cache
 from typing import Literal
 
@@ -11,11 +21,15 @@ from src.model import EmailAgentState, EmailClassification
 @lru_cache(maxsize=1)
 def get_llm():
     """延迟创建并复用模型，避免导入 API 模块时立即检查凭据。"""
+
+    # lru_cache 使一个 Python 进程只创建一个模型客户端；它不会缓存模型回复。
     return init_chat_model("deepseek-chat", model_provider="deepseek")
 
 
 def read_email(state: EmailAgentState) -> dict:
     """读取邮件内容并记录当前处理消息。"""
+
+    # 返回值是 State 增量，而不是一份完整的新 State。
     return {
         "messages": [f"正在处理邮件：{state['email_content']}"],
         "current_step": "email_read",
@@ -26,6 +40,9 @@ def classify_intent(state: EmailAgentState) -> Command[
     Literal["search_documentation", "human_review", "draft_response", "bug_tracking"]]:
     """使用大模型分类邮件，并根据意图和紧急程度选择后续节点。"""
     llm = get_llm()
+    # with_structured_output 会根据 EmailClassification 生成 JSON Schema。
+    # DeepSeek 的兼容接口通常通过一次 tool_call 返回参数，LangChain 再把参数
+    # 解析成 EmailClassification；这里并没有真的执行一个外部工具。
     struct_llm = llm.with_structured_output(EmailClassification)
     classification_prompt = f"""
     请分析下面的客户邮件，并对邮件进行分类。
@@ -40,6 +57,8 @@ def classify_intent(state: EmailAgentState) -> Command[
     - summary：邮件内容摘要
     """
 
+    # 只有 classification_prompt 和结构化输出 Schema 会发送给模型；State 中
+    # 其他字段不会因为调用 invoke 而自动进入上下文。
     classification = struct_llm.invoke(classification_prompt)
 
     if classification['intent'] == 'billing' or classification['urgency'] == 'critical':
@@ -51,6 +70,7 @@ def classify_intent(state: EmailAgentState) -> Command[
     else:
         goto = "draft_response"
 
+    # update 会合并进 State，goto 则覆盖静态边并决定下一节点。
     return Command(
         update={"classification": classification, "current_step": "classified"},
         goto=goto
@@ -154,7 +174,9 @@ def human_review(state: EmailAgentState) -> Command[Literal["send_reply", END]]:
 
     classification = state.get('classification', {})
 
-    # interrupt() 应尽量放在节点开头，因为恢复流程时其前面的代码会重新执行。
+    # interrupt() 会把参数写入 checkpoint 并让本次 invoke 返回；它不是阻塞
+    # 当前 HTTP 请求等待用户输入。后续审核请求用同一个 thread_id 恢复执行。
+    # interrupt 应尽量放在节点开头，因为恢复时该节点会从头重新执行。
     human_decision = interrupt({
         "email_id": state.get('email_id', ''),
         "original_email": state.get('email_content', ''),

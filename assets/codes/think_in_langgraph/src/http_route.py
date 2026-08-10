@@ -1,3 +1,5 @@
+"""把邮件工作流暴露为启动、人工审核恢复和状态查询三个 HTTP 接口。"""
+
 from typing import Any
 from uuid import uuid4
 
@@ -5,7 +7,8 @@ from fastapi import APIRouter, HTTPException
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from src.workflow import workflow_app
+from src.run_store import NodeTransitionRecorder
+from src.workflow import run_store, workflow_app
 
 # 邮件 Agent 的 HTTP 接口统一放在 /emails 路径下。
 R = APIRouter(prefix="/emails", tags=["email-agent"])
@@ -17,7 +20,7 @@ class EmailRequest(BaseModel):
     email_content: str = Field(min_length=1)
     sender_email: str = Field(min_length=1)
     email_id: str = Field(min_length=1)
-    # 可由调用方指定，未提供时由服务生成；它也是 LangGraph checkpoint 的会话标识。
+    # 可由调用方指定，未提供时由服务生成；它也是 checkpoint 的会话标识。
     thread_id: str | None = None
     # 可选的原始客户资料，后续节点会在生成回复时按需格式化。
     customer_history: dict[str, Any] | None = None
@@ -31,10 +34,20 @@ class ReviewRequest(BaseModel):
     edited_response: str | None = None
 
 
-def _config(thread_id: str) -> dict:
-    """构造 LangGraph checkpointer 要求的运行配置。"""
+def _config(thread_id: str, *, record_steps: bool = False) -> dict:
+    """构造一次图执行所需的 thread、metadata 和 callback 配置。"""
 
-    return {"configurable": {"thread_id": thread_id}}
+    # configurable.thread_id 供 checkpointer 查找状态；metadata.thread_id 会
+    # 传给 callback，让节点记录器知道当前事件属于哪个业务流程。
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "metadata": {"thread_id": thread_id},
+    }
+    if record_steps and run_store:
+        # 每次 invoke 创建独立 recorder，避免并发 HTTP 请求共享临时
+        # run_id 映射。
+        config["callbacks"] = [NodeTransitionRecorder(run_store)]
+    return config
 
 
 def _result(thread_id: str, state: dict) -> dict:
@@ -44,6 +57,9 @@ def _result(thread_id: str, state: dict) -> dict:
     interrupts = state.get("__interrupt__", ())
     if interrupts:
         interrupt_value = interrupts[0].value
+        if run_store:
+            # checkpoint 已由 LangGraph 保存；这里只更新面向业务查询的状态表。
+            run_store.set_run_status(thread_id, "needs_review")
         return {
             "thread_id": thread_id,
             "status": "needs_review",
@@ -51,6 +67,8 @@ def _result(thread_id: str, state: dict) -> dict:
         }
 
     # 流程执行结束后返回业务状态，隐藏 LangGraph 的内部中断字段。
+    if run_store:
+        run_store.set_run_status(thread_id, "completed")
     return {
         "thread_id": thread_id,
         "status": "completed",
@@ -67,7 +85,23 @@ def process_email(request: EmailRequest) -> dict:
 
     # thread_id 属于运行配置，不属于 EmailAgentState，因此不写入图状态。
     initial_state = request.model_dump(exclude={"thread_id"}, exclude_none=True)
-    result = workflow_app.invoke(initial_state, _config(thread_id))
+    if run_store:
+        run_store.start_run(thread_id, request.email_id)
+    try:
+        # invoke 是同步执行：正常完成或遇到 interrupt 后返回。record_steps
+        # 会让每个业务节点的生命周期通过 callback 写入 agent_run_steps。
+        result = workflow_app.invoke(
+            initial_state,
+            _config(thread_id, record_steps=True),
+        )
+    except Exception as error:
+        if run_store:
+            run_store.set_run_status(
+                thread_id,
+                "failed",
+                error_message=str(error),
+            )
+        raise
     return _result(thread_id, result)
 
 
@@ -75,14 +109,58 @@ def process_email(request: EmailRequest) -> dict:
 def review_email(thread_id: str, request: ReviewRequest) -> dict:
     """提交人工审核结果，并从 human_review 节点恢复流程。"""
 
-    # 只有确实暂停在 human_review 的流程才能恢复，避免重复审核或错误 thread_id。
+    # 只有确实暂停在 human_review 的流程才能恢复，避免重复审核或错误
+    # thread_id。
     snapshot = workflow_app.get_state(_config(thread_id))
     if not snapshot.next or "human_review" not in snapshot.next:
         raise HTTPException(status_code=409, detail="当前流程未处于等待人工审核状态")
 
     # Command(resume=...) 会让 interrupt() 返回审核数据，并继续执行后续路由。
-    result = workflow_app.invoke(
-        Command(resume=request.model_dump(exclude_none=True)),
-        _config(thread_id),
-    )
+    if run_store:
+        # 恢复沿用原 thread，不创建新的 agent_runs 记录。
+        run_store.start_run(thread_id)
+    try:
+        result = workflow_app.invoke(
+            Command(resume=request.model_dump(exclude_none=True)),
+            _config(thread_id, record_steps=True),
+        )
+    except Exception as error:
+        if run_store:
+            run_store.set_run_status(
+                thread_id,
+                "failed",
+                error_message=str(error),
+            )
+        raise
     return _result(thread_id, result)
+
+
+@R.get("/{thread_id}/status")
+def get_email_status(thread_id: str) -> dict:
+    """查询流程当前状态和节点流转历史。"""
+
+    if run_store:
+        # MySQL 模式直接读取易查询的业务表，不需要反序列化 checkpoint blob。
+        run = run_store.get_run(thread_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="流程不存在")
+        return {"run": run, "steps": run_store.list_steps(thread_id)}
+
+    # 内存测试模式下没有业务记录表，直接根据 checkpoint 推断状态。
+    snapshot = workflow_app.get_state(_config(thread_id))
+    if snapshot.created_at is None:
+        raise HTTPException(status_code=404, detail="流程不存在")
+    if snapshot.interrupts:
+        status = "needs_review"
+    elif snapshot.next:
+        status = "incomplete"
+    else:
+        status = "completed"
+    return {
+        "run": {
+            "thread_id": thread_id,
+            "status": status,
+            "current_node": snapshot.next[0] if snapshot.next else None,
+        },
+        "steps": [],
+    }
