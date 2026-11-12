@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body { margin: 0; }</style>
+<title>Superset 项目架构</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: sticky section index on the left, one reading column on the right; diagrams are tiered grids of process boxes. */
+:root {
+  --bg: #f6f8f9;
+  --surface: #ffffff;
+  --sunken: #edf1f3;
+  --fg: #16242b;
+  --muted: #56676f;
+  --line: #d5dde1;
+  --accent: #0f7f9c;
+  --accent-soft: #dff1f5;
+  --warn: #8a5a00;
+  --warn-soft: #fbefd3;
+  --font-body: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f171b; --surface: #162127; --sunken: #1c2a31; --fg: #e3ecef; --muted: #94a7af;
+    --line: #2b3b43; --accent: #4fc0dc; --accent-soft: #143642; --warn: #f0c062; --warn-soft: #3a2e12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f171b; --surface: #162127; --sunken: #1c2a31; --fg: #e3ecef; --muted: #94a7af;
+  --line: #2b3b43; --accent: #4fc0dc; --accent-soft: #143642; --warn: #f0c062; --warn-soft: #3a2e12;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.7;
+}
+.page {
+  max-width: 1180px; margin: 0 auto; padding-block: 32px 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 48px;
+}
+nav.toc {
+  position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start;
+  max-height: calc(100vh - 48px); overflow-y: auto; font-size: 13px;
+}
+nav.toc p { margin: 0 0 8px; color: var(--muted); font-size: 12px; letter-spacing: .08em; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; border-left: 1px solid var(--line); }
+nav.toc a { display: block; padding: 3px 12px; color: var(--muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { min-width: 0; display: flex; flex-direction: column; gap: 56px; }
+header.intro h1 { font-family: var(--font-display); font-size: 34px; line-height: 1.2; margin: 0 0 12px; font-weight: 600; text-wrap: balance; }
+header.intro p { margin: 0; max-width: 46em; color: var(--muted); }
+header.intro .meta { margin-top: 14px; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; min-width: 0; scroll-margin-top: 24px; }
+h2 { font-family: var(--font-display); font-size: 23px; font-weight: 600; margin: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); text-wrap: balance; }
+h3 { font-size: 16px; font-weight: 600; margin: 8px 0 0; }
+p { margin: 0; max-width: 48em; }
+ul, ol { margin: 0; padding-left: 1.3em; max-width: 50em; display: flex; flex-direction: column; gap: 4px; }
+code { font-family: var(--font-mono); font-size: .88em; background: var(--sunken); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+.stack { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.stack div { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.stack h3 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+.stack p { font-size: 14px; }
+/* tier diagram */
+.tiers { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+.tier { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.tier > span { font-size: 12px; color: var(--muted); padding-top: 8px; }
+.tier > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.box { border: 1px solid var(--line); background: var(--sunken); border-radius: 4px; padding: 8px 10px; font-size: 13px; line-height: 1.45; min-width: 0; }
+.box b { display: block; font-weight: 600; }
+.box small { color: var(--muted); font-size: 12px; }
+.box.core { background: var(--accent-soft); border-color: var(--accent); }
+.flowmark { text-align: center; color: var(--muted); font-size: 12px; line-height: 1; }
+ol.flow { list-style: none; padding: 0; counter-reset: step; gap: 0; max-width: none; }
+ol.flow li { counter-increment: step; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+ol.flow li::before { content: counter(step); font-family: var(--font-mono); font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; margin-top: 2px; }
+ol.flow b { font-weight: 600; }
+.note { background: var(--warn-soft); color: var(--fg); border-left: 3px solid var(--warn); padding: 10px 14px; border-radius: 0 4px 4px 0; font-size: 14px; max-width: 50em; }
+.note b { color: var(--warn); }
+.tag { display: inline-block; font-size: 11px; font-family: var(--font-mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 5px; line-height: 1.5; vertical-align: 1px; white-space: nowrap; }
+@media (max-width: 860px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  nav.toc { position: static; max-height: none; }
+  nav.toc ol { flex-direction: row; flex-wrap: wrap; border-left: 0; gap: 0 4px; }
+  nav.toc a { padding: 2px 8px 2px 0; }
+  header.intro h1 { font-size: 27px; }
+  .tier { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .tier > span { padding-top: 0; }
+  td:first-child { white-space: normal; }
+}
+</style>
+
+<div class="page">
+<nav class="toc" aria-label="目录">
+  <p>目录</p>
+  <ol>
+    <li><a href="#overview">概览与技术栈</a></li>
+    <li><a href="#topology">运行时拓扑</a></li>
+    <li><a href="#repo">仓库结构</a></li>
+    <li><a href="#backend">后端架构</a></li>
+    <li><a href="#flows">核心数据流</a></li>
+    <li><a href="#security">安全模型</a></li>
+    <li><a href="#cache">缓存与存储</a></li>
+    <li><a href="#models">元数据模型</a></li>
+    <li><a href="#frontend">前端架构</a></li>
+    <li><a href="#extend">扩展体系</a></li>
+    <li><a href="#deploy">部署形态</a></li>
+    <li><a href="#eng">测试与工程化</a></li>
+    <li><a href="#caveats">易踩的坑</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="intro">
+  <h1>Apache Superset 项目架构</h1>
+  <p>Superset 是一个数据探索与可视化平台:Flask/Python 后端负责元数据、权限、查询编排,React/TypeScript 单页应用负责图表编辑、仪表盘和 SQL Lab,Celery 承担异步与定时任务。本文按当前检出的代码梳理,所有路径均可在仓库中找到。</p>
+  <div class="meta">基于 master @ c0a86c7596 · 版本号 0.0.0-dev(Helm appVersion 6.1.0)· 整理于 2026-11-12</div>
+</header>
+
+<section id="overview">
+  <h2>概览与技术栈</h2>
+  <div class="stack">
+    <div><h3>后端</h3><p>Python ≥ 3.11 · Flask · Flask-AppBuilder 5 · SQLAlchemy 2.0 · Celery 5.6 · pandas 3.1 · sqlglot 30 · marshmallow · pydantic 2 · gunicorn</p></div>
+    <div><h3>前端</h3><p>Node 24 · React 18.3 · TypeScript 7.0 · antd 6 · Emotion 11 · Redux Toolkit 1.9 · react-router 5 · webpack 5 + swc · ECharts / deck.gl / AG Grid</p></div>
+    <div><h3>基础设施</h3><p>元数据库(PostgreSQL / MySQL / SQLite)· Redis(broker、缓存、pub/sub)· Docker 多阶段镜像 · Helm chart · Node 版 WebSocket 服务</p></div>
+    <div><h3>质量工具</h3><p>pytest · Jest 30 + React Testing Library · Playwright · ruff / mypy / pylint · oxlint / oxfmt / stylelint · pre-commit</p></div>
+  </div>
+  <p>整体是一个「服务端渲染外壳 + SPA」的结构:Flask 渲染 <code>spa.html</code> 并把 bootstrap 数据写进 DOM,前端接管路由后只通过 <code>/api/v1/*</code> REST 接口与后端交互。</p>
+</section>
+
+<section id="topology">
+  <h2>运行时拓扑</h2>
+  <div class="tiers">
+    <div class="tier"><span>客户端</span><div>
+      <div class="box"><b>浏览器 SPA</b><small>仪表盘、Explore、SQL Lab</small></div>
+      <div class="box"><b>嵌入页 iframe</b><small>embedded SDK + guest token</small></div>
+      <div class="box"><b>MCP 客户端</b><small>AI agent 调用工具</small></div>
+    </div></div>
+    <div class="flowmark">↓ HTTP / WebSocket</div>
+    <div class="tier"><span>接入层</span><div>
+      <div class="box"><b>nginx / Ingress</b><small>dev compose 监听 :80</small></div>
+    </div></div>
+    <div class="flowmark">↓</div>
+    <div class="tier"><span>应用进程</span><div>
+      <div class="box core"><b>Superset Web</b><small>gunicorn gthread :8088</small></div>
+      <div class="box core"><b>Celery worker</b><small>SQL Lab、报表、缩略图、GTF 任务</small></div>
+      <div class="box core"><b>Celery beat</b><small>定时调度</small></div>
+      <div class="box"><b>superset-websocket</b><small>Node :8080,实时事件推送</small></div>
+      <div class="box"><b>MCP service</b><small>FastMCP :5008,独立进程</small></div>
+    </div></div>
+    <div class="flowmark">↓</div>
+    <div class="tier"><span>状态存储</span><div>
+      <div class="box"><b>元数据库</b><small>仪表盘、图表、数据集、权限、key_value</small></div>
+      <div class="box"><b>Redis</b><small>Celery broker/结果、缓存、streams</small></div>
+      <div class="box"><b>Results backend</b><small>SQL Lab 异步结果</small></div>
+    </div></div>
+    <div class="flowmark">↓</div>
+    <div class="tier"><span>外部系统</span><div>
+      <div class="box"><b>分析数据库 / 数仓</b><small>经 SQLAlchemy + db_engine_specs</small></div>
+      <div class="box"><b>通知渠道</b><small>Email、Slack、Webhook</small></div>
+      <div class="box"><b>无头浏览器</b><small>报表截图、缩略图</small></div>
+    </div></div>
+  </div>
+  <p>Web、worker、beat 三者运行同一份 Python 代码和同一份配置,区别只在启动命令。WebSocket 服务和 MCP 服务是可选组件,默认关闭。</p>
+  <div class="scroll"><table>
+    <thead><tr><th>配置项</th><th>开箱默认(<code>superset/config.py</code>)</th><th>Docker 开发环境(<code>docker/pythonpath_dev/superset_config.py</code>)</th></tr></thead>
+    <tbody>
+      <tr><td>元数据库</td><td>SQLite <code>DATA_DIR/superset.db</code></td><td>PostgreSQL 17</td></tr>
+      <tr><td>Celery broker / 结果</td><td>SQLite 文件</td><td>Redis DB 0 / DB 1</td></tr>
+      <tr><td>元数据缓存、数据缓存</td><td>NullCache(不缓存)</td><td>RedisCache</td></tr>
+      <tr><td>筛选器状态、Explore 表单</td><td>SupersetMetastoreCache(存元数据库)</td><td>同左</td></tr>
+      <tr><td>SQL Lab 结果后端</td><td>None(仅同步执行)</td><td>FileSystemCache</td></tr>
+      <tr><td>WebSocket</td><td>关闭</td><td>compose 提供服务,需开关启用</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="repo">
+  <h2>仓库结构</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>目录</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td><code>superset/</code></td><td>Python 后端主包:Flask 应用、REST API、命令、DAO、模型、引擎适配、Celery 任务、CLI、Alembic 迁移</td></tr>
+      <tr><td><code>superset-frontend/</code></td><td>React/TypeScript SPA,以及 <code>packages/</code>(框架库)和 <code>plugins/</code>(图表插件)两组 npm workspace</td></tr>
+      <tr><td><code>superset-core/</code></td><td>Python 包 <code>apache-superset-core</code>:抽象模型、DAO、REST/MCP/任务/语义层契约,供主包和扩展共同依赖</td></tr>
+      <tr><td><code>superset-extensions-cli/</code></td><td>Python CLI <code>superset-extensions</code>:扩展脚手架、构建、打包(init / build / bundle / dev / validate)</td></tr>
+      <tr><td><code>superset-websocket/</code></td><td>Node/TypeScript WebSocket 服务,读 Redis streams 向浏览器推送异步事件</td></tr>
+      <tr><td><code>superset-embedded-sdk/</code></td><td>npm 包 <code>@superset-ui/embedded-sdk</code>:宿主页挂载仪表盘 iframe、刷新 guest token</td></tr>
+      <tr><td><code>docs/</code></td><td>Docusaurus 文档站(用户文档、管理员文档、开发者文档、组件文档)</td></tr>
+      <tr><td><code>docker/</code>、<code>helm/superset/</code></td><td>Compose 启动脚本与环境变量;Kubernetes Helm chart</td></tr>
+      <tr><td><code>tests/</code></td><td>Python 单元测试、集成测试、testcontainers 测试</td></tr>
+      <tr><td><code>requirements/</code>、<code>scripts/</code></td><td>锁定依赖(uv pip-compile);构建、翻译、lint 等辅助脚本</td></tr>
+      <tr><td><code>RELEASING/</code>、<code>RESOURCES/</code></td><td>Apache 发版工具;标准角色说明等资料</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="backend">
+  <h2>后端架构</h2>
+
+  <h3>应用启动</h3>
+  <ol class="flow">
+    <li><div><b>工厂函数</b> — <code>superset/app.py</code> 的 <code>create_app()</code> 创建 <code>SupersetApp</code>,从 <code>SUPERSET_CONFIG</code>(默认 <code>superset.config</code>)加载配置。</div></li>
+    <li><div><b>初始化器</b> — <code>superset/initialization/__init__.py</code> 的 <code>SupersetAppInitializer.init_app()</code> 依次完成密钥检查、会话、特性开关、数据库与迁移、Celery、CSRF、缓存、sqlglot 方言注册。</div></li>
+    <li><div><b>应用上下文内</b> — <code>init_app_in_ctx()</code> 配置 Flask-AppBuilder 与安全管理器,注册数据源类型,再由 <code>init_views()</code> 注册约 40 个 REST API 和各页面外壳视图。</div></li>
+    <li><div><b>依赖注入与扩展</b> — <code>init_core_dependencies()</code> 把具体实现注入 <code>superset-core</code>;<code>init_extensions()</code> 发现并加载 <code>.supx</code> 扩展包。</div></li>
+    <li><div><b>WSGI 中间件</b> — 外层包裹扩展缓存、应用根路径、旧版 <code>/superset/*</code> 路径 308 重定向。</div></li>
+  </ol>
+  <p>全局单例(<code>db</code>、<code>appbuilder</code>、<code>cache_manager</code>、<code>celery_app</code>、<code>security_manager</code>、<code>feature_flag_manager</code> 等)集中定义在 <code>superset/extensions/__init__.py</code>。</p>
+
+  <h3>配置与特性开关</h3>
+  <ul>
+    <li>配置覆盖顺序:<code>superset/config.py</code> 默认值 → <code>SUPERSET_CONFIG_PATH</code> 指向的文件,或 PYTHONPATH 上的 <code>superset_config</code> 模块 → <code>SUPERSET__SQLALCHEMY_DATABASE_URI</code> 等环境变量。</li>
+    <li>特性开关:<code>DEFAULT_FEATURE_FLAGS</code> 与 <code>FEATURE_FLAGS</code> 合并,可用 <code>GET_FEATURE_FLAGS_FUNC</code> 动态决定;前端通过 bootstrap 数据拿到同一份开关。</li>
+    <li>默认开启:<code>SOFT_DELETE</code>、<code>VERSION_HISTORY</code>、<code>TAGGING_SYSTEM</code>。默认关闭:<code>ENABLE_EXTENSIONS</code>、<code>SEMANTIC_LAYERS</code>、<code>GLOBAL_TASK_FRAMEWORK</code>、<code>GLOBAL_ASYNC_QUERIES</code>、<code>ALERT_REPORTS</code>、<code>THUMBNAILS</code>、<code>EMBEDDED_SUPERSET</code>。</li>
+  </ul>
+
+  <h3>分层模式</h3>
+  <p>每个业务域都遵循同一条调用链。以「创建仪表盘」为例:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>层</th><th>位置</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td>API</td><td><code>superset/dashboards/api.py</code> · <code>DashboardRestApi.post()</code></td><td>路由、<code>@protect()</code> 路由级鉴权、日志与指标</td></tr>
+      <tr><td>Schema</td><td><code>superset/dashboards/schemas.py</code> · <code>DashboardPostSchema</code></td><td>marshmallow 校验请求体,同时生成 OpenAPI 文档</td></tr>
+      <tr><td>Command</td><td><code>superset/commands/dashboard/create.py</code> · <code>CreateDashboardCommand</code></td><td>业务校验与编排,<code>@transaction()</code> 管理事务</td></tr>
+      <tr><td>DAO</td><td><code>superset/daos/dashboard.py</code> · <code>DashboardDAO</code></td><td>数据访问,套用 <code>base_filter</code> 做可见范围过滤</td></tr>
+      <tr><td>Model</td><td><code>superset/models/dashboard.py</code> · <code>Dashboard</code></td><td>SQLAlchemy 模型,继承 <code>superset-core</code> 的抽象模型与审计、软删除 mixin</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>主包目录地图</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>分组</th><th>目录</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>业务域 API</td><td><code>charts/</code> <code>dashboards/</code> <code>datasets/</code> <code>databases/</code> <code>queries/</code> <code>sqllab/</code> <code>reports/</code> <code>tags/</code> <code>themes/</code> <code>explore/</code> <code>embedded/</code> <code>row_level_security/</code> <code>subjects/</code> 等</td><td>每个域含 <code>api.py</code>、<code>schemas.py</code>、<code>filters.py</code></td></tr>
+      <tr><td>分层</td><td><code>commands/</code> <code>daos/</code> <code>models/</code> <code>connectors/sqla/</code> <code>views/</code></td><td>业务逻辑、数据访问、ORM 模型、数据集模型、页面外壳</td></tr>
+      <tr><td>查询引擎</td><td><code>common/</code> <code>explorables/</code> <code>db_engine_specs/</code> <code>sql/</code> <code>sql_lab.py</code> <code>utils/pandas_postprocessing/</code></td><td>QueryContext、数据源抽象、各数据库方言适配、SQL 解析与执行、结果后处理</td></tr>
+      <tr><td>安全</td><td><code>security/</code></td><td>安全管理器、guest token、API key、密码策略</td></tr>
+      <tr><td>后台任务</td><td><code>tasks/</code> <code>coordination/</code> <code>distributed_lock/</code> <code>realtime/</code> <code>websocket/</code></td><td>Celery 任务、全局任务框架、分布式协调与实时推送</td></tr>
+      <tr><td>存储</td><td><code>key_value/</code> <code>thumbnails/</code> <code>migrations/</code></td><td>通用键值表、缩略图摘要、Alembic 迁移(约 400 个版本)</td></tr>
+      <tr><td>扩展相关</td><td><code>extensions/</code> <code>core/</code> <code>mcp_service/</code> <code>semantic_layers/</code> <code>versioning/</code></td><td>见<a href="#extend">扩展体系</a></td></tr>
+      <tr><td>入口</td><td><code>cli/</code> <code>app.py</code> <code>initialization/</code> <code>config.py</code></td><td><code>superset</code> 命令行、应用工厂、默认配置</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="flows">
+  <h2>核心数据流</h2>
+
+  <h3>图表取数</h3>
+  <ol class="flow">
+    <li><div><b>前端构造查询</b> — <code>src/components/Chart/chartAction.ts</code> 取插件注册的 <code>buildQuery</code> 生成 QueryContext,POST 到 <code>/api/v1/chart/data</code>。</div></li>
+    <li><div><b>反序列化</b> — <code>ChartDataRestApi</code>(<code>superset/charts/data/api.py</code>)用 <code>ChartDataQueryContextSchema</code> 和 <code>QueryContextFactory</code> 把请求变成 <code>QueryContext</code> + 若干 <code>QueryObject</code>。</div></li>
+    <li><div><b>鉴权</b> — <code>ChartDataCommand.validate()</code> 调 <code>query_context.raise_for_access()</code> 做对象级权限检查。</div></li>
+    <li><div><b>查缓存</b> — <code>QueryContextProcessor</code> 经 <code>QueryCacheManager</code> 查 <code>data_cache</code>,命中则直接返回。</div></li>
+    <li><div><b>生成 SQL</b> — 数据源的 <code>ExploreMixin.get_sqla_query()</code>(<code>superset/models/helpers.py</code>)拼出 SQLAlchemy 查询,注入行级安全条件并渲染 Jinja 模板。</div></li>
+    <li><div><b>执行</b> — <code>Database.get_df()</code>(<code>superset/models/core.py</code>)经 <code>get_sqla_engine()</code> 连接目标库,方言差异由 <code>db_engine_specs/</code> 中对应的 <code>BaseEngineSpec</code> 子类处理。</div></li>
+    <li><div><b>后处理</b> — <code>QueryObject.exec_post_processing()</code> 用 pandas 做透视、滚动、同环比等运算,结果写入缓存并返回。</div></li>
+  </ol>
+  <p>语义视图走另一条支路:<code>superset/semantic_layers/mapper.py</code> 把 <code>QueryObject</code> 映射成 <code>SemanticQuery</code> 交给语义层实现执行。</p>
+
+  <h3>SQL Lab 执行</h3>
+  <ol class="flow">
+    <li><div><b>入口</b> — <code>POST /api/v1/sqllab/execute/</code>,<code>SqlLabRestApi</code> 组装 <code>ExecuteSqlCommand</code>(<code>superset/commands/sql_lab/execute.py</code>)。</div></li>
+    <li><div><b>准备</b> — 权限校验、Jinja 渲染,<code>superset/sql/parse.py</code>(基于 sqlglot)拆分语句、提取表名、按需注入 RLS。</div></li>
+    <li><div><b>同步或异步</b> — 同步执行器在 Web 进程内直接跑;异步执行器把 <code>sql_lab.get_sql_results</code> 任务投给 Celery,要求已配置 <code>RESULTS_BACKEND</code>。</div></li>
+    <li><div><b>结果</b> — worker 执行后把结果序列化(msgpack/Arrow)压缩写入结果后端;前端轮询查询状态,再从 <code>/api/v1/sqllab/results/</code> 取回。</div></li>
+  </ol>
+
+  <h3>后台任务</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>能力</th><th>链路</th></tr></thead>
+    <tbody>
+      <tr><td>告警与报表</td><td>beat 每分钟触发 <code>reports.scheduler</code> → <code>reports.execute</code> → <code>ReportScheduleStateMachine</code>(<code>superset/commands/report/execute.py</code>)→ 截图或取数 → <code>superset/reports/notifications/</code> 发送</td></tr>
+      <tr><td>缩略图</td><td><code>superset/tasks/thumbnails.py</code> 调无头浏览器截图,写入 <code>thumbnail_cache</code></td></tr>
+      <tr><td>缓存预热</td><td><code>superset/tasks/cache.py</code> 的 <code>cache-warmup</code>,按策略(Top N 仪表盘、标签等)预跑图表查询</td></tr>
+      <tr><td>数据清理</td><td>beat 每日清理报表日志、软删除到期对象、过期版本历史</td></tr>
+      <tr><td>全局任务框架 GTF</td><td><code>superset/tasks/</code> 的 <code>@task</code> 装饰器 + <code>TaskManager</code> + <code>Task</code> 模型;状态经 <code>/api/v1/task/</code> 或 WebSocket 实时事件下发</td></tr>
+      <tr><td>异步图表查询</td><td>开启 <code>GLOBAL_ASYNC_QUERIES</code> 后,每个 QueryObject 提交为一个 GTF 任务,结果写入数据缓存,前端收到完成事件后重发请求命中缓存</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="security">
+  <h2>安全模型</h2>
+  <p>权威说明在仓库根目录的 <code>SECURITY.md</code>。实现集中在 <code>superset/security/manager.py</code> 的 <code>SupersetSecurityManager</code>,可通过 <code>CUSTOM_SECURITY_MANAGER</code> 替换为其子类。</p>
+  <div class="scroll"><table>
+    <thead><tr><th>层次</th><th>机制</th></tr></thead>
+    <tbody>
+      <tr><td>角色</td><td>内置 Admin、Alpha、Gamma、sql_lab、Public,由 <code>sync_role_definitions()</code> 根据权限-视图组合生成</td></tr>
+      <tr><td>路由级</td><td>REST API 用 <code>@protect()</code>,旧视图用 <code>@has_access_api</code> / <code>@has_access</code></td></tr>
+      <tr><td>对象级</td><td>数据类资源(仪表盘、图表、数据集、查询、库表)调 <code>security_manager.raise_for_access(...)</code>;其他资源靠路由鉴权加 DAO <code>base_filter</code></td></tr>
+      <tr><td>行级安全 RLS</td><td><code>RowLevelSecurityFilter</code> 模型;图表查询在生成 SQL 时注入,SQL Lab 中由 sqlglot 转换器改写(需 <code>RLS_IN_SQLLAB</code>)</td></tr>
+      <tr><td>嵌入访问</td><td><code>POST /api/v1/security/guest_token/</code> 签发 guest token,携带可访问资源与附加 RLS;嵌入页只接受 <code>allowed_domains</code> 内的来源</td></tr>
+      <tr><td>API key</td><td>带 scope 的 API key(<code>superset/security/api_key_scopes.py</code>),由 <code>FAB_API_KEY_ENABLED</code> 控制</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="cache">
+  <h2>缓存与存储</h2>
+  <p><code>CacheManager</code>(<code>superset/utils/cache_manager.py</code>)按配置创建多个互相独立的 Flask-Caching 实例:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>缓存</th><th>配置键</th><th>内容</th></tr></thead>
+    <tbody>
+      <tr><td>元数据缓存</td><td><code>CACHE_CONFIG</code></td><td>视图与元数据结果</td></tr>
+      <tr><td>数据缓存</td><td><code>DATA_CACHE_CONFIG</code></td><td>图表查询结果,异步查询也依赖它</td></tr>
+      <tr><td>缩略图缓存</td><td><code>THUMBNAIL_CACHE_CONFIG</code></td><td>图表和仪表盘截图</td></tr>
+      <tr><td>筛选器状态</td><td><code>FILTER_STATE_CACHE_CONFIG</code></td><td>仪表盘筛选器取值,默认保留 90 天</td></tr>
+      <tr><td>Explore 表单</td><td><code>EXPLORE_FORM_DATA_CACHE_CONFIG</code></td><td>图表编辑中的表单数据,默认保留 7 天</td></tr>
+      <tr><td>结果后端</td><td><code>RESULTS_BACKEND</code></td><td>SQL Lab 异步查询结果</td></tr>
+    </tbody>
+  </table></div>
+  <p>后两类缓存默认落在元数据库的 <code>key_value</code> 表(<code>SupersetMetastoreCache</code>)。同一张表还承载永久链接、OAuth2 state、数据库版分布式锁等数据,由 <code>KeyValueDAO</code> 统一访问。</p>
+</section>
+
+<section id="models">
+  <h2>元数据模型</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>文件</th><th>模型</th></tr></thead>
+    <tbody>
+      <tr><td><code>superset/models/core.py</code></td><td><code>Database</code>、<code>CssTemplate</code>、<code>Theme</code>、<code>Log</code>、<code>FavStar</code></td></tr>
+      <tr><td><code>superset/models/dashboard.py</code>、<code>slice.py</code></td><td><code>Dashboard</code>、<code>Slice</code>(图表)</td></tr>
+      <tr><td><code>superset/connectors/sqla/models.py</code></td><td><code>SqlaTable</code>(数据集)、<code>TableColumn</code>、<code>SqlMetric</code>、<code>RowLevelSecurityFilter</code></td></tr>
+      <tr><td><code>superset/models/sql_lab.py</code></td><td><code>Query</code>、<code>SavedQuery</code>、<code>TabState</code>、<code>TableSchema</code></td></tr>
+      <tr><td><code>superset/reports/models.py</code></td><td><code>ReportSchedule</code>、<code>ReportRecipients</code>、<code>ReportExecutionLog</code></td></tr>
+      <tr><td><code>superset/tags/models.py</code>、<code>key_value/models.py</code></td><td><code>Tag</code>、<code>TaggedObject</code>;<code>KeyValueEntry</code></td></tr>
+      <tr><td><code>superset/semantic_layers/models.py</code>、<code>subjects/models.py</code>、<code>models/tasks.py</code></td><td><code>SemanticLayer</code>、<code>SemanticView</code>;<code>Subject</code>;<code>Task</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>核心关系是 <code>Database</code> → <code>SqlaTable</code> → <code>Slice</code> ↔ <code>Dashboard</code>(多对多)。通用行为由 <code>superset/models/helpers.py</code> 的 mixin 提供:<code>AuditMixinNullable</code>、<code>UUIDMixin</code>、<code>ImportExportMixin</code>、<code>SoftDeleteMixin</code>、<code>ExploreMixin</code>。版本历史由 SQLAlchemy-Continuum 记录,代码在 <code>superset/versioning/</code>。</p>
+</section>
+
+<section id="frontend">
+  <h2>前端架构</h2>
+
+  <h3>构建与入口</h3>
+  <ul>
+    <li>webpack 5 + swc-loader 转译,产物输出到 <code>superset/static/assets</code>,同时生成 <code>manifest.json</code> 供 Flask 模板引用。webpack 内不做类型检查,类型检查由 <code>npm run type</code> 单独执行。</li>
+    <li>入口:<code>spa</code>(<code>src/views/index.tsx</code>)、<code>embedded</code>(<code>src/embedded/index.tsx</code>)、<code>menu</code>(服务端渲染页面用的独立菜单)、<code>service-worker</code>;每个入口先执行 <code>src/preamble.ts</code>。</li>
+    <li>开发服务器监听 9000 端口,<code>webpack.proxy-config.js</code> 把请求代理到 8088 的 Flask,并改写返回 HTML 中的资源引用。</li>
+  </ul>
+
+  <h3>应用外壳</h3>
+  <ol class="flow">
+    <li><div><b>Bootstrap 数据</b> — Flask 把用户、配置、特性开关写入 <code>#app</code> 的 <code>data-bootstrap</code> 属性,<code>src/utils/getBootstrapData.ts</code> 解析并缓存。</div></li>
+    <li><div><b>Preamble</b> — 初始化 <code>SupersetClient</code>、特性开关、语言包、配色与格式化器。</div></li>
+    <li><div><b>App</b> — <code>src/views/App.tsx</code> 注册图表插件,用 <code>RootContextProviders</code> 包裹主题、Redux、拖拽等上下文,渲染菜单与路由。</div></li>
+    <li><div><b>路由</b> — <code>src/views/routes.tsx</code> 定义约 40 条路由,页面组件在 <code>src/pages/</code>,除首页外全部懒加载。</div></li>
+  </ol>
+
+  <h3>源码目录</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>目录(<code>superset-frontend/src/</code>)</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td><code>dashboard/</code></td><td>仪表盘查看与编辑:布局组件、原生筛选器、交叉筛选</td></tr>
+      <tr><td><code>explore/</code></td><td>图表编辑器:控件面板、表单数据、查询构造</td></tr>
+      <tr><td><code>SqlLab/</code></td><td>SQL 编辑器:标签页、结果集、查询历史,状态持久化到 localStorage</td></tr>
+      <tr><td><code>features/</code>、<code>pages/</code></td><td>各业务域的列表、弹窗等模块;路由级页面组件</td></tr>
+      <tr><td><code>components/</code></td><td>应用级共享组件(Chart、ListView、Datasource 等)</td></tr>
+      <tr><td><code>views/</code>、<code>setup/</code></td><td>SPA 外壳、store、路由;一次性初始化逻辑</td></tr>
+      <tr><td><code>dataMask/</code>、<code>filters/</code></td><td>筛选状态 slice;原生筛选器插件</td></tr>
+      <tr><td><code>visualizations/</code></td><td><code>presets/MainPreset.ts</code>,集中声明启用哪些图表插件</td></tr>
+      <tr><td><code>core/</code>、<code>extensions/</code></td><td><code>@apache-superset/core</code> API 的宿主实现;运行时扩展加载器</td></tr>
+      <tr><td><code>embedded/</code>、<code>theme/</code>、<code>middleware/</code></td><td>嵌入入口;主题控制器;日志与异步事件中间件</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Workspace 包</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>包</th><th>职责</th></tr></thead>
+    <tbody>
+      <tr><td><code>@superset-ui/core</code></td><td>图表框架(ChartPlugin、注册表、SuperChart)、查询构造、<code>SupersetClient</code>、格式化,以及约 100 个 antd 封装组件</td></tr>
+      <tr><td><code>@superset-ui/chart-controls</code></td><td>控件面板积木:共享控件、分区、后处理算子</td></tr>
+      <tr><td><code>@apache-superset/core</code></td><td>对扩展公开的 API:主题、翻译、命令、菜单、视图、SQL Lab 等</td></tr>
+      <tr><td><code>@superset-ui/switchboard</code></td><td>基于 MessageChannel 的跨窗口 RPC,嵌入场景使用</td></tr>
+      <tr><td><code>plugins/*</code></td><td>图表插件:<code>plugin-chart-echarts</code>(大部分图表)、table、ag-grid-table、pivot-table、handlebars、<code>preset-chart-deckgl</code>、各类地图与专用图表</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>状态管理</h3>
+  <p>单一 Redux store(<code>src/views/store.ts</code>,Redux Toolkit)。主要 slice:<code>charts</code>、<code>explore</code>、<code>sqlLab</code>、<code>dashboardInfo</code>、<code>dashboardState</code>、<code>dashboardLayout</code>(redux-undo 支持撤销)、<code>nativeFilters</code>、<code>dataMask</code>、<code>datasources</code>。SQL Lab 的库表元数据等读取走 RTK Query(<code>src/hooks/apiResources/queryApi.ts</code>)。</p>
+
+  <h3>图表插件系统</h3>
+  <ol class="flow">
+    <li><div><b>定义</b> — 每个图表是一个 <code>ChartPlugin</code>,提供五样东西:<code>metadata</code>、<code>controlPanel</code>(Explore 控件)、<code>buildQuery</code>(表单 → 查询)、<code>transformProps</code>(结果 → 组件 props)、<code>Chart</code>(渲染组件)。</div></li>
+    <li><div><b>注册</b> — <code>src/setup/setupPlugins.ts</code> 执行 <code>new MainPreset().register()</code>,把上述五项写入 <code>@superset-ui/core</code> 的五个单例注册表。</div></li>
+    <li><div><b>编辑</b> — Explore 按图表类型从注册表取 <code>controlPanel</code> 渲染控件,用户修改产生 form data。</div></li>
+    <li><div><b>渲染</b> — <code>Chart.tsx</code> → <code>ChartRenderer</code> → <code>SuperChart</code>,按需懒加载插件的组件与 <code>transformProps</code> 代码块。</div></li>
+  </ol>
+
+  <h3>仪表盘</h3>
+  <ul>
+    <li>组件链:<code>pages/Dashboard</code> → <code>DashboardPage</code>(数据注入)→ <code>DashboardBuilder</code> → <code>DashboardGrid</code>。</li>
+    <li>布局是一个扁平的组件字典(ROOT、GRID、ROW、COLUMN、TABS、CHART、MARKDOWN 等),渲染器在 <code>dashboard/components/gridComponents/</code>,拖拽用 react-dnd。</li>
+    <li>原生筛选器和交叉筛选的取值统一存入 <code>dataMask</code>,由 <code>getFormDataWithExtraFilters.ts</code> 合并进每个图表的查询。</li>
+  </ul>
+
+  <h3>主题与国际化</h3>
+  <ul>
+    <li>antd 6 组件统一从 <code>@superset-ui/core/components</code> 引入;主题基于 antd design token,由 <code>@apache-superset/core/theme</code> 和 <code>src/theme/ThemeController.ts</code> 管理,样式用 Emotion。</li>
+    <li>翻译函数 <code>t()</code> 来自 <code>@apache-superset/core/translation</code>;词条是 <code>superset/translations/&lt;lang&gt;/LC_MESSAGES/messages.po</code>,构建时转成 JSON 语言包。</li>
+    <li>自定义 lint 规则会检查硬编码颜色和未包 <code>t()</code> 的文案。</li>
+  </ul>
+</section>
+
+<section id="extend">
+  <h2>扩展体系</h2>
+  <p>这部分是近期新增的架构,目标是让第三方在不改主仓库的前提下扩展前后端。</p>
+  <div class="scroll"><table>
+    <thead><tr><th>组件</th><th>位置</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td>后端契约</td><td><code>superset-core/</code>(<code>superset_core</code>)</td><td>抽象模型、DAO、REST API、任务、语义层接口;主包模型继承这些抽象类,启动时注入具体实现</td></tr>
+      <tr><td>前端契约</td><td><code>superset-frontend/packages/superset-core</code></td><td><code>@apache-superset/core</code>,宿主实现在 <code>src/core/</code></td></tr>
+      <tr><td>扩展加载</td><td><code>superset/extensions/</code>、<code>src/extensions/ExtensionsLoader.ts</code></td><td>后端从 <code>.supx</code> 包内存导入入口模块;前端经 Module Federation 加载扩展的 <code>remoteEntry</code>,共享 react、antd、<code>@apache-superset/core</code> 单例</td></tr>
+      <tr><td>扩展工具</td><td><code>superset-extensions-cli/</code></td><td>脚手架、构建、打包、开发模式</td></tr>
+      <tr><td>MCP 服务</td><td><code>superset/mcp_service/</code></td><td>FastMCP 服务,<code>superset mcp run</code> 启动,按域提供图表、仪表盘、数据集、SQL Lab 等工具,支持 JWT 与 guest token 验证</td></tr>
+      <tr><td>语义层</td><td><code>superset/semantic_layers/</code></td><td><code>SemanticLayer</code> / <code>SemanticView</code> 模型与实现注册表,语义视图可像数据集一样用于图表</td></tr>
+      <tr><td>数据源抽象</td><td><code>superset/explorables/</code></td><td><code>Explorable</code> 协议,统一数据集、SQL Lab 查询、语义视图三类可探索对象</td></tr>
+    </tbody>
+  </table></div>
+  <p>传统扩展点仍然可用:<code>CUSTOM_SECURITY_MANAGER</code>、<code>FLASK_APP_MUTATOR</code>、<code>BLUEPRINTS</code>、<code>EXTRA_PANDAS_POSTPROCESSING_OPS</code>、<code>superset.db_engine_specs</code> entry point,以及前端的 <code>setup*Extra</code> 钩子和动态图表插件。</p>
+</section>
+
+<section id="deploy">
+  <h2>部署形态</h2>
+  <h3>Docker 镜像</h3>
+  <p>根目录 <code>Dockerfile</code> 是多阶段构建:Node 阶段编译前端,Python 阶段安装后端,最终产出几种目标镜像。</p>
+  <div class="scroll"><table>
+    <thead><tr><th>目标</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>lean</code></td><td>最小生产镜像</td></tr>
+      <tr><td><code>superset</code></td><td>在 lean 基础上带常用驱动</td></tr>
+      <tr><td><code>dev</code></td><td>Compose 默认目标,支持热重载</td></tr>
+      <tr><td><code>ci</code>、<code>showtime</code></td><td>CI 测试;PR 临时预览环境</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Compose 文件</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>文件</th><th>服务</th></tr></thead>
+    <tbody>
+      <tr><td><code>docker-compose.yml</code></td><td>完整开发环境:nginx、redis、db、superset、superset-node(webpack)、worker、beat、websocket、init</td></tr>
+      <tr><td><code>docker-compose-non-dev.yml</code></td><td>本地构建的非开发部署,无 webpack 与 nginx</td></tr>
+      <tr><td><code>docker-compose-image-tag.yml</code></td><td>使用已发布镜像</td></tr>
+      <tr><td><code>docker-compose-light.yml</code></td><td>轻量开发:只有数据库、应用和前端,无 Redis 与 Celery</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Kubernetes</h3>
+  <p><code>helm/superset/</code>(chart 0.22.8)提供 web、worker、beat、flower、websocket、MCP 六类 Deployment 和一个初始化 Job。默认启用 web、worker、init 以及内置的 PostgreSQL 和 Redis,其余按需开启。</p>
+</section>
+
+<section id="eng">
+  <h2>测试与工程化</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>范围</th><th>位置与工具</th></tr></thead>
+    <tbody>
+      <tr><td>后端单元测试</td><td><code>tests/unit_tests/</code>,pytest + 内存 SQLite,目录结构镜像主包</td></tr>
+      <tr><td>后端集成测试</td><td><code>tests/integration_tests/</code>,真实数据库;<code>tests/testcontainers/</code> 跑容器化引擎测试</td></tr>
+      <tr><td>前端单元测试</td><td>与源码同目录的 <code>*.test.tsx</code>,Jest 30 + React Testing Library</td></tr>
+      <tr><td>端到端</td><td><code>superset-frontend/playwright/</code>,Playwright</td></tr>
+      <tr><td>提交前检查</td><td><code>.pre-commit-config.yaml</code>:mypy、ruff、pylint、oxlint、oxfmt、stylelint、前端类型检查、特性开关同步等</td></tr>
+      <tr><td>CI</td><td><code>.github/workflows/</code> 约 50 个工作流:前后端测试、E2E、迁移冲突与单一 head 检查、OpenAPI 漂移、Docker 与 Helm 发布、文档、翻译、安全扫描</td></tr>
+      <tr><td>依赖管理</td><td>Python:<code>pyproject.toml</code> 声明范围,<code>requirements/*.txt</code> 锁定;前端:npm workspaces,lerna 仅用于发包</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="caveats">
+  <h2>易踩的坑</h2>
+  <p>以下几点与旧版本 Superset 或常见印象不同,读代码和查资料时容易混淆:</p>
+  <ul>
+    <li>antd 是 <b>v6</b>,TypeScript 是 <b>7.0</b>,React 是 18.3,但 react-router 仍是 v5。</li>
+    <li>前端不再使用 ESLint 和 Prettier,改为 oxlint 和 oxfmt。Cypress 已移除。</li>
+    <li><code>legacy-plugin-*</code> 系列图表包已不存在,老图表已并入 <code>plugin-chart-*</code> 或删除。</li>
+    <li><code>superset/async_events/</code> 已不存在,异步图表查询改建在全局任务框架之上。</li>
+    <li>旧的 <code>/superset/*</code> 路径由中间件 308 重定向到新路径。</li>
+    <li>软删除和版本历史默认开启:ORM 查询会被全局监听器自动加上软删除过滤条件。</li>
+    <li><code>superset/tables/</code>、<code>columns/</code>、<code>embedded_dashboard/</code> 是只剩许可证头的空壳目录。</li>
+    <li>仓库里有两个 superset-core:根目录的是 Python 包,<code>superset-frontend/packages/</code> 下的是 npm 包。</li>
+  </ul>
+  <div class="note"><b>核实范围:</b>本文依据对源码文件的阅读整理,没有运行构建或测试。CI 工作流的用途按文件名归纳,未逐个核对步骤;<code>get_sqla_query</code>、<code>Database.get_df</code> 等长函数只读了调用关系,未通读实现;前端在轮询与 WebSocket 之间如何选择未确认。</div>
+</section>
+</main>
+</div>
+</html>
